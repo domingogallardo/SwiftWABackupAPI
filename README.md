@@ -1,2 +1,2 @@
 # SwiftWABackupAPI
-Swift API to explore a WhatsApp iPhone backup
+Swift API to explore a WhatsApp iPhone backup.
