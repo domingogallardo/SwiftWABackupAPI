@@ -9,4 +9,6 @@ public struct WABackupAPI {
         let backupPath = NSString(string: defaultBackupPath).expandingTildeInPath
         return fileManager.fileExists(atPath: backupPath)
     }
+
+    public init() {}
 }
