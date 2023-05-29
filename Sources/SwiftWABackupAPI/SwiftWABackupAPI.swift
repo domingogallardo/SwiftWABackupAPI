@@ -8,9 +8,11 @@ public struct BackupInfo {
 }
 
 public struct WABackup {
-    public static let defaultBackupPath = "~/Library/Application Support/MobileSync/Backup/"
+    let defaultBackupPath = "~/Library/Application Support/MobileSync/Backup/"
 
-    public static func hasLocalBackup() -> Bool {
+    public init() {}    
+    
+    public func hasLocalBackup() -> Bool {
         let fileManager = FileManager.default
         let backupPath = NSString(string: defaultBackupPath).expandingTildeInPath
         return fileManager.fileExists(atPath: backupPath)
@@ -18,7 +20,7 @@ public struct WABackup {
 
     // Needs permission to access ~/Library/Application Support/MobileSync/Backup/
     // Go to System Preferences -> Security & Privacy -> Full Disk Access
-    public static func getLocalBackups() -> [BackupInfo]? {
+    public func getLocalBackups() -> [BackupInfo]? {
         let fileManager = FileManager.default
         let backupPath = NSString(string: defaultBackupPath).expandingTildeInPath
         do {
@@ -33,7 +35,7 @@ public struct WABackup {
         }
     }
 
-    private static func getBackupInfo(at path: String, with fileManager: FileManager) -> BackupInfo? {
+    func getBackupInfo(at path: String, with fileManager: FileManager) -> BackupInfo? {
         if isDirectory(at: path, with: fileManager) {
             do {
                 let attributes = try fileManager.attributesOfItem(atPath: path)
@@ -48,12 +50,12 @@ public struct WABackup {
         return nil
     }
 
-    private static func isDirectory(at path: String, with fileManager: FileManager) -> Bool {
+    private func isDirectory(at path: String, with fileManager: FileManager) -> Bool {
         var isDir: ObjCBool = false
         return fileManager.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
     }
 
-    private static func searchChatStorage(backupPath: String) -> String? {
+    public func searchChatStorage(backupPath: String) -> String? {
         // Path to the Manifest.db file
         let manifestDBPath = backupPath + "/Manifest.db"
 
