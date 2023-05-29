@@ -71,9 +71,15 @@ public struct WABackup {
         let files = Table("Files")
         let fileID = Expression<String>("fileID")
         let relativePath = Expression<String>("relativePath")
+        let domain = Expression<String>("domain")
         
         do {
-            let query = files.select(fileID).filter(relativePath == searchPath)
+            // Search for the fileID of the file 'ChatStorage.sqlite'.
+            // The domain of WatsApp app is 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'.
+            // We assure that the file 'ChatStorage.sqlite' is in 
+            // the 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared' domain.
+            let query = files.select(fileID)
+                             .filter(relativePath == searchPath && domain.like("%WhatsApp%"))
             if let row = try db.pluck(query) {
                 print("Found the file hash: \(row[fileID])")
                 return row[fileID]
