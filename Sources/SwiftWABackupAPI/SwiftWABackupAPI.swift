@@ -7,21 +7,35 @@ public struct BackupInfo {
     public let creationDate: Date
 }
 
+/*
+ This class is used to handle WhatsApp backups on iPhone devices. It can check 
+ the existence of local backups, fetch information about these backups, and connect 
+ to the SQLite database file (ChatStorage.sqlite) in the backups.
+ It's primarily designed to work with the SQLite.swift library.
+*/
 public class WABackup {
+    // This is the default directory where iPhone stores backups on macOS.
     let defaultBackupPath = "~/Library/Application Support/MobileSync/Backup/"
-    // Connection to the ChatStorage.sqlite file
+    // This SQLite connection will be used to interact with the ChatStorage.sqlite 
+    // file in the WhatsApp backup.
     var chatStorageDb: Connection?
 
     public init() {}    
     
+    // This function checks if any local backups exist at the default backup path.
     public func hasLocalBackup() -> Bool {
         let fileManager = FileManager.default
         let backupPath = NSString(string: defaultBackupPath).expandingTildeInPath
         return fileManager.fileExists(atPath: backupPath)
     }
 
-    // Needs permission to access ~/Library/Application Support/MobileSync/Backup/
-    // Go to System Preferences -> Security & Privacy -> Full Disk Access
+    /* 
+     This function fetches the list of all local backups available at the default backup path.
+     Each backup is represented as a BackupInfo struct, containing the path to the backup 
+     and its creation date.
+     The function needs permission to access ~/Library/Application Support/MobileSync/Backup/
+     Go to System Preferences -> Security & Privacy -> Full Disk Access
+    */
     public func getLocalBackups() -> [BackupInfo]? {
         let fileManager = FileManager.default
         let backupPath = NSString(string: defaultBackupPath).expandingTildeInPath
@@ -57,6 +71,13 @@ public class WABackup {
         return fileManager.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
     }
 
+    /*
+     This function attempts to connect to the ChatStorage.sqlite file in a specific backup. 
+     The function first connects to the Manifest.db file in the backup to get the file hash 
+     of ChatStorage.sqlite. 
+     It then builds the full path to ChatStorage.sqlite using this file hash 
+     Finally, it attempts to connect to the ChatStorage.sqlite file.
+    */
     public func connectChatStorage(backupPath: String) {
         // Path to the Manifest.db file
         let manifestDBPath = backupPath + "/Manifest.db"
@@ -78,6 +99,10 @@ public class WABackup {
         chatStorageDb = connectToDatabase(path: chatStoragePath)
     }
 
+    /*
+     This function attempts to connect to a SQLite database at a given path.
+     If the connection is successful, it returns the Connection object; otherwise, it returns nil.
+    */
     private func connectToDatabase(path: String) -> Connection? {
         do {
             let db = try Connection(path)
@@ -89,6 +114,11 @@ public class WABackup {
         }
     }
 
+    /*
+     This function fetches the file hash of ChatStorage.sqlite from the Manifest.db.
+     This is required because files in the backup are stored under paths derived from their hashes. 
+     It returns the file hash as a string if successful; otherwise, it returns nil.
+    */
     private func fetchChatStorageFileHash(from manifestDb: Connection) -> String? {
         let files = Table("Files")
         let fileID = Expression<String>("fileID")
@@ -118,7 +148,10 @@ public class WABackup {
             return nil
         }
     }
-
+    /*
+     This function constructs the full path to the ChatStorage.sqlite file in a backup, 
+     given the base path of the backup and the file hash of ChatStorage.sqlite.
+    */
     private func buildChatStoragePath(backupPath: String, fileHash: String) -> String {
         // Concatenate the fileHash to the backup path to form the full path
         // Each file within the iPhone backup is stored under a path derived from its hash.
