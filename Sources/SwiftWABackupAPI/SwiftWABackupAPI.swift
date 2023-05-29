@@ -7,7 +7,7 @@ public struct BackupInfo {
     public let creationDate: Date
 }
 
-public struct WABackup {
+public class WABackup {
     let defaultBackupPath = "~/Library/Application Support/MobileSync/Backup/"
 
     public init() {}    
