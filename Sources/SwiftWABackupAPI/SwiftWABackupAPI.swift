@@ -9,6 +9,8 @@ public struct BackupInfo {
 
 public class WABackup {
     let defaultBackupPath = "~/Library/Application Support/MobileSync/Backup/"
+    // Connection to the ChatStorage.sqlite file
+    var chatStorageDb: Connection?
 
     public init() {}    
     
@@ -35,7 +37,7 @@ public class WABackup {
         }
     }
 
-    func getBackupInfo(at path: String, with fileManager: FileManager) -> BackupInfo? {
+    private func getBackupInfo(at path: String, with fileManager: FileManager) -> BackupInfo? {
         if isDirectory(at: path, with: fileManager) {
             do {
                 let attributes = try fileManager.attributesOfItem(atPath: path)
@@ -55,36 +57,58 @@ public class WABackup {
         return fileManager.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
     }
 
-    public func searchChatStorage(backupPath: String) -> String? {
+    public func connectChatStorage(backupPath: String) {
         // Path to the Manifest.db file
         let manifestDBPath = backupPath + "/Manifest.db"
 
-        // Path to search for in the Manifest.db
-        let searchPath = "ChatStorage.sqlite"
-
-        let db: Connection
-        do {
-            db = try Connection(manifestDBPath)
-        } catch {
-            print("Cannot connect to db: \(error)")
-            return nil
+        // Attempt to connect to the Manifest.db
+        guard let manifestDb = connectToDatabase(path: manifestDBPath) else {
+            return
         }
 
+        // Fetch file hash of the ChatStorage.sqlite
+        guard let fileHash = fetchChatStorageFileHash(from: manifestDb) else {
+            return
+        }
+
+        // Build the ChatStorage.sqlite path
+        let chatStoragePath = buildChatStoragePath(backupPath: backupPath, fileHash: fileHash)
+
+        // Attempt to connect to the ChatStorage.sqlite
+        chatStorageDb = connectToDatabase(path: chatStoragePath)
+    }
+
+    private func connectToDatabase(path: String) -> Connection? {
+        do {
+            let db = try Connection(path)
+            print("Connected to db at path: \(path)")
+            return db
+        } catch {
+            print("Cannot connect to db at path: \(path). Error: \(error)")
+            return nil
+        }
+    }
+
+    private func fetchChatStorageFileHash(from manifestDb: Connection) -> String? {
         let files = Table("Files")
         let fileID = Expression<String>("fileID")
         let relativePath = Expression<String>("relativePath")
         let domain = Expression<String>("domain")
-        
+
+        // Path to search for in the Manifest.db
+        let searchPath = "ChatStorage.sqlite"
+
         do {
             // Search for the fileID of the file 'ChatStorage.sqlite'.
             // The domain of WatsApp app is 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'.
             // We assure that the file 'ChatStorage.sqlite' is in 
             // the 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared' domain.
             let query = files.select(fileID)
-                             .filter(relativePath == searchPath && domain.like("%WhatsApp%"))
-            if let row = try db.pluck(query) {
-                print("Found the file hash: \(row[fileID])")
-                return row[fileID]
+                            .filter(relativePath == searchPath && domain.like("%WhatsApp%"))
+            if let row = try manifestDb.pluck(query) {
+                let fileHash = row[fileID]
+                print("ChatStorage.sqlite file hash: \(fileHash)")
+                return fileHash
             } else {
                 print("Did not find the file.")
                 return nil
@@ -93,5 +117,13 @@ public class WABackup {
             print("Cannot execute query: \(error)")
             return nil
         }
+    }
+
+    private func buildChatStoragePath(backupPath: String, fileHash: String) -> String {
+        // Concatenate the fileHash to the backup path to form the full path
+        // Each file within the iPhone backup is stored under a path derived from its hash.
+        // A hashed file path should look like this:
+        // <base_backup_path>/<first two characters of file hash>/<file hash>
+        return "\(backupPath)/\(fileHash.prefix(2))/\(fileHash)"
     }
 }
