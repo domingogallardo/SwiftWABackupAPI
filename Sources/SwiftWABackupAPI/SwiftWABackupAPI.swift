@@ -1,5 +1,6 @@
 
 import Foundation
+import SQLite
 
 public struct BackupInfo {
     public let path: String 
@@ -50,5 +51,39 @@ public struct WABackup {
     private static func isDirectory(at path: String, with fileManager: FileManager) -> Bool {
         var isDir: ObjCBool = false
         return fileManager.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+    }
+
+    private static func searchChatStorage(backupPath: String) -> String? {
+        // Path to the Manifest.db file
+        let manifestDBPath = backupPath + "/Manifest.db"
+
+        // Path to search for in the Manifest.db
+        let searchPath = "ChatStorage.sqlite"
+
+        let db: Connection
+        do {
+            db = try Connection(manifestDBPath)
+        } catch {
+            print("Cannot connect to db: \(error)")
+            return nil
+        }
+
+        let files = Table("Files")
+        let fileID = Expression<String>("fileID")
+        let relativePath = Expression<String>("relativePath")
+        
+        do {
+            let query = files.select(fileID).filter(relativePath == searchPath)
+            if let row = try db.pluck(query) {
+                print("Found the file hash: \(row[fileID])")
+                return row[fileID]
+            } else {
+                print("Did not find the file.")
+                return nil
+            }
+        } catch {
+            print("Cannot execute query: \(error)")
+            return nil
+        }
     }
 }
