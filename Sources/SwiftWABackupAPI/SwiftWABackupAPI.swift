@@ -1,3 +1,9 @@
+//
+//  SwiftWABackupAPI.swift
+//
+//
+//  Created by Domingo Gallardo on 24/05/23.
+//
 
 import Foundation
 import SQLite
