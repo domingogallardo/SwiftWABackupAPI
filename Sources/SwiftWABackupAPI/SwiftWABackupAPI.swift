@@ -29,7 +29,7 @@ public class WABackup {
     public init() {}    
     
     // This function checks if any local backups exist at the default backup path.
-    public func hasLocalBackup() -> Bool {
+    public func hasLocalBackups() -> Bool {
         let fileManager = FileManager.default
         let backupPath = NSString(string: defaultBackupPath).expandingTildeInPath
         return fileManager.fileExists(atPath: backupPath)
