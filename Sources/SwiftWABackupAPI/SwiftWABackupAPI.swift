@@ -11,7 +11,36 @@ import SQLite
 public struct BackupInfo {
     public let path: String 
     public let creationDate: Date
+    public var identifier: String {
+        return URL(fileURLWithPath: path).lastPathComponent
+    }
 }
+
+public enum ChatType: String {
+    case group = "Group"
+    case individual = "Individual"
+    case unknown
+}
+
+public struct ChatInfo: CustomStringConvertible {
+    let type: ChatType
+    let lastMessageDate: Date?
+    let name: String
+
+    public var description: String {
+        var lastMessageDateString: String
+        if let lastMessageDate = lastMessageDate {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            lastMessageDateString = formatter.string(from: lastMessageDate)
+        } else {
+            lastMessageDateString = "No messages yet"
+        }
+        return "Chat Name: \(name), Chat Type: \(type.rawValue), Last Message Date: \(lastMessageDateString)"
+    }
+}
+
 
 /*
  This class is used to handle WhatsApp backups on iPhone devices. It can check 
@@ -57,32 +86,14 @@ public class WABackup {
         }
     }
 
-    private func getBackupInfo(at path: String, with fileManager: FileManager) -> BackupInfo? {
-        if isDirectory(at: path, with: fileManager) {
-            do {
-                let attributes = try fileManager.attributesOfItem(atPath: path)
-                let creationDate = attributes[FileAttributeKey.creationDate] as? Date ?? Date()
-                let backupInfo = BackupInfo(path: path, creationDate: creationDate)
-                return backupInfo
-            } catch {
-                print("Error while getting backup info \(path): \(error.localizedDescription)")
-                return nil
-            }
-        }
-        return nil
-    }
-
-    private func isDirectory(at path: String, with fileManager: FileManager) -> Bool {
-        var isDir: ObjCBool = false
-        return fileManager.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
-    }
 
     /*
      This function attempts to connect to the ChatStorage.sqlite file in a specific backup. 
      The function first connects to the Manifest.db file in the backup to get the file hash 
      of ChatStorage.sqlite. 
      It then builds the full path to ChatStorage.sqlite using this file hash 
-     Finally, it attempts to connect to the ChatStorage.sqlite file.
+     Finally, it attempts to connect to the ChatStorage.sqlite file and store the connection
+     in the chatStorageDb property.
     */
     public func connectChatStorage(backupPath: String) {
         // Path to the Manifest.db file
@@ -105,6 +116,61 @@ public class WABackup {
         chatStorageDb = connectToDatabase(path: chatStoragePath)
     }
 
+    public func getChatSessions() -> [ChatInfo] {
+        let ZWACHATSESSION = Table("ZWACHATSESSION")
+        let ZSESSIONTYPE = Expression<Int64>("ZSESSIONTYPE")
+        let ZLASTMESSAGEDATE = Expression<Double?>("ZLASTMESSAGEDATE")
+        let ZPARTNERNAME = Expression<String?>("ZPARTNERNAME")
+
+        var chatInfos = [ChatInfo]()
+
+        guard let chatStorageDb = chatStorageDb else {
+            return chatInfos
+        }
+        do {
+            for session in try chatStorageDb.prepare(ZWACHATSESSION.select(ZSESSIONTYPE, ZLASTMESSAGEDATE, ZPARTNERNAME)) {
+                let chatType = session[ZSESSIONTYPE] == 1 ? ChatType.group : ChatType.individual
+                let lastMessageDate: Date? = session[ZLASTMESSAGEDATE].map { Date(timeIntervalSinceReferenceDate: $0) }
+                let chatName = session[ZPARTNERNAME] ?? "Unknown"
+                let chatInfo = ChatInfo(type: chatType, lastMessageDate: lastMessageDate, name: chatName)
+                chatInfos.append(chatInfo)
+            }
+            return chatInfos.sorted {
+                switch ($0.lastMessageDate, $1.lastMessageDate) {
+                case let (date1?, date2?): // Both dates are non-nil
+                    return date1 > date2
+                case (nil, _): // First date is nil, so it's "later"
+                    return false
+                default: // Second date is nil or both dates are non-nil and equal
+                    return true
+                }
+            }
+        } catch {
+            print("Cannot execute query: \(error)")
+            return chatInfos
+        }
+    }
+
+    private func getBackupInfo(at path: String, with fileManager: FileManager) -> BackupInfo? {
+        if isDirectory(at: path, with: fileManager) {
+            do {
+                let attributes = try fileManager.attributesOfItem(atPath: path)
+                let creationDate = attributes[FileAttributeKey.creationDate] as? Date ?? Date()
+                let backupInfo = BackupInfo(path: path, creationDate: creationDate)
+                return backupInfo
+            } catch {
+                print("Error while getting backup info \(path): \(error.localizedDescription)")
+                return nil
+            }
+        }
+        return nil
+    }
+
+    private func isDirectory(at path: String, with fileManager: FileManager) -> Bool {
+        var isDir: ObjCBool = false
+        return fileManager.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+    }
+
     /*
      This function attempts to connect to a SQLite database at a given path.
      If the connection is successful, it returns the Connection object; otherwise, it returns nil.
@@ -112,10 +178,10 @@ public class WABackup {
     private func connectToDatabase(path: String) -> Connection? {
         do {
             let db = try Connection(path)
-            print("Connected to db at path: \(path)")
+            // print("Connected to db at path: \(path)")
             return db
         } catch {
-            print("Cannot connect to db at path: \(path). Error: \(error)")
+            // print("Cannot connect to db at path: \(path). Error: \(error)")
             return nil
         }
     }
