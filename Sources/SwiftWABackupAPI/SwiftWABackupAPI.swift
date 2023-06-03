@@ -23,24 +23,15 @@ public enum ChatType: String {
 }
 
 public struct ChatInfo: CustomStringConvertible {
-    let type: ChatType
-    let lastMessageDate: Date?
+    let id: Int
+    let contactJid: String
     let name: String
+    let numberMessages: Int
 
     public var description: String {
-        var lastMessageDateString: String
-        if let lastMessageDate = lastMessageDate {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .short
-            lastMessageDateString = formatter.string(from: lastMessageDate)
-        } else {
-            lastMessageDateString = "No messages yet"
-        }
-        return "Chat Name: \(name), Chat Type: \(type.rawValue), Last Message Date: \(lastMessageDateString)"
+        return "Chat: ID - \(id), ContactJid - \(contactJid), Name - \(name), Number of Messages - \(numberMessages)"
     }
 }
-
 
 /*
  This class is used to handle WhatsApp backups on iPhone devices. It can check 
@@ -116,40 +107,40 @@ public class WABackup {
         chatStorageDb = connectToDatabase(path: chatStoragePath)
     }
 
-    public func getChatSessions() -> [ChatInfo] {
-        let ZWACHATSESSION = Table("ZWACHATSESSION")
-        let ZSESSIONTYPE = Expression<Int64>("ZSESSIONTYPE")
-        let ZLASTMESSAGEDATE = Expression<Double?>("ZLASTMESSAGEDATE")
-        let ZPARTNERNAME = Expression<String?>("ZPARTNERNAME")
-
-        var chatInfos = [ChatInfo]()
-
-        guard let chatStorageDb = chatStorageDb else {
-            return chatInfos
+    public func getChats() -> [ChatInfo]? {
+        guard let db = chatStorageDb else {
+            print("Error: No database connection")
+            return nil
         }
+        
+        let chatSessions = Table("ZWACHATSESSION")
+        let messages = Table("ZWAMESSAGE")
+        
+        let zPk = Expression<Int64>("Z_PK")
+        let zContactJid = Expression<String?>("ZCONTACTJID") 
+        let zPartnerName = Expression<String?>("ZPARTNERNAME")
+        let zChatSession = Expression<Int64>("ZCHATSESSION")
+        
+        var chatInfos: [ChatInfo] = []
+        
         do {
-            for session in try chatStorageDb.prepare(ZWACHATSESSION.select(ZSESSIONTYPE, ZLASTMESSAGEDATE, ZPARTNERNAME)) {
-                let chatType = session[ZSESSIONTYPE] == 1 ? ChatType.group : ChatType.individual
-                let lastMessageDate: Date? = session[ZLASTMESSAGEDATE].map { Date(timeIntervalSinceReferenceDate: $0) }
-                let chatName = session[ZPARTNERNAME] ?? "Unknown"
-                let chatInfo = ChatInfo(type: chatType, lastMessageDate: lastMessageDate, name: chatName)
-                chatInfos.append(chatInfo)
-            }
-            return chatInfos.sorted {
-                switch ($0.lastMessageDate, $1.lastMessageDate) {
-                case let (date1?, date2?): // Both dates are non-nil
-                    return date1 > date2
-                case (nil, _): // First date is nil, so it's "later"
-                    return false
-                default: // Second date is nil or both dates are non-nil and equal
-                    return true
+            for session in try db.prepare(chatSessions) {
+                let chatId = session[zPk]
+                let contactJid = session[zContactJid] ?? "Unknown"
+                let chatName = session[zPartnerName] ?? "Unknown"
+                let numberChatMessages = try db.scalar(messages.filter(zChatSession == chatId).count)
+                if numberChatMessages != 0 {
+                    let chatInfo = ChatInfo(id: Int(chatId), contactJid: contactJid, name: chatName, numberMessages: numberChatMessages)
+                    chatInfos.append(chatInfo)
                 }
             }
-        } catch {
-            print("Cannot execute query: \(error)")
             return chatInfos
+        } catch {
+            print("Database access error: \(error)")
+            return nil
         }
     }
+
 
     private func getBackupInfo(at path: String, with fileManager: FileManager) -> BackupInfo? {
         if isDirectory(at: path, with: fileManager) {
