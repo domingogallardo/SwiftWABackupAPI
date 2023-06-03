@@ -77,15 +77,6 @@ public class WABackup {
         }
     }
 
-
-    /*
-     This function attempts to connect to the ChatStorage.sqlite file in a specific backup. 
-     The function first connects to the Manifest.db file in the backup to get the file hash 
-     of ChatStorage.sqlite. 
-     It then builds the full path to ChatStorage.sqlite using this file hash 
-     Finally, it attempts to connect to the ChatStorage.sqlite file and store the connection
-     in the chatStorageDb property.
-    */
     public func connectChatStorage(backupPath: String) {
         // Path to the Manifest.db file
         let manifestDBPath = backupPath + "/Manifest.db"
@@ -162,10 +153,6 @@ public class WABackup {
         return fileManager.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
     }
 
-    /*
-     This function attempts to connect to a SQLite database at a given path.
-     If the connection is successful, it returns the Connection object; otherwise, it returns nil.
-    */
     private func connectToDatabase(path: String) -> Connection? {
         do {
             let db = try Connection(path)
