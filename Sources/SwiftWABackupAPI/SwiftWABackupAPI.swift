@@ -6,7 +6,8 @@
 //
 
 import Foundation
-import SQLite
+import GRDB
+
 
 public struct BackupInfo {
     public let path: String 
@@ -27,10 +28,19 @@ public struct ChatInfo: CustomStringConvertible {
     let contactJid: String
     let name: String
     let numberMessages: Int
+    let lastMessageDate: Date
+
 
     public var description: String {
-        return "Chat: ID - \(id), ContactJid - \(contactJid), Name - \(name), Number of Messages - \(numberMessages)"
-    }
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .medium
+        let localDateString = dateFormatter.string(from: lastMessageDate)
+
+        return "Chat: ID - \(id), ContactJid - \(contactJid), " 
+            + "Name - \(name), Number of Messages - \(numberMessages), "
+            + "Last Message Date - \(localDateString)"
+        }
 }
 
 /*
@@ -44,7 +54,7 @@ public class WABackup {
     let defaultBackupPath = "~/Library/Application Support/MobileSync/Backup/"
     // This SQLite connection will be used to interact with the ChatStorage.sqlite 
     // file in the WhatsApp backup.
-    var chatStorageDb: Connection?
+    var chatStorageDb: DatabaseQueue?
 
     public init() {}    
     
@@ -103,26 +113,22 @@ public class WABackup {
             print("Error: No database connection")
             return nil
         }
-        
-        let chatSessions = Table("ZWACHATSESSION")
-        let messages = Table("ZWAMESSAGE")
-        
-        let zPk = Expression<Int64>("Z_PK")
-        let zContactJid = Expression<String?>("ZCONTACTJID") 
-        let zPartnerName = Expression<String?>("ZPARTNERNAME")
-        let zChatSession = Expression<Int64>("ZCHATSESSION")
-        
+
         var chatInfos: [ChatInfo] = []
         
         do {
-            for session in try db.prepare(chatSessions) {
-                let chatId = session[zPk]
-                let contactJid = session[zContactJid] ?? "Unknown"
-                let chatName = session[zPartnerName] ?? "Unknown"
-                let numberChatMessages = try db.scalar(messages.filter(zChatSession == chatId).count)
-                if numberChatMessages != 0 {
-                    let chatInfo = ChatInfo(id: Int(chatId), contactJid: contactJid, name: chatName, numberMessages: numberChatMessages)
-                    chatInfos.append(chatInfo)
+            try db.read { db in
+                let chatSessions = try Row.fetchAll(db, sql: "SELECT * FROM ZWACHATSESSION")
+                for session in chatSessions {
+                    let chatId = session["Z_PK"] as? Int64 ?? 0
+                    let contactJid = session["ZCONTACTJID"] as? String ?? "Unknown"
+                    let chatName = session["ZPARTNERNAME"] as? String ?? "Unknown"
+                    let lastMessageDate = convertTimestampToDate(timestamp: session["ZLASTMESSAGEDATE"] as Any)
+                    let numberChatMessages = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ZWAMESSAGE WHERE ZCHATSESSION = ?", arguments: [chatId]) ?? 0
+                    if numberChatMessages != 0 {
+                        let chatInfo = ChatInfo(id: Int(chatId), contactJid: contactJid, name: chatName, numberMessages: numberChatMessages, lastMessageDate: lastMessageDate)
+                        chatInfos.append(chatInfo)
+                    }
                 }
             }
             return chatInfos
@@ -132,6 +138,18 @@ public class WABackup {
         }
     }
 
+    let referenceDate = Calendar.current.date(from: DateComponents(year: 2001, month: 1, day: 1))!
+
+    private func convertTimestampToDate(timestamp: Any) -> Date {
+        if let timestamp = timestamp as? Double {
+            return Date(timeIntervalSinceReferenceDate: timestamp)
+            // return referenceDate.addingTimeInterval(timestamp)
+        } else if let timestamp = timestamp as? Int64 {
+            return Date(timeIntervalSinceReferenceDate: Double(timestamp))
+            //return referenceDate.addingTimeInterval(Double(timestamp))
+        }
+        return Date(timeIntervalSinceReferenceDate: 0)
+    }
 
     private func getBackupInfo(at path: String, with fileManager: FileManager) -> BackupInfo? {
         if isDirectory(at: path, with: fileManager) {
@@ -153,13 +171,12 @@ public class WABackup {
         return fileManager.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
     }
 
-    private func connectToDatabase(path: String) -> Connection? {
+    private func connectToDatabase(path: String) -> DatabaseQueue? {
         do {
-            let db = try Connection(path)
-            // print("Connected to db at path: \(path)")
-            return db
+            let dbQueue = try DatabaseQueue(path: path)
+            return dbQueue
         } catch {
-            // print("Cannot connect to db at path: \(path). Error: \(error)")
+            print("Cannot connect to db at path: \(path). Error: \(error)")
             return nil
         }
     }
@@ -169,35 +186,24 @@ public class WABackup {
      This is required because files in the backup are stored under paths derived from their hashes. 
      It returns the file hash as a string if successful; otherwise, it returns nil.
     */
-    private func fetchChatStorageFileHash(from manifestDb: Connection) -> String? {
-        let files = Table("Files")
-        let fileID = Expression<String>("fileID")
-        let relativePath = Expression<String>("relativePath")
-        let domain = Expression<String>("domain")
-
-        // Path to search for in the Manifest.db
+    private func fetchChatStorageFileHash(from manifestDb: DatabaseQueue) -> String? {
         let searchPath = "ChatStorage.sqlite"
-
+        
         do {
-            // Search for the fileID of the file 'ChatStorage.sqlite'.
-            // The domain of WatsApp app is 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'.
-            // We assure that the file 'ChatStorage.sqlite' is in 
-            // the 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared' domain.
-            let query = files.select(fileID)
-                            .filter(relativePath == searchPath && domain.like("%WhatsApp%"))
-            if let row = try manifestDb.pluck(query) {
-                let fileHash = row[fileID]
-                print("ChatStorage.sqlite file hash: \(fileHash)")
-                return fileHash
-            } else {
-                print("Did not find the file.")
-                return nil
+            var fileHash: String? = nil
+            try manifestDb.read { db in
+                let row = try Row.fetchOne(db, sql: "SELECT fileID FROM Files WHERE relativePath = ? AND domain LIKE ?", arguments: [searchPath, "%WhatsApp%"])
+                fileHash = row?["fileID"]
             }
+            print("ChatStorage.sqlite file hash: \(String(describing: fileHash))")
+            return fileHash
         } catch {
             print("Cannot execute query: \(error)")
             return nil
         }
     }
+
+
     /*
      This function constructs the full path to the ChatStorage.sqlite file in a backup, 
      given the base path of the backup and the file hash of ChatStorage.sqlite.

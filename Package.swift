@@ -12,14 +12,14 @@ let package = Package(
             targets: ["SwiftWABackupAPI"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/stephencelis/SQLite.swift.git", from: "0.14.1")
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.15.0")
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "SwiftWABackupAPI",
-            dependencies: [.product(name: "SQLite", package: "SQLite.swift")]),
+            dependencies: [.product(name: "GRDB", package: "GRDB.swift")]),
         .testTarget(
             name: "SwiftWABackupAPITests",
             dependencies: ["SwiftWABackupAPI"]),

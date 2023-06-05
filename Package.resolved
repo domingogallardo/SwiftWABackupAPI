@@ -1,12 +1,12 @@
 {
   "pins" : [
     {
-      "identity" : "sqlite.swift",
+      "identity" : "grdb.swift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/stephencelis/SQLite.swift.git",
+      "location" : "https://github.com/groue/GRDB.swift.git",
       "state" : {
-        "revision" : "7a2e3cd27de56f6d396e84f63beefd0267b55ccb",
-        "version" : "0.14.1"
+        "revision" : "57aa4c30bfa0fe6a1913f83042937c4fb943e79c",
+        "version" : "6.15.0"
       }
     }
   ],
