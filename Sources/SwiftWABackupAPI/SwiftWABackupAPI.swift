@@ -28,9 +28,12 @@ public struct ChatInfo: CustomStringConvertible {
     let contactJid: String
     let name: String
     let numberMessages: Int
+    let lastMessageDate: Date
 
     public var description: String {
-        return "Chat: ID - \(id), ContactJid - \(contactJid), Name - \(name), Number of Messages - \(numberMessages)"
+    return "Chat: ID - \(id), ContactJid - \(contactJid), " 
+           + "Name - \(name), Number of Messages - \(numberMessages), "
+           + "Last Message Date - \(lastMessageDate)"
     }
 }
 
@@ -114,10 +117,11 @@ public class WABackup {
                     let chatId = session["Z_PK"] as? Int64 ?? 0
                     let contactJid = session["ZCONTACTJID"] as? String ?? "Unknown"
                     let chatName = session["ZPARTNERNAME"] as? String ?? "Unknown"
+                    let lastMessageDate = convertTimestampToDate(timestamp: session["ZLASTMESSAGEDATE"] as Any)
                     let numberChatMessages = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ZWAMESSAGE WHERE ZCHATSESSION = ?", arguments: [chatId]) ?? 0
                     if numberChatMessages != 0 {
-                        let chatInfo = ChatInfo(id: Int(chatId), contactJid: contactJid, name: chatName, numberMessages: numberChatMessages)
-                        chatInfos.append(chatInfo)                   
+                        let chatInfo = ChatInfo(id: Int(chatId), contactJid: contactJid, name: chatName, numberMessages: numberChatMessages, lastMessageDate: lastMessageDate)
+                        chatInfos.append(chatInfo)
                     }
                 }
             }
@@ -128,6 +132,18 @@ public class WABackup {
         }
     }
 
+    let referenceDate = Calendar.current.date(from: DateComponents(year: 2001, month: 1, day: 1))!
+
+    private func convertTimestampToDate(timestamp: Any) -> Date {
+        if let timestamp = timestamp as? Double {
+            return Date(timeIntervalSinceReferenceDate: timestamp)
+            // return referenceDate.addingTimeInterval(timestamp)
+        } else if let timestamp = timestamp as? Int64 {
+            return Date(timeIntervalSinceReferenceDate: Double(timestamp))
+            //return referenceDate.addingTimeInterval(Double(timestamp))
+        }
+        return Date(timeIntervalSinceReferenceDate: 0)
+    }
 
     private func getBackupInfo(at path: String, with fileManager: FileManager) -> BackupInfo? {
         if isDirectory(at: path, with: fileManager) {
