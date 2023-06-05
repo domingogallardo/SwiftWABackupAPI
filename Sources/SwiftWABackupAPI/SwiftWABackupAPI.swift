@@ -30,11 +30,17 @@ public struct ChatInfo: CustomStringConvertible {
     let numberMessages: Int
     let lastMessageDate: Date
 
+
     public var description: String {
-    return "Chat: ID - \(id), ContactJid - \(contactJid), " 
-           + "Name - \(name), Number of Messages - \(numberMessages), "
-           + "Last Message Date - \(lastMessageDate)"
-    }
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .medium
+        let localDateString = dateFormatter.string(from: lastMessageDate)
+
+        return "Chat: ID - \(id), ContactJid - \(contactJid), " 
+            + "Name - \(name), Number of Messages - \(numberMessages), "
+            + "Last Message Date - \(localDateString)"
+        }
 }
 
 /*
