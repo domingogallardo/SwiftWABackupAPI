@@ -138,15 +138,11 @@ public class WABackup {
         }
     }
 
-    let referenceDate = Calendar.current.date(from: DateComponents(year: 2001, month: 1, day: 1))!
-
     private func convertTimestampToDate(timestamp: Any) -> Date {
         if let timestamp = timestamp as? Double {
             return Date(timeIntervalSinceReferenceDate: timestamp)
-            // return referenceDate.addingTimeInterval(timestamp)
         } else if let timestamp = timestamp as? Int64 {
             return Date(timeIntervalSinceReferenceDate: Double(timestamp))
-            //return referenceDate.addingTimeInterval(Double(timestamp))
         }
         return Date(timeIntervalSinceReferenceDate: 0)
     }
