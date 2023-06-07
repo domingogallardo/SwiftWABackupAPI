@@ -9,10 +9,13 @@ import Foundation
 import GRDB
 
 public struct BackupInfo {
-    public let path: String 
+    let url: URL
+    public var path: String {
+        return url.path
+    }
     public let creationDate: Date
     public var identifier: String {
-        return URL(fileURLWithPath: path).lastPathComponent
+        return url.lastPathComponent
     }
 }
 
@@ -56,7 +59,6 @@ struct DatabaseUtils {
 public class WABackup {
 
     let phoneBackup = PhoneBackup()
-    let defaultBackupPath = "~/Library/Application Support/MobileSync/Backup/"
 
     // This connection will be used to interact with the ChatStorage.sqlite 
     // file in the WhatsApp backup.
