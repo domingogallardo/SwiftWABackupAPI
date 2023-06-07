@@ -8,7 +8,7 @@
 import Foundation
 import GRDB
 
-public struct BackupInfo {
+public struct Backup {
     let url: URL
     public var path: String {
         return url.path
@@ -75,7 +75,7 @@ public class WABackup {
      The function needs permission to access ~/Library/Application Support/MobileSync/Backup/
      Go to System Preferences -> Security & Privacy -> Full Disk Access
     */
-    public func getLocalBackups() -> [BackupInfo]? {
+    public func getLocalBackups() -> [Backup] {
         return phoneBackup.getLocalBackups()
     }
 
