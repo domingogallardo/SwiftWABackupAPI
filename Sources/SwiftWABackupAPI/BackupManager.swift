@@ -8,7 +8,19 @@
 import Foundation
 import GRDB
 
-class PhoneBackup {
+
+public struct IPhoneBackup {
+    let url: URL
+    public var path: String {
+        return url.path
+    }
+    public let creationDate: Date
+    public var identifier: String {
+        return url.lastPathComponent
+    }
+}
+
+struct BackupManager {
     // This is the default directory where iPhone stores backups on macOS.
     let defaultBackupPath = "~/Library/Application Support/MobileSync/Backup/"
 
@@ -28,7 +40,7 @@ class PhoneBackup {
      The function needs permission to access ~/Library/Application Support/MobileSync/Backup/
      Go to System Preferences -> Security & Privacy -> Full Disk Access
     */
-    func getLocalBackups() -> [Backup] {
+    func getLocalBackups() -> [IPhoneBackup] {
         let fileManager = FileManager.default
         let backupPath = NSString(string: defaultBackupPath).expandingTildeInPath
         let backupUrl = URL(fileURLWithPath: backupPath)
@@ -43,12 +55,12 @@ class PhoneBackup {
         }
     }
 
-    func getBackup(at url: URL, with fileManager: FileManager) -> Backup? {
+    func getBackup(at url: URL, with fileManager: FileManager) -> IPhoneBackup? {
         if isDirectory(at: url, with: fileManager) {
             do {
                 let attributes = try fileManager.attributesOfItem(atPath: url.path)
                 let creationDate = attributes[FileAttributeKey.creationDate] as? Date ?? Date()
-                let backup = Backup(url: url, creationDate: creationDate)
+                let backup = IPhoneBackup(url: url, creationDate: creationDate)
                 return backup
             } catch {
                 print("Error while getting backup info \(url.path): \(error.localizedDescription)")

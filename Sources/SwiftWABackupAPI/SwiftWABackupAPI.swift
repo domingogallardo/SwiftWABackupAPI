@@ -8,17 +8,6 @@
 import Foundation
 import GRDB
 
-public struct Backup {
-    let url: URL
-    public var path: String {
-        return url.path
-    }
-    public let creationDate: Date
-    public var identifier: String {
-        return url.lastPathComponent
-    }
-}
-
 public enum ChatType: String {
     case group = "Group"
     case individual = "Individual"
@@ -58,7 +47,7 @@ struct DatabaseUtils {
 
 public class WABackup {
 
-    let phoneBackup = PhoneBackup()
+    let phoneBackup = BackupManager()
 
     // This connection will be used to interact with the ChatStorage.sqlite 
     // file in the WhatsApp backup.
@@ -75,7 +64,7 @@ public class WABackup {
      The function needs permission to access ~/Library/Application Support/MobileSync/Backup/
      Go to System Preferences -> Security & Privacy -> Full Disk Access
     */
-    public func getLocalBackups() -> [Backup] {
+    public func getLocalBackups() -> [IPhoneBackup] {
         return phoneBackup.getLocalBackups()
     }
 
