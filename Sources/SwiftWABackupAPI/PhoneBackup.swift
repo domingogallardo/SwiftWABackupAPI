@@ -23,33 +23,33 @@ class PhoneBackup {
 
     /* 
      This function fetches the list of all local backups available at the default backup path.
-     Each backup is represented as a BackupInfo struct, containing the path to the backup 
+     Each backup is represented as a Backup struct, containing the path to the backup 
      and its creation date.
      The function needs permission to access ~/Library/Application Support/MobileSync/Backup/
      Go to System Preferences -> Security & Privacy -> Full Disk Access
     */
-    func getLocalBackups() -> [BackupInfo]? {
+    func getLocalBackups() -> [Backup] {
         let fileManager = FileManager.default
         let backupPath = NSString(string: defaultBackupPath).expandingTildeInPath
         let backupUrl = URL(fileURLWithPath: backupPath)
         do {
             let directoryContents = try fileManager.contentsOfDirectory(at: backupUrl, includingPropertiesForKeys: nil)
             return directoryContents.compactMap { url in
-                return getBackupInfo(at: url, with: fileManager)
+                return getBackup(at: url, with: fileManager)
             }
         } catch {
             print("Error while enumerating files \(backupUrl.path): \(error.localizedDescription)")
-            return nil
+            return []
         }
     }
 
-    func getBackupInfo(at url: URL, with fileManager: FileManager) -> BackupInfo? {
+    func getBackup(at url: URL, with fileManager: FileManager) -> Backup? {
         if isDirectory(at: url, with: fileManager) {
             do {
                 let attributes = try fileManager.attributesOfItem(atPath: url.path)
                 let creationDate = attributes[FileAttributeKey.creationDate] as? Date ?? Date()
-                let backupInfo = BackupInfo(url: url, creationDate: creationDate)
-                return backupInfo
+                let backup = Backup(url: url, creationDate: creationDate)
+                return backup
             } catch {
                 print("Error while getting backup info \(url.path): \(error.localizedDescription)")
                 return nil
@@ -115,8 +115,6 @@ class PhoneBackup {
         
         return backupUrl.path
     }
-
-
 
     /*
      This function fetches the file hash of ChatStorage.sqlite from the Manifest.db.
