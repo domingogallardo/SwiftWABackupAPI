@@ -31,36 +31,36 @@ class PhoneBackup {
     func getLocalBackups() -> [BackupInfo]? {
         let fileManager = FileManager.default
         let backupPath = NSString(string: defaultBackupPath).expandingTildeInPath
+        let backupUrl = URL(fileURLWithPath: backupPath)
         do {
-            let directoryContents = try fileManager.contentsOfDirectory(atPath: backupPath)
-            return directoryContents.map { content in
-                let filePath = backupPath + "/" + content
-                return getBackupInfo(at: filePath, with: fileManager)
-            }.compactMap { $0 }
+            let directoryContents = try fileManager.contentsOfDirectory(at: backupUrl, includingPropertiesForKeys: nil)
+            return directoryContents.compactMap { url in
+                return getBackupInfo(at: url, with: fileManager)
+            }
         } catch {
-            print("Error while enumerating files \(backupPath): \(error.localizedDescription)")
+            print("Error while enumerating files \(backupUrl.path): \(error.localizedDescription)")
             return nil
         }
     }
 
-    func getBackupInfo(at path: String, with fileManager: FileManager) -> BackupInfo? {
-        if isDirectory(at: path, with: fileManager) {
+    func getBackupInfo(at url: URL, with fileManager: FileManager) -> BackupInfo? {
+        if isDirectory(at: url, with: fileManager) {
             do {
-                let attributes = try fileManager.attributesOfItem(atPath: path)
+                let attributes = try fileManager.attributesOfItem(atPath: url.path)
                 let creationDate = attributes[FileAttributeKey.creationDate] as? Date ?? Date()
-                let backupInfo = BackupInfo(path: path, creationDate: creationDate)
+                let backupInfo = BackupInfo(url: url, creationDate: creationDate)
                 return backupInfo
             } catch {
-                print("Error while getting backup info \(path): \(error.localizedDescription)")
+                print("Error while getting backup info \(url.path): \(error.localizedDescription)")
                 return nil
             }
         }
         return nil
     }
 
-    func isDirectory(at path: String, with fileManager: FileManager) -> Bool {
+    func isDirectory(at url: URL, with fileManager: FileManager) -> Bool {
         var isDir: ObjCBool = false
-        return fileManager.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+        return fileManager.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
     }
 
     /*
@@ -88,6 +88,34 @@ class PhoneBackup {
         // <base_backup_path>/<first two characters of file hash>/<file hash>
         return "\(backupPath)/\(fileHash.prefix(2))/\(fileHash)"
     }
+
+    func buildChatStoragePath(backupUrl: URL) -> String? {
+        var backupUrl = backupUrl
+
+        // Path to the Manifest.db file
+        backupUrl.appendPathComponent("Manifest.db")
+        let manifestDBPath = backupUrl.path
+
+        // Attempt to connect to the Manifest.db
+        guard let manifestDb = DatabaseUtils.connectToDatabase(at: manifestDBPath) else {
+            return nil
+        }
+
+        // Fetch file hash of the ChatStorage.sqlite
+        guard let fileHash = fetchChatStorageFileHash(from: manifestDb) else {
+            return nil
+        }
+
+        // Remove the Manifest.db from the URL
+        backupUrl.deleteLastPathComponent()
+
+        // Add the file hash to the URL
+        backupUrl.appendPathComponent(String(fileHash.prefix(2)))
+        backupUrl.appendPathComponent(fileHash)
+        
+        return backupUrl.path
+    }
+
 
 
     /*
