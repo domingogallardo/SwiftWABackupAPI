@@ -55,31 +55,11 @@ struct BackupManager {
         }
     }
 
-    func getBackup(at url: URL, with fileManager: FileManager) -> IPhoneBackup? {
-        if isDirectory(at: url, with: fileManager) {
-            do {
-                let attributes = try fileManager.attributesOfItem(atPath: url.path)
-                let creationDate = attributes[FileAttributeKey.creationDate] as? Date ?? Date()
-                let backup = IPhoneBackup(url: url, creationDate: creationDate)
-                return backup
-            } catch {
-                print("Error while getting backup info \(url.path): \(error.localizedDescription)")
-                return nil
-            }
-        }
-        return nil
-    }
-
-    func isDirectory(at url: URL, with fileManager: FileManager) -> Bool {
-        var isDir: ObjCBool = false
-        return fileManager.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
-    }
-
     /*
-     This function constructs the full path to the ChatStorage.sqlite file in a backup, 
+     This function constructs the full URL of the ChatStorage.sqlite file in a backup, 
      given the URL the backup
     */
-    func buildChatStorageUrl(backupUrl: URL) -> URL? {
+    func getChatStorageUrl(backupUrl: URL) -> URL? {
         var backupUrl = backupUrl
 
         // Path to the Manifest.db file
@@ -104,6 +84,27 @@ struct BackupManager {
         backupUrl.appendPathComponent(fileHash)
         
         return backupUrl
+    }
+
+
+    private func getBackup(at url: URL, with fileManager: FileManager) -> IPhoneBackup? {
+        if isDirectory(at: url, with: fileManager) {
+            do {
+                let attributes = try fileManager.attributesOfItem(atPath: url.path)
+                let creationDate = attributes[FileAttributeKey.creationDate] as? Date ?? Date()
+                let backup = IPhoneBackup(url: url, creationDate: creationDate)
+                return backup
+            } catch {
+                print("Error while getting backup info \(url.path): \(error.localizedDescription)")
+                return nil
+            }
+        }
+        return nil
+    }
+
+    private func isDirectory(at url: URL, with fileManager: FileManager) -> Bool {
+        var isDir: ObjCBool = false
+        return fileManager.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
     }
 
 
