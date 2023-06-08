@@ -77,31 +77,9 @@ struct BackupManager {
 
     /*
      This function constructs the full path to the ChatStorage.sqlite file in a backup, 
-     given the base path of the backup
+     given the URL the backup
     */
-    func buildChatStoragePath(backupPath: String) -> String? {
-
-        // Path to the Manifest.db file
-        let manifestDBPath = backupPath + "/Manifest.db"
-
-        // Attempt to connect to the Manifest.db
-        guard let manifestDb = DatabaseUtils.connectToDatabase(at: manifestDBPath) else {
-            return nil
-        }
-
-        // Fetch file hash of the ChatStorage.sqlite
-        guard let fileHash = fetchChatStorageFileHash(from: manifestDb) else {
-            return nil
-        }
-
-        // Concatenate the fileHash to the backup path to form the full path
-        // Each file within the iPhone backup is stored under a path derived from its hash.
-        // A hashed file path should look like this:
-        // <base_backup_path>/<first two characters of file hash>/<file hash>
-        return "\(backupPath)/\(fileHash.prefix(2))/\(fileHash)"
-    }
-
-    func buildChatStoragePath(backupUrl: URL) -> String? {
+    func buildChatStorageUrl(backupUrl: URL) -> URL? {
         var backupUrl = backupUrl
 
         // Path to the Manifest.db file
@@ -125,8 +103,9 @@ struct BackupManager {
         backupUrl.appendPathComponent(String(fileHash.prefix(2)))
         backupUrl.appendPathComponent(fileHash)
         
-        return backupUrl.path
+        return backupUrl
     }
+
 
     /*
      This function fetches the file hash of ChatStorage.sqlite from the Manifest.db.
