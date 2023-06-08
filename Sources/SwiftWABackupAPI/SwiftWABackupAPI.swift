@@ -8,13 +8,7 @@
 import Foundation
 import GRDB
 
-public enum ChatType: String {
-    case group = "Group"
-    case individual = "Individual"
-    case unknown
-}
-
-public struct ChatInfo: CustomStringConvertible {
+public struct ChatInfo: CustomStringConvertible, Encodable {
     let id: Int
     let contactJid: String
     let name: String
@@ -106,14 +100,16 @@ public class WABackup {
         
         do {
             try db.read { db in
-                let chatSessions = try Row.fetchAll(db, sql: "SELECT * FROM ZWACHATSESSION")
+                // Chats ending with "status" are not real chats
+                let chatSessions = try Row.fetchAll(db, sql: "SELECT * FROM ZWACHATSESSION WHERE ZCONTACTJID NOT LIKE ?", arguments: ["%@status"])
                 for session in chatSessions {
                     let chatId = session["Z_PK"] as? Int64 ?? 0
                     let contactJid = session["ZCONTACTJID"] as? String ?? "Unknown"
                     let chatName = session["ZPARTNERNAME"] as? String ?? "Unknown"
                     let lastMessageDate = convertTimestampToDate(timestamp: session["ZLASTMESSAGEDATE"] as Any)
                     let numberChatMessages = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ZWAMESSAGE WHERE ZCHATSESSION = ?", arguments: [chatId]) ?? 0
-                    if numberChatMessages != 0 {
+                    // Chats with just one message are not real chats
+                    if numberChatMessages > 1 {
                         let chatInfo = ChatInfo(id: Int(chatId), contactJid: contactJid, name: chatName, numberMessages: numberChatMessages, lastMessageDate: lastMessageDate)
                         chatInfos.append(chatInfo)
                     }
