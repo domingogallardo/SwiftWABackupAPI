@@ -68,9 +68,9 @@ public class WABackup {
         return phoneBackup.getLocalBackups()
     }
 
-    public func connectChatStorageDb(backupPath: String) {
-        if let chatStoragePath = phoneBackup.buildChatStoragePath(backupPath: backupPath) {
-            chatStorageDb = DatabaseUtils.connectToDatabase(at: chatStoragePath)
+    public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) {
+        if let chatStoragePath = phoneBackup.buildChatStorageUrl(backupUrl: iPhoneBackup.url) {
+            chatStorageDb = DatabaseUtils.connectToDatabase(at: chatStoragePath.path)
         }
     }
 
