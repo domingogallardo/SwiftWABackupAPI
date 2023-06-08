@@ -122,7 +122,6 @@ struct BackupManager {
                 let row = try Row.fetchOne(db, sql: "SELECT fileID FROM Files WHERE relativePath = ? AND domain LIKE ?", arguments: [searchPath, "%WhatsApp%"])
                 fileHash = row?["fileID"]
             }
-            print("ChatStorage.sqlite file hash: \(String(describing: fileHash))")
             return fileHash
         } catch {
             print("Cannot execute query: \(error)")
