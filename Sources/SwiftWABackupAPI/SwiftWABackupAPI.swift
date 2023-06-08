@@ -45,13 +45,16 @@ struct DatabaseUtils {
     }
 }
 
+public struct ChatDb {
+    let database: DatabaseQueue
+    init(database: DatabaseQueue) {
+        self.database = database
+    }
+}
+
 public class WABackup {
 
     let phoneBackup = BackupManager()
-
-    // This connection will be used to interact with the ChatStorage.sqlite 
-    // file in the WhatsApp backup.
-    var chatStorageDb: DatabaseQueue?
 
     public init() {}    
     
@@ -68,17 +71,28 @@ public class WABackup {
         return phoneBackup.getLocalBackups()
     }
 
-    public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) {
-        if let chatStoragePath = phoneBackup.getChatStorageUrl(backupUrl: iPhoneBackup.url) {
-            chatStorageDb = DatabaseUtils.connectToDatabase(at: chatStoragePath.path)
-        }
-    }
-
-    public func getChats() -> [ChatInfo]? {
-        guard let db = chatStorageDb else {
-            print("Error: No database connection")
+    /*
+     This function obtain the URL of the ChatStorage.sqlite file in a backup, intializes
+     the chatStoragePath variable and connects the chatStorageDb to it.
+    */
+    public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) -> ChatDb? {
+        guard let chatStorageUrl = phoneBackup.getChatStorageUrl(backupUrl: iPhoneBackup.url) else {
+            print("Error: No ChatStorage.sqlite file found in backup")
             return nil
         }
+
+        guard let chatStorageDb = DatabaseUtils.connectToDatabase(at: chatStorageUrl.path) else {
+            print("Error: Cannot connect to ChatStorage.sqlite file")
+            return nil
+        }
+        
+        return ChatDb(database: chatStorageDb)
+    }
+
+
+    public func getChats(from chatDb: ChatDb) -> [ChatInfo]? {
+
+        let db = chatDb.database
 
         var chatInfos: [ChatInfo] = []
         
