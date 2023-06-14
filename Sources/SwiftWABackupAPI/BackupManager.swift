@@ -45,7 +45,11 @@ struct BackupManager {
         let backupPath = NSString(string: defaultBackupPath).expandingTildeInPath
         let backupUrl = URL(fileURLWithPath: backupPath)
         do {
-            let directoryContents = try fileManager.contentsOfDirectory(at: backupUrl, includingPropertiesForKeys: nil)
+            var directoryContents = try fileManager.contentsOfDirectory(at: backupUrl, includingPropertiesForKeys: nil)
+            
+            // Filter out .DS_Store
+            directoryContents = directoryContents.filter { !$0.lastPathComponent.hasPrefix(".DS_Store") }
+
             return directoryContents.compactMap { url in
                 return getBackup(at: url, with: fileManager)
             }
@@ -86,21 +90,40 @@ struct BackupManager {
         return backupUrl
     }
 
-
     private func getBackup(at url: URL, with fileManager: FileManager) -> IPhoneBackup? {
         if isDirectory(at: url, with: fileManager) {
             do {
-                let attributes = try fileManager.attributesOfItem(atPath: url.path)
-                let creationDate = attributes[FileAttributeKey.creationDate] as? Date ?? Date()
-                let backup = IPhoneBackup(url: url, creationDate: creationDate)
-                return backup
+                // Verify it is indeed a backup directory by checking for certain files
+                let expectedFiles = ["Info.plist", "Manifest.db", "Status.plist"]
+                for file in expectedFiles {
+                    let fileURL = url.appendingPathComponent(file)
+                    if !fileManager.fileExists(atPath: fileURL.path) {
+                        print("Directory does not contain a backup: \(url.path)")
+                        return nil
+                    }
+                }
+
+                // Parse the Status.plist file for the backup date
+                let statusPlistURL = url.appendingPathComponent("Status.plist")
+                let statusPlistData = try Data(contentsOf: statusPlistURL)
+                let plistObj = try PropertyListSerialization.propertyList(from: statusPlistData, options: [], format: nil)
+                
+                if let plistDict = plistObj as? [String: Any], 
+                let date = plistDict["Date"] as? Date {
+                    let backup = IPhoneBackup(url: url, creationDate: date)
+                    return backup
+                } else {
+                    print("Could not read Date from Status.plist in backup: \(url.path)")
+                }
             } catch {
                 print("Error while getting backup info \(url.path): \(error.localizedDescription)")
-                return nil
             }
+        } else {
+            print("Not a directory: \(url.path)")
         }
         return nil
     }
+
 
     private func isDirectory(at url: URL, with fileManager: FileManager) -> Bool {
         var isDir: ObjCBool = false

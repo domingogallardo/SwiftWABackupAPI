@@ -86,12 +86,16 @@ public class WABackup {
         return true
     }
 
-    public func getChats(from iPhoneBackup: IPhoneBackup) -> [ChatInfo]? {
+    public func getChats(from iPhoneBackup: IPhoneBackup) -> [ChatInfo] {
         guard let db = chatDatabases[iPhoneBackup.identifier] else {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
-            return nil
+            return []
         }
-        return fetchChats(from: db)
+        if let chats = fetchChats(from: db) {
+            return chats.sorted { $0.lastMessageDate > $1.lastMessageDate }
+        } else {
+            return []
+        }
     }
 
     private func fetchChats(from db: DatabaseQueue) -> [ChatInfo]? {
