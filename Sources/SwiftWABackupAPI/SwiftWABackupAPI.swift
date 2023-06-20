@@ -29,7 +29,7 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
         self.lastMessageDate = lastMessageDate
         self.chatType = contactJid.hasSuffix("@g.us") ? .group : .individual
     }
-    
+
     public var description: String {
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
@@ -42,6 +42,23 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
             + "Chat Type - \(chatType.rawValue)"
         }
 }
+
+public struct MessageInfo: CustomStringConvertible, Encodable {
+    let id: Int
+    let sender: String
+    let message: String
+    let date: Date
+    
+    public var description: String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .medium
+        let localDateString = dateFormatter.string(from: date)
+
+        return "Message: ID - \(id), Sender - \(sender), Message - \(message), Date - \(localDateString)"
+    }
+}
+
 
 struct DatabaseUtils {
     static func connectToDatabase(at path: String) -> DatabaseQueue? {
@@ -114,6 +131,18 @@ public class WABackup {
         }
     }
 
+    public func getChat(id: Int, from iPhoneBackup: IPhoneBackup) -> [MessageInfo] {
+        guard let db = chatDatabases[iPhoneBackup.identifier] else {
+            print("Error: ChatStorage.sqlite database is not connected for this backup")
+            return []
+        }
+        if let messages = fetchChat(id: id, from: db) {
+            return messages.sorted { $0.date > $1.date }
+        } else {
+            return []
+        }
+    }
+
     private func fetchChats(from db: DatabaseQueue) -> [ChatInfo]? {
 
         var chatInfos: [ChatInfo] = []
@@ -141,6 +170,51 @@ public class WABackup {
             return nil
         }
     }
+
+private func fetchChat(id: Int, from db: DatabaseQueue) -> [MessageInfo]? {
+    var messages: [MessageInfo] = []
+
+    do {
+        try db.read { db in
+            let chatMessages = try Row.fetchAll(db, sql: """
+                SELECT ZWAMESSAGE.Z_PK, ZWAMESSAGE.ZTEXT, ZWAMESSAGE.ZMESSAGEDATE, ZWAMESSAGE.ZGROUPMEMBER
+                FROM ZWAMESSAGE
+                WHERE ZWAMESSAGE.ZCHATSESSION = ?
+                """, arguments: [id])
+
+            for messageRow in chatMessages {
+                let messageId = messageRow["Z_PK"] as? Int64 ?? 0
+                let messageText = messageRow["ZTEXT"] as? String ?? ""
+                let messageDate = convertTimestampToDate(timestamp: messageRow["ZMESSAGEDATE"] as Any)
+
+                let groupMemberId = messageRow["ZGROUPMEMBER"] as? Int64
+
+                var sender = "Me"
+                if let groupMemberId = groupMemberId {
+                    let memberJid: String? = try Row.fetchOne(db, sql: """
+                        SELECT ZMEMBERJID FROM ZWAGROUPMEMBER WHERE Z_PK = ?
+                        """, arguments: [groupMemberId])?["ZMEMBERJID"]
+                    
+                    let partnerName: String? = try Row.fetchOne(db, sql: """
+                        SELECT ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID = ?
+                        """, arguments: [memberJid ?? ""])?["ZPARTNERNAME"]
+                    
+                    if let partnerName = partnerName {
+                        sender = partnerName
+                    }
+                }
+
+                let messageInfo = MessageInfo(id: Int(messageId), sender: sender, message: messageText, date: messageDate)
+                messages.append(messageInfo)
+            }
+        }
+        return messages
+    } catch {
+        print("Database access error: \(error)")
+        return nil
+    }
+}
+
 
     private func convertTimestampToDate(timestamp: Any) -> Date {
         if let timestamp = timestamp as? Double {
