@@ -9,12 +9,27 @@ import Foundation
 import GRDB
 
 public struct ChatInfo: CustomStringConvertible, Encodable {
+    enum ChatType: String, Codable {
+        case group
+        case individual
+    }
+
     let id: Int
     let contactJid: String
     let name: String
     let numberMessages: Int
     let lastMessageDate: Date
-
+    let chatType: ChatType
+    
+    init(id: Int, contactJid: String, name: String, numberMessages: Int, lastMessageDate: Date) {
+        self.id = id
+        self.contactJid = contactJid
+        self.name = name
+        self.numberMessages = numberMessages
+        self.lastMessageDate = lastMessageDate
+        self.chatType = contactJid.hasSuffix("@g.us") ? .group : .individual
+    }
+    
     public var description: String {
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
@@ -24,6 +39,7 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
         return "Chat: ID - \(id), ContactJid - \(contactJid), " 
             + "Name - \(name), Number of Messages - \(numberMessages), "
             + "Last Message Date - \(localDateString)"
+            + "Chat Type - \(chatType.rawValue)"
         }
 }
 
