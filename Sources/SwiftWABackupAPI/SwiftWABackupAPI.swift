@@ -45,10 +45,10 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
 
 public struct MessageInfo: CustomStringConvertible, Encodable {
     let id: Int
-    let sender: String
-    let senderPhoneNumber: String
     let message: String
     let date: Date
+    var senderName: String = ""
+    var senderPhone: String = ""
     
     public var description: String {
         let dateFormatter = DateFormatter()
@@ -56,7 +56,7 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
         dateFormatter.timeStyle = .medium
         let localDateString = dateFormatter.string(from: date)
 
-        return "Message: ID - \(id), Sender - \(sender), Message - \(message), Date - \(localDateString)"
+        return "Message: ID - \(id), Sender - \(senderName), Message - \(message), Date - \(localDateString)"
     }
 }
 
@@ -210,24 +210,27 @@ public class WABackup {
                     let messageText = messageRow["ZTEXT"] as? String ?? ""
                     let messageDate = convertTimestampToDate(timestamp: messageRow["ZMESSAGEDATE"] as Any)
 
-                    var senderName = "Me"
-                    var senderPhoneNumber = ""
+                    var messageInfo = MessageInfo(id: Int(messageId), message: messageText, date: messageDate)
 
                     // obtain the sender name and phone number
+
+                    var senderName = "Me"
+                    var senderPhone = ""
+
                     switch type {
                         case .group:
                             let groupMemberId = messageRow["ZGROUPMEMBER"] as? Int64    
                             if let groupMemberId = groupMemberId {
-                                (senderName, senderPhoneNumber) = try fetchSenderInfo(groupMemberId: groupMemberId, from: db)
+                                (senderName, senderPhone) = try fetchSenderInfo(groupMemberId: groupMemberId, from: db)
                             }
                         case .individual:
                             let fromJid = messageRow["ZFROMJID"] as? String
                             if let fromJid = fromJid {
-                                (senderName, senderPhoneNumber) = try fetchSenderInfo(fromJid: fromJid, from: db)
+                                (senderName, senderPhone) = try fetchSenderInfo(fromJid: fromJid, from: db)
                             }
                     }
-                    let messageInfo = MessageInfo(id: Int(messageId), sender: senderName, 
-                                        senderPhoneNumber: senderPhoneNumber, message: messageText, date: messageDate)
+                    messageInfo.senderName = senderName
+                    messageInfo.senderPhone = senderPhone
                     messages.append(messageInfo)
                 }
             }
@@ -238,31 +241,31 @@ public class WABackup {
         }
     }
 
-    typealias SenderInfo = (senderName: String, senderPhoneNumber: String)
+    typealias SenderInfo = (senderName: String, senderPhone: String)
 
     // Returns the sender name and phone number
     // from a group member id, available in group chats
     private func fetchSenderInfo(groupMemberId: Int64, from db: Database) throws -> SenderInfo {
         var partnerName = ""
-        var senderPhoneNumber = ""
+        var senderPhone = ""
 
         if let memberJid: String = try Row.fetchOne(db, sql: """
             SELECT ZMEMBERJID FROM ZWAGROUPMEMBER WHERE Z_PK = ?
             """, arguments: [groupMemberId])?["ZMEMBERJID"] {
 
-            senderPhoneNumber = extractPhoneNumber(from: memberJid)
+            senderPhone = extractPhone(from: memberJid)
             partnerName = try fetchPartnerName(for: memberJid, from: db)
         }    
 
-        return (partnerName, senderPhoneNumber)
+        return (partnerName, senderPhone)
     }
 
     // Returns the sender name and phone number from a JID 
     // of the form: 34555931253@s.whatsapp.net, available in individual chats
     private func fetchSenderInfo(fromJid: String, from db: Database) throws -> SenderInfo {
-        let senderPhoneNumber = extractPhoneNumber(from: fromJid)        
+        let senderPhone = extractPhone(from: fromJid)        
         let partnerName = try fetchPartnerName(for: fromJid, from: db)
-        return (partnerName, senderPhoneNumber)
+        return (partnerName, senderPhone)
     }
 
     // Returns the contact name associated with a JID of the form: 34555931253@s.whatsapp.net
@@ -273,7 +276,7 @@ public class WABackup {
     }
 
     // Returns the first part of ah JID of the form:  34555931253@s.whatsapp.net
-    private func extractPhoneNumber(from jid: String?) -> String {
+    private func extractPhone(from jid: String?) -> String {
         return jid?.components(separatedBy: "@").first ?? ""
     }
 
