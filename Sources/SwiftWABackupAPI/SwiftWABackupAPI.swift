@@ -129,17 +129,16 @@ public class WABackup {
         return chats.sorted { $0.lastMessageDate > $1.lastMessageDate }
     }
 
-    public func getChatMessages(id: Int, from iPhoneBackup: IPhoneBackup) -> [MessageInfo] {
+    public func getChatMessages(chatId: Int, from iPhoneBackup: IPhoneBackup) -> [MessageInfo] {
         guard let db = chatDatabases[iPhoneBackup.identifier] else {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
             return []
         }
-        guard let chatInfo = fetchChatInfo(id: id, from: db) else {
-            print("Error: Chat with id \(id) not found")
+        guard let chatInfo = fetchChatInfo(id: chatId, from: db) else {
+            print("Error: Chat with id \(chatId) not found")
             return []
         }
-        print("ChatInfo: \(chatInfo)")
-        let messages = fetchChatMessages(id: id, type: chatInfo.chatType, from: db)
+        let messages = fetchChatMessages(chatId: chatId, type: chatInfo.chatType, from: db)
         return messages.sorted { $0.date > $1.date }
     }
 
@@ -149,11 +148,11 @@ public class WABackup {
             try db.read { db in
                 // Chats ending with "status" are not real chats
                 let chatSessions = try Row.fetchAll(db, sql: "SELECT * FROM ZWACHATSESSION WHERE ZCONTACTJID NOT LIKE ?", arguments: ["%@status"])
-                for session in chatSessions {
-                    let chatId = session["Z_PK"] as? Int64 ?? 0
-                    let contactJid = session["ZCONTACTJID"] as? String ?? "Unknown"
-                    let chatName = session["ZPARTNERNAME"] as? String ?? "Unknown"
-                    let lastMessageDate = convertTimestampToDate(timestamp: session["ZLASTMESSAGEDATE"] as Any)
+                for chatRow in chatSessions {
+                    let chatId = chatRow["Z_PK"] as? Int64 ?? 0
+                    let contactJid = chatRow["ZCONTACTJID"] as? String ?? "Unknown"
+                    let chatName = chatRow["ZPARTNERNAME"] as? String ?? "Unknown"
+                    let lastMessageDate = convertTimestampToDate(timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
                     let numberChatMessages = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ZWAMESSAGE WHERE ZCHATSESSION = ?", arguments: [chatId]) ?? 0
                     // Chats with just one message are not real chats
                     if numberChatMessages > 1 {
@@ -173,17 +172,17 @@ public class WABackup {
         var chatInfo: ChatInfo?
         do {
             try dbQueue.read { db in
-                if let row = try Row.fetchOne(db, sql: """
+                if let chatRow = try Row.fetchOne(db, sql: """
                     SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME, ZMESSAGECOUNTER, ZLASTMESSAGEDATE
                     FROM ZWACHATSESSION
                     WHERE Z_PK = ?
                     """, arguments: [id]) {
 
-                    let chatId = row["Z_PK"] as? Int ?? 0
-                    let name = row["ZPARTNERNAME"] as? String ?? ""
-                    let contactJid = row["ZCONTACTJID"] as? String ?? ""
-                    let numberMessages = row["ZMESSAGECOUNTER"] as? Int ?? 0
-                    let lastMessageDate = convertTimestampToDate(timestamp: row["ZLASTMESSAGEDATE"] as Any)
+                    let chatId = chatRow["Z_PK"] as? Int ?? 0
+                    let name = chatRow["ZPARTNERNAME"] as? String ?? ""
+                    let contactJid = chatRow["ZCONTACTJID"] as? String ?? ""
+                    let numberMessages = chatRow["ZMESSAGECOUNTER"] as? Int ?? 0
+                    let lastMessageDate = convertTimestampToDate(timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
                     
                     chatInfo = ChatInfo(id: chatId, contactJid: contactJid, name: name, 
                                         numberMessages: numberMessages, lastMessageDate: lastMessageDate)
@@ -196,35 +195,39 @@ public class WABackup {
         }
     }
 
-
-    private func fetchChatMessages(id: Int, type: ChatInfo.ChatType, from dbQueue: DatabaseQueue) -> [MessageInfo] {
+    private func fetchChatMessages(chatId: Int, type: ChatInfo.ChatType, from dbQueue: DatabaseQueue) -> [MessageInfo] {
         var messages: [MessageInfo] = []
         do {
             try dbQueue.read { db in
-                let chatMessages = try fetchChatMessage(chatId: id, from: db)
+                let chatMessages = try Row.fetchAll(db, sql: """
+                    SELECT ZWAMESSAGE.Z_PK, ZWAMESSAGE.ZTEXT, ZWAMESSAGE.ZMESSAGEDATE, ZWAMESSAGE.ZGROUPMEMBER, ZWAMESSAGE.ZFROMJID
+                    FROM ZWAMESSAGE
+                    WHERE ZWAMESSAGE.ZCHATSESSION = ?
+                    """, arguments: [chatId])
                 
-                for chatMessage in chatMessages {
-                    let messageId = chatMessage["Z_PK"] as? Int64 ?? 0
-                    let messageText = chatMessage["ZTEXT"] as? String ?? ""
-                    let messageDate = convertTimestampToDate(timestamp: chatMessage["ZMESSAGEDATE"] as Any)
+                for messageRow in chatMessages {
+                    let messageId = messageRow["Z_PK"] as? Int64 ?? 0
+                    let messageText = messageRow["ZTEXT"] as? String ?? ""
+                    let messageDate = convertTimestampToDate(timestamp: messageRow["ZMESSAGEDATE"] as Any)
+
                     var senderName = "Me"
                     var senderPhoneNumber = ""
 
-                    // obtain the sender name
+                    // obtain the sender name and phone number
                     switch type {
                         case .group:
-                            let groupMemberId = chatMessage["ZGROUPMEMBER"] as? Int64    
+                            let groupMemberId = messageRow["ZGROUPMEMBER"] as? Int64    
                             if let groupMemberId = groupMemberId {
-                                (senderName, senderPhoneNumber) = try fetchSenderName(groupMemberId: groupMemberId, from: db)
+                                (senderName, senderPhoneNumber) = try fetchSenderInfo(groupMemberId: groupMemberId, from: db)
                             }
                         case .individual:
-                            let fromJid = chatMessage["ZFROMJID"] as? String
+                            let fromJid = messageRow["ZFROMJID"] as? String
                             if let fromJid = fromJid {
-                                (senderName, senderPhoneNumber) = try fetchSenderName(fromJid: fromJid, from: db)
+                                (senderName, senderPhoneNumber) = try fetchSenderInfo(fromJid: fromJid, from: db)
                             }
                     }
-                    let messageInfo = MessageInfo(id: Int(messageId), sender: senderName, senderPhoneNumber: senderPhoneNumber, 
-                                                message: messageText, date: messageDate)
+                    let messageInfo = MessageInfo(id: Int(messageId), sender: senderName, 
+                                        senderPhoneNumber: senderPhoneNumber, message: messageText, date: messageDate)
                     messages.append(messageInfo)
                 }
             }
@@ -235,41 +238,43 @@ public class WABackup {
         }
     }
 
-    private func fetchChatMessage(chatId: Int, from db: Database) throws -> [Row] {
-        let chatMessages = try Row.fetchAll(db, sql: """
-            SELECT ZWAMESSAGE.Z_PK, ZWAMESSAGE.ZTEXT, ZWAMESSAGE.ZMESSAGEDATE, ZWAMESSAGE.ZGROUPMEMBER, ZWAMESSAGE.ZFROMJID
-            FROM ZWAMESSAGE
-            WHERE ZWAMESSAGE.ZCHATSESSION = ?
-            """, arguments: [chatId])
-        return chatMessages
-    }
-
     typealias SenderInfo = (senderName: String, senderPhoneNumber: String)
 
-    private func fetchSenderName(groupMemberId: Int64, from db: Database) throws -> SenderInfo {
-        var senderPhoneNumber: String = ""
+    // Returns the sender name and phone number
+    // from a group member id, available in group chats
+    private func fetchSenderInfo(groupMemberId: Int64, from db: Database) throws -> SenderInfo {
+        var partnerName = ""
+        var senderPhoneNumber = ""
 
-        let memberJid: String? = try Row.fetchOne(db, sql: """
+        if let memberJid: String = try Row.fetchOne(db, sql: """
             SELECT ZMEMBERJID FROM ZWAGROUPMEMBER WHERE Z_PK = ?
-            """, arguments: [groupMemberId])?["ZMEMBERJID"]
-            
-        senderPhoneNumber = memberJid?.components(separatedBy: "@").first ?? ""
-        
-        let partnerName: String? = try Row.fetchOne(db, sql: """
-            SELECT ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID = ?
-            """, arguments: [memberJid ?? ""])?["ZPARTNERNAME"]
+            """, arguments: [groupMemberId])?["ZMEMBERJID"] {
 
-        return (partnerName ?? "Me", senderPhoneNumber)
+            senderPhoneNumber = extractPhoneNumber(from: memberJid)
+            partnerName = try fetchPartnerName(for: memberJid, from: db)
+        }    
+
+        return (partnerName, senderPhoneNumber)
     }
 
-    private func fetchSenderName(fromJid: String, from db: Database) throws -> SenderInfo {
-        let senderPhoneNumber = fromJid.components(separatedBy: "@").first ?? ""
-        
-        let partnerName: String? = try Row.fetchOne(db, sql: """
-            SELECT ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID = ?
-            """, arguments: [fromJid])?["ZPARTNERNAME"]
+    // Returns the sender name and phone number from a JID 
+    // of the form: 34555931253@s.whatsapp.net, available in individual chats
+    private func fetchSenderInfo(fromJid: String, from db: Database) throws -> SenderInfo {
+        let senderPhoneNumber = extractPhoneNumber(from: fromJid)        
+        let partnerName = try fetchPartnerName(for: fromJid, from: db)
+        return (partnerName, senderPhoneNumber)
+    }
 
-        return (partnerName ?? "Me", senderPhoneNumber)
+    // Returns the contact name associated with a JID of the form: 34555931253@s.whatsapp.net
+    private func fetchPartnerName(for contactJid: String, from db: Database) throws -> String {
+        return try Row.fetchOne(db, sql: """
+            SELECT ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID = ?
+            """, arguments: [contactJid])?["ZPARTNERNAME"] ?? "Me"
+    }
+
+    // Returns the first part of ah JID of the form:  34555931253@s.whatsapp.net
+    private func extractPhoneNumber(from jid: String?) -> String {
+        return jid?.components(separatedBy: "@").first ?? ""
     }
 
     private func convertTimestampToDate(timestamp: Any) -> Date {
