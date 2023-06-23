@@ -169,33 +169,6 @@ public class WABackup {
         }
     }
 
-    private func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) -> ChatInfo? {
-        var chatInfo: ChatInfo?
-        do {
-            try dbQueue.read { db in
-                if let chatRow = try Row.fetchOne(db, sql: """
-                    SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME, ZMESSAGECOUNTER, ZLASTMESSAGEDATE
-                    FROM ZWACHATSESSION
-                    WHERE Z_PK = ?
-                    """, arguments: [id]) {
-
-                    let chatId = chatRow["Z_PK"] as? Int ?? 0
-                    let name = chatRow["ZPARTNERNAME"] as? String ?? ""
-                    let contactJid = chatRow["ZCONTACTJID"] as? String ?? ""
-                    let numberMessages = chatRow["ZMESSAGECOUNTER"] as? Int ?? 0
-                    let lastMessageDate = convertTimestampToDate(timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
-                    
-                    chatInfo = ChatInfo(id: chatId, contactJid: contactJid, name: name, 
-                                        numberMessages: numberMessages, lastMessageDate: lastMessageDate)
-                }
-            }
-            return chatInfo
-        } catch {
-            print("Database access error: \(error)")
-            return nil
-        }
-    }
-
     private func fetchChatMessages(chatId: Int, type: ChatInfo.ChatType, from dbQueue: DatabaseQueue) -> [MessageInfo] {
         var messages: [MessageInfo] = []
         do {
@@ -250,6 +223,33 @@ public class WABackup {
         }
     }
 
+    private func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) -> ChatInfo? {
+        var chatInfo: ChatInfo?
+        do {
+            try dbQueue.read { db in
+                if let chatRow = try Row.fetchOne(db, sql: """
+                    SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME, ZMESSAGECOUNTER, ZLASTMESSAGEDATE
+                    FROM ZWACHATSESSION
+                    WHERE Z_PK = ?
+                    """, arguments: [id]) {
+
+                    let chatId = chatRow["Z_PK"] as? Int ?? 0
+                    let name = chatRow["ZPARTNERNAME"] as? String ?? ""
+                    let contactJid = chatRow["ZCONTACTJID"] as? String ?? ""
+                    let numberMessages = chatRow["ZMESSAGECOUNTER"] as? Int ?? 0
+                    let lastMessageDate = convertTimestampToDate(timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
+                    
+                    chatInfo = ChatInfo(id: chatId, contactJid: contactJid, name: name, 
+                                        numberMessages: numberMessages, lastMessageDate: lastMessageDate)
+                }
+            }
+            return chatInfo
+        } catch {
+            print("Database access error: \(error)")
+            return nil
+        }
+    }
+
     private func fetchReplyMessageId(mediaItemId: Int64, from db: Database) throws -> Int64? {
         let mediaItemRow = try Row.fetchOne(db, sql: """
             SELECT ZMETADATA
@@ -286,7 +286,6 @@ public class WABackup {
         let stanzaIDData = blob.subdata(in: stanzaIDRange)
         return String(data: stanzaIDData, encoding: .utf8)
     }
-
 
     private func fetchOriginalMessageId(stanzaId: String, from db: Database) -> Int64? {
         do {
