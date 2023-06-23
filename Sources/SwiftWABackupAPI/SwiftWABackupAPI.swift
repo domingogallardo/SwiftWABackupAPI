@@ -49,6 +49,7 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     let date: Date
     var senderName: String = ""
     var senderPhone: String = ""
+    var replyTo: Int?
     
     public var description: String {
         let dateFormatter = DateFormatter()
@@ -200,7 +201,7 @@ public class WABackup {
         do {
             try dbQueue.read { db in
                 let chatMessages = try Row.fetchAll(db, sql: """
-                    SELECT ZWAMESSAGE.Z_PK, ZWAMESSAGE.ZTEXT, ZWAMESSAGE.ZMESSAGEDATE, ZWAMESSAGE.ZGROUPMEMBER, ZWAMESSAGE.ZFROMJID
+                    SELECT ZWAMESSAGE.Z_PK, ZWAMESSAGE.ZTEXT, ZWAMESSAGE.ZMESSAGEDATE, ZWAMESSAGE.ZGROUPMEMBER, ZWAMESSAGE.ZFROMJID, ZWAMESSAGE.ZMEDIAITEM
                     FROM ZWAMESSAGE
                     WHERE ZWAMESSAGE.ZCHATSESSION = ?
                     """, arguments: [chatId])
@@ -231,6 +232,14 @@ public class WABackup {
                     }
                     messageInfo.senderName = senderName
                     messageInfo.senderPhone = senderPhone
+
+                    // if it is a reply update the id of the message that is replying to
+                    if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
+                        if let replyMessageId = 
+                            try fetchReplyMessageId(mediaItemId: mediaItemId, from: db) {
+                            messageInfo.replyTo = Int(replyMessageId)
+                        }
+                    }
                     messages.append(messageInfo)
                 }
             }
@@ -238,6 +247,58 @@ public class WABackup {
         } catch {
             print("Database access error: \(error)")
             return []
+        }
+    }
+
+    private func fetchReplyMessageId(mediaItemId: Int64, from db: Database) throws -> Int64? {
+        let mediaItemRow = try Row.fetchOne(db, sql: """
+            SELECT ZMETADATA
+            FROM ZWAMEDIAITEM
+            WHERE Z_PK = ?
+            """, arguments: [mediaItemId])
+        
+        if let binaryData = mediaItemRow?["ZMETADATA"] as? Data {
+            if let stanzaId = parseReplyMetadata(blob: binaryData) {
+                return fetchOriginalMessageId(stanzaId: stanzaId, from: db)
+            } 
+        }
+        return nil
+    }
+
+    private func parseReplyMetadata(blob: Data) -> String? {
+        let start = blob.startIndex.advanced(by: 2)
+        var end: Int? = nil
+        let endMarker: [UInt8] = [0x32, 0x1A] // hexadecimal 32 1A
+
+        for i in start..<blob.count - 1 {
+            if blob[i] == endMarker[0] && blob[i+1] == endMarker[1] {
+                end = i
+                break
+            }
+        }
+
+        guard let endIndex = end else {
+            // The end marker was not found in the blob
+            return nil
+        }
+
+        let stanzaIDRange = start..<endIndex
+        let stanzaIDData = blob.subdata(in: stanzaIDRange)
+        return String(data: stanzaIDData, encoding: .utf8)
+    }
+
+
+    private func fetchOriginalMessageId(stanzaId: String, from db: Database) -> Int64? {
+        do {
+            let messageRow = try Row.fetchOne(db, sql: """
+                SELECT Z_PK
+                FROM ZWAMESSAGE
+                WHERE ZSTANZAID = ?
+                """, arguments: [stanzaId])
+            return messageRow?["Z_PK"] as? Int64
+        } catch {
+            print("Database access error: \(error)")
+            return nil
         }
     }
 
