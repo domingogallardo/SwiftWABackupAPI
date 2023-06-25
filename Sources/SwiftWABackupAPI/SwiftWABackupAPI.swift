@@ -197,6 +197,7 @@ public class WABackup {
                             if let groupMemberId = groupMemberId {
                                 (senderName, senderPhone) = try fetchSenderInfo(groupMemberId: groupMemberId, from: db)
                             }
+                            // If not exists a group member id, it is a message sent by me
                         case .individual:
                             let fromJid = messageRow["ZFROMJID"] as? String
                             if let fromJid = fromJid {
@@ -330,9 +331,17 @@ public class WABackup {
 
     // Returns the contact name associated with a JID of the form: 34555931253@s.whatsapp.net
     private func fetchPartnerName(for contactJid: String, from db: Database) throws -> String {
-        return try Row.fetchOne(db, sql: """
+        if let name: String = try Row.fetchOne(db, sql: """
             SELECT ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID = ?
-            """, arguments: [contactJid])?["ZPARTNERNAME"] ?? "Me"
+            """, arguments: [contactJid])?["ZPARTNERNAME"] {
+            return name
+        } else if let name: String = try Row.fetchOne(db, sql: """
+            SELECT ZPUSHNAME FROM ZWAPROFILEPUSHNAME WHERE ZJID = ?
+            """, arguments: [contactJid])?["ZPUSHNAME"] {
+            return "~"+name
+        } else {
+            return "Unknown"
+        }
     }
 
     // Returns the first part of ah JID of the form:  34555931253@s.whatsapp.net
