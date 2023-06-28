@@ -45,7 +45,7 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
 
 public struct MessageInfo: CustomStringConvertible, Encodable {
     let id: Int
-    let message: String
+    var message: String
     let date: Date
     var senderName: String = ""
     var senderPhone: String = ""
@@ -208,12 +208,22 @@ public class WABackup {
                     messageInfo.senderPhone = senderPhone
 
                     // if it is a reply update the id of the message that is replying to
+
                     if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
                         if let replyMessageId = 
                             try fetchReplyMessageId(mediaItemId: mediaItemId, from: db) {
                             messageInfo.replyTo = Int(replyMessageId)
                         }
                     }
+
+                    // if it is an image with a caption, get the caption
+
+                    if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
+                        if let caption = try fetchCaption(mediaItemId: mediaItemId, from: db) {
+                            messageInfo.message = caption
+                        }
+                    }
+
                     messages.append(messageInfo)
                 }
             }
@@ -264,6 +274,15 @@ public class WABackup {
             } 
         }
         return nil
+    }
+
+    private func fetchCaption(mediaItemId: Int64, from db: Database) throws -> String? {
+        let mediaItemRow = try Row.fetchOne(db, sql: """
+            SELECT ZTITLE
+            FROM ZWAMEDIAITEM
+            WHERE Z_PK = ?
+            """, arguments: [mediaItemId])
+        return mediaItemRow?["ZTITLE"] as? String
     }
 
     // Returns the stanza id of the message that is being replied to
