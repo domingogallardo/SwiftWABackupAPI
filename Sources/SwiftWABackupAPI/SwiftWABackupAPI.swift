@@ -9,17 +9,17 @@ import Foundation
 import GRDB
 
 public struct ChatInfo: CustomStringConvertible, Encodable {
-    enum ChatType: String, Codable {
+    public enum ChatType: String, Codable {
         case group
         case individual
     }
 
-    let id: Int
-    let contactJid: String
-    let name: String
-    let numberMessages: Int
-    let lastMessageDate: Date
-    let chatType: ChatType
+    public let id: Int
+    public let contactJid: String
+    public let name: String
+    public let numberMessages: Int
+    public let lastMessageDate: Date
+    public let chatType: ChatType
     
     init(id: Int, contactJid: String, name: String, numberMessages: Int, lastMessageDate: Date) {
         self.id = id
@@ -44,13 +44,13 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
 }
 
 public struct MessageInfo: CustomStringConvertible, Encodable {
-    let id: Int
-    let message: String
-    let date: Date
-    var caption: String = ""
-    var senderName: String = ""
-    var senderPhone: String = ""
-    var replyTo: Int?
+    public let id: Int
+    public let message: String
+    public let date: Date
+    public var caption: String = ""
+    public var senderName: String = ""
+    public var senderPhone: String = ""
+    public var replyTo: Int?
     
     public var description: String {
         let dateFormatter = DateFormatter()
