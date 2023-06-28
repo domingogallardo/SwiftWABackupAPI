@@ -45,8 +45,9 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
 
 public struct MessageInfo: CustomStringConvertible, Encodable {
     let id: Int
-    var message: String
+    let message: String
     let date: Date
+    var caption: String = ""
     var senderName: String = ""
     var senderPhone: String = ""
     var replyTo: Int?
@@ -220,7 +221,7 @@ public class WABackup {
 
                     if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
                         if let caption = try fetchCaption(mediaItemId: mediaItemId, from: db) {
-                            messageInfo.message = caption
+                            messageInfo.caption = caption
                         }
                     }
 
