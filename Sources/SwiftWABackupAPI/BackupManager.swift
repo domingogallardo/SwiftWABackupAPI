@@ -18,6 +18,52 @@ public struct IPhoneBackup {
     public var identifier: String {
         return url.lastPathComponent
     }
+
+    // Returns the full URL of the ChatStorage.sqlite file in a backup
+    public func getChatStorageUrl() -> URL? {
+
+        // Fetch file hash of the ChatStorage.sqlite
+        guard let fileHash = fetchChatStorageFileHash(relativePath: "ChatStorage.sqlite") else {
+            return nil
+        }
+
+        var backupUrl = self.url
+
+        // Add the two first letters of the file hash to the URL
+        backupUrl.appendPathComponent(String(fileHash.prefix(2)))
+        // Add the file hash to the URL
+        backupUrl.appendPathComponent(fileHash)
+        
+        return backupUrl
+    }
+    
+    /*
+     Returns the file hash of the file with given path from the Manifest.db.
+    */
+    public func fetchChatStorageFileHash(relativePath: String) -> String? {
+        var backupUrl = self.url
+
+        // Path to the Manifest.db file
+        backupUrl.appendPathComponent("Manifest.db")
+        let manifestDBPath = backupUrl.path
+
+        // Attempt to connect to the Manifest.db
+        guard let manifestDb = DatabaseUtils.connectToDatabase(at: manifestDBPath) else {
+            return nil
+        }
+
+        do {
+            var fileHash: String? = nil
+            try manifestDb.read { db in
+                let row = try Row.fetchOne(db, sql: "SELECT fileID FROM Files WHERE relativePath = ? AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'", arguments: [relativePath])
+                fileHash = row?["fileID"]
+            }
+            return fileHash
+        } catch {
+            print("Cannot execute query: \(error)")
+            return nil
+        }
+    }
 }
 
 struct BackupManager {
@@ -59,37 +105,6 @@ struct BackupManager {
         }
     }
 
-    /*
-     This function constructs the full URL of the ChatStorage.sqlite file in a backup, 
-     given the URL the backup
-    */
-    func getChatStorageUrl(backupUrl: URL) -> URL? {
-        var backupUrl = backupUrl
-
-        // Path to the Manifest.db file
-        backupUrl.appendPathComponent("Manifest.db")
-        let manifestDBPath = backupUrl.path
-
-        // Attempt to connect to the Manifest.db
-        guard let manifestDb = DatabaseUtils.connectToDatabase(at: manifestDBPath) else {
-            return nil
-        }
-
-        // Fetch file hash of the ChatStorage.sqlite
-        guard let fileHash = fetchChatStorageFileHash(from: manifestDb) else {
-            return nil
-        }
-
-        // Remove the Manifest.db from the URL
-        backupUrl.deleteLastPathComponent()
-
-        // Add the file hash to the URL
-        backupUrl.appendPathComponent(String(fileHash.prefix(2)))
-        backupUrl.appendPathComponent(fileHash)
-        
-        return backupUrl
-    }
-
     private func getBackup(at url: URL, with fileManager: FileManager) -> IPhoneBackup? {
         if isDirectory(at: url, with: fileManager) {
             do {
@@ -124,31 +139,8 @@ struct BackupManager {
         return nil
     }
 
-
     private func isDirectory(at url: URL, with fileManager: FileManager) -> Bool {
         var isDir: ObjCBool = false
         return fileManager.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
-    }
-
-
-    /*
-     This function fetches the file hash of ChatStorage.sqlite from the Manifest.db.
-     This is required because files in the backup are stored under paths derived from their hashes. 
-     It returns the file hash as a string if successful; otherwise, it returns nil.
-    */
-    private func fetchChatStorageFileHash(from manifestDb: DatabaseQueue) -> String? {
-        let searchPath = "ChatStorage.sqlite"
-        
-        do {
-            var fileHash: String? = nil
-            try manifestDb.read { db in
-                let row = try Row.fetchOne(db, sql: "SELECT fileID FROM Files WHERE relativePath = ? AND domain LIKE ?", arguments: [searchPath, "%WhatsApp%"])
-                fileHash = row?["fileID"]
-            }
-            return fileHash
-        } catch {
-            print("Cannot execute query: \(error)")
-            return nil
-        }
     }
 }
