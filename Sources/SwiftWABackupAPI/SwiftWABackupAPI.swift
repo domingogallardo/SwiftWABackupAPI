@@ -107,7 +107,7 @@ public class WABackup {
      associates it with the backup identifier.
     */
     public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) -> Bool {
-        guard let chatStorageUrl = phoneBackup.getChatStorageUrl(backupUrl: iPhoneBackup.url) else {
+        guard let chatStorageUrl = iPhoneBackup.getChatStorageUrl() else {
             print("Error: No ChatStorage.sqlite file found in backup")
             return false
         }
