@@ -144,6 +144,21 @@ public class WABackup {
         return messages.sorted { $0.date > $1.date }
     }
 
+    // Extracts the  media file for a given message id, saves it to a given directory and returns the file name
+    public func extractMedia(forMessageId messageId: Int, from iPhoneBackup: IPhoneBackup, 
+                                   toDirectory directoryURL: URL) -> String? {
+        guard let db = chatDatabases[iPhoneBackup.identifier] else {
+            print("Error: ChatStorage.sqlite database is not connected for this backup")
+            return nil
+        }
+        guard let mediaFileName = fetchMediaFileName(forMessageId: messageId, from: iPhoneBackup, 
+                                                        toDirectory: directoryURL, from: db) else {
+            print("Error: Media file not found for message id \(messageId)")
+            return nil
+        }
+        return mediaFileName
+    }
+
     private func fetchChats(from db: DatabaseQueue) -> [ChatInfo] {
         var chatInfos: [ChatInfo] = []
         do {
@@ -392,5 +407,35 @@ public class WABackup {
             return Date(timeIntervalSinceReferenceDate: Double(timestamp))
         }
         return Date(timeIntervalSinceReferenceDate: 0)
+    }
+
+    private func fetchMediaFileName(forMessageId messageId: Int, from iPhoneBackup: IPhoneBackup, 
+                                    toDirectory directoryURL: URL, from db: DatabaseQueue) -> String? {
+        print("Fetching media file for message id \(messageId)")
+        do {
+            var mediaLocalPath: String? = nil
+            try db.read { db in
+                if let messageRow = try Row.fetchOne(db, sql: "SELECT ZMEDIAITEM FROM ZWAMESSAGE WHERE Z_PK = ?", arguments: [messageId]) {
+                    if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
+                        let mediaItemRow = try Row.fetchOne(db, sql: "SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM WHERE Z_PK = ?", arguments: [mediaItemId])
+                        mediaLocalPath = mediaItemRow?["ZMEDIALOCALPATH"] as? String
+                        print("Media local path: \(mediaLocalPath ?? "nil)")")
+                    }
+                }
+            }
+
+            if let mediaLocalPath = mediaLocalPath, let sourceFileUrl = iPhoneBackup.getUrl(relativePath: mediaLocalPath) {
+                let mediaFileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
+                let targetFileUrl = directoryURL.appendingPathComponent(mediaFileName)
+                print("Copying from: \(sourceFileUrl) to target file url: \(targetFileUrl)")
+                try FileManager.default.copyItem(at: sourceFileUrl, to: targetFileUrl)
+                return targetFileUrl.lastPathComponent
+            } else {
+                return nil
+            }
+        } catch {
+            print("Database access or file saving error: \(error)")
+            return nil
+        }
     }
 }
