@@ -1,5 +1,5 @@
 //
-//  PhoneBackup.swift
+//  BackupManager.swift
 //
 //
 //  Created by Domingo Gallardo on 06/06/23.
@@ -7,7 +7,6 @@
 
 import Foundation
 import GRDB
-
 
 public struct IPhoneBackup {
     let url: URL
