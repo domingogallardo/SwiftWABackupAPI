@@ -18,11 +18,12 @@ public struct IPhoneBackup {
         return url.lastPathComponent
     }
 
-    // Returns the full URL of the ChatStorage.sqlite file in a backup
-    public func getChatStorageUrl() -> URL? {
+    // Returns the full URL of a path in the backup
+    // ChatStorage.sqlite file in a backup
+    public func getUrl(relativePath: String) -> URL? {
 
         // Fetch file hash of the ChatStorage.sqlite
-        guard let fileHash = fetchChatStorageFileHash(relativePath: "ChatStorage.sqlite") else {
+        guard let fileHash = fetchChatStorageFileHash(relativePath: relativePath) else {
             return nil
         }
 
@@ -54,7 +55,7 @@ public struct IPhoneBackup {
         do {
             var fileHash: String? = nil
             try manifestDb.read { db in
-                let row = try Row.fetchOne(db, sql: "SELECT fileID FROM Files WHERE relativePath = ? AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'", arguments: [relativePath])
+                let row = try Row.fetchOne(db, sql: "SELECT fileID FROM Files WHERE relativePath LIKE ? AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'", arguments: ["%"+relativePath])
                 fileHash = row?["fileID"]
             }
             return fileHash

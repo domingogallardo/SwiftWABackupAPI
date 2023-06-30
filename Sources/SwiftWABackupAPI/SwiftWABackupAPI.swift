@@ -107,7 +107,7 @@ public class WABackup {
      associates it with the backup identifier.
     */
     public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) -> Bool {
-        guard let chatStorageUrl = iPhoneBackup.getChatStorageUrl() else {
+        guard let chatStorageUrl = iPhoneBackup.getUrl(relativePath: "ChatStorage.sqlite") else {
             print("Error: No ChatStorage.sqlite file found in backup")
             return false
         }
@@ -323,7 +323,6 @@ public class WABackup {
         let stanzaIDData = blob.subdata(in: stanzaIDRange)
         return String(data: stanzaIDData, encoding: .utf8)
     }
-
 
     private func fetchOriginalMessageId(stanzaId: String, from db: Database) -> Int64? {
         do {
