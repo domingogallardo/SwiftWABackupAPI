@@ -151,11 +151,7 @@ public class WABackup {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
             return nil
         }
-        guard let mediaFileName = fetchMediaFileName(forMessageId: messageId, from: iPhoneBackup, 
-                                                        toDirectory: directoryURL, from: db) else {
-            return nil
-        }
-        return mediaFileName
+        return fetchMediaFileName(forMessageId: messageId, from: iPhoneBackup, toDirectory: directoryURL, from: db)
     }
 
     private func fetchChats(from db: DatabaseQueue) -> [ChatInfo] {
