@@ -153,7 +153,6 @@ public class WABackup {
         }
         guard let mediaFileName = fetchMediaFileName(forMessageId: messageId, from: iPhoneBackup, 
                                                         toDirectory: directoryURL, from: db) else {
-            print("Error: Media file not found for message id \(messageId)")
             return nil
         }
         return mediaFileName
@@ -411,7 +410,6 @@ public class WABackup {
 
     private func fetchMediaFileName(forMessageId messageId: Int, from iPhoneBackup: IPhoneBackup, 
                                     toDirectory directoryURL: URL, from db: DatabaseQueue) -> String? {
-        print("Fetching media file for message id \(messageId)")
         do {
             var mediaLocalPath: String? = nil
             try db.read { db in
@@ -419,7 +417,6 @@ public class WABackup {
                     if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
                         let mediaItemRow = try Row.fetchOne(db, sql: "SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM WHERE Z_PK = ?", arguments: [mediaItemId])
                         mediaLocalPath = mediaItemRow?["ZMEDIALOCALPATH"] as? String
-                        print("Media local path: \(mediaLocalPath ?? "nil)")")
                     }
                 }
             }
@@ -427,7 +424,6 @@ public class WABackup {
             if let mediaLocalPath = mediaLocalPath, let sourceFileUrl = iPhoneBackup.getUrl(relativePath: mediaLocalPath) {
                 let mediaFileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
                 let targetFileUrl = directoryURL.appendingPathComponent(mediaFileName)
-                print("Copying from: \(sourceFileUrl) to target file url: \(targetFileUrl)")
                 try FileManager.default.copyItem(at: sourceFileUrl, to: targetFileUrl)
                 return targetFileUrl.lastPathComponent
             } else {

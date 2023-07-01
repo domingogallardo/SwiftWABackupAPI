@@ -19,7 +19,7 @@ public struct IPhoneBackup {
     }
 
     // Returns the full URL of a path in the backup
-    // ChatStorage.sqlite file in a backup
+    //  file in a backup
     public func getUrl(relativePath: String) -> URL? {
 
         // Fetch file hash of the ChatStorage.sqlite
