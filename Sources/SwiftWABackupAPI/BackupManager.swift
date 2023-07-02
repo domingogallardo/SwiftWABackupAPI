@@ -18,12 +18,12 @@ public struct IPhoneBackup {
         return url.lastPathComponent
     }
 
-    // Returns the full URL of a path in the backup
-    // ChatStorage.sqlite file in a backup
+    // Returns the full URL of the file given a relativePath in the WhatsApp backup
+    // inside the iPhone backup.
     public func getUrl(relativePath: String) -> URL? {
 
-        // Fetch file hash of the ChatStorage.sqlite
-        guard let fileHash = fetchChatStorageFileHash(relativePath: relativePath) else {
+        // Fetch file hash of the file
+        guard let fileHash = fetchFileHash(relativePath: relativePath) else {
             return nil
         }
 
@@ -37,10 +37,9 @@ public struct IPhoneBackup {
         return backupUrl
     }
     
-    /*
-     Returns the file hash of the file with given path from the Manifest.db.
-    */
-    public func fetchChatStorageFileHash(relativePath: String) -> String? {
+    // Returns the file hash of the file with a relative path in the WhatsApp backup
+    // inside the iPhone backup.
+    public func fetchFileHash(relativePath: String) -> String? {
         var backupUrl = self.url
 
         // Path to the Manifest.db file
