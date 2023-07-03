@@ -45,11 +45,11 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
 
 public struct MessageInfo: CustomStringConvertible, Encodable {
     public let id: Int
-    public let message: String
+    public let message: String?
     public let date: Date
-    public var caption: String = ""
     public var senderName: String = ""
-    public var senderPhone: String = ""
+    public var senderPhone: String?
+    public var caption: String?
     public var replyTo: Int?
     public var mediaFileName: String?
     
@@ -59,7 +59,7 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
         dateFormatter.timeStyle = .medium
         let localDateString = dateFormatter.string(from: date)
 
-        return "Message: ID - \(id), Sender - \(senderName), Message - \(message), Date - \(localDateString)"
+        return "Message: ID - \(id), Sender - \(senderName), Message - \(message ?? ""), Date - \(localDateString)"
     }
 }
 
@@ -185,7 +185,7 @@ public class WABackup {
                 
                 for messageRow in chatMessages {
                     let messageId = messageRow["Z_PK"] as? Int64 ?? 0
-                    let messageText = messageRow["ZTEXT"] as? String ?? ""
+                    let messageText = messageRow["ZTEXT"] as? String
                     let messageDate = convertTimestampToDate(timestamp: messageRow["ZMESSAGEDATE"] as Any)
 
                     var messageInfo = MessageInfo(id: Int(messageId), message: messageText, date: messageDate)
@@ -193,7 +193,7 @@ public class WABackup {
                     // obtain the sender name and phone number
 
                     var senderName = "Me"
-                    var senderPhone = ""
+                    var senderPhone: String? = nil
 
                     switch type {
                         case .group:
@@ -346,13 +346,13 @@ public class WABackup {
         }
     }
 
-    typealias SenderInfo = (senderName: String, senderPhone: String)
+    typealias SenderInfo = (senderName: String, senderPhone: String?)
 
     // Returns the sender name and phone number
     // from a group member id, available in group chats
     private func fetchSenderInfo(groupMemberId: Int64, from db: Database) throws -> SenderInfo {
         var partnerName = ""
-        var senderPhone = ""
+        var senderPhone: String? = nil
 
         if let memberJid: String = try Row.fetchOne(db, sql: """
             SELECT ZMEMBERJID FROM ZWAGROUPMEMBER WHERE Z_PK = ?
