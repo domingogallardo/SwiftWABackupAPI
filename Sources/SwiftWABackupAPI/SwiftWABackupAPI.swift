@@ -63,19 +63,6 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     }
 }
 
-
-struct DatabaseUtils {
-    static func connectToDatabase(at path: String) -> DatabaseQueue? {
-        do {
-            let dbQueue = try DatabaseQueue(path: path)
-            return dbQueue
-        } catch {
-            print("Cannot connect to db at path: \(path). Error: \(error)")
-            return nil
-        }
-    }
-}
-
 public class WABackup {
 
     let phoneBackup = BackupManager()
@@ -108,7 +95,7 @@ public class WABackup {
             return false
         }
 
-        guard let chatStorageDb = DatabaseUtils.connectToDatabase(at: chatStorageUrl.path) else {
+        guard let chatStorageDb = try? DatabaseQueue(path: chatStorageUrl.path) else {
             print("Error: Cannot connect to ChatStorage.sqlite file")
             return false
         }
