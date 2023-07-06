@@ -47,7 +47,7 @@ public struct IPhoneBackup {
         let manifestDBPath = backupUrl.path
 
         // Attempt to connect to the Manifest.db
-        guard let manifestDb = DatabaseUtils.connectToDatabase(at: manifestDBPath) else {
+        guard let manifestDb = try? DatabaseQueue(path: manifestDBPath) else {
             return nil
         }
 
