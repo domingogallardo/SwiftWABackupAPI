@@ -76,16 +76,12 @@ struct DatabaseUtils {
     }
 }
 
-public struct ChatDb {
-    let database: DatabaseQueue
-    init(database: DatabaseQueue) {
-        self.database = database
-    }
-}
-
 public class WABackup {
 
     let phoneBackup = BackupManager()
+    
+    // We allow to connect to more than one ChatStorage.sqlite file at the same time
+    // The key is the backup identifier
     private var chatDatabases: [String: DatabaseQueue] = [:]
 
     public init() {}    
@@ -95,18 +91,17 @@ public class WABackup {
         return phoneBackup.hasLocalBackups()
     }
 
-    /* 
-     The function needs permission to access ~/Library/Application Support/MobileSync/Backup/
-     Go to System Preferences -> Security & Privacy -> Full Disk Access
-    */
+    
+    // The function needs permission to access ~/Library/Application Support/MobileSync/Backup/
+    // Go to System Preferences -> Security & Privacy -> Full Disk Access
     public func getLocalBackups() -> [IPhoneBackup] {
         return phoneBackup.getLocalBackups()
     }
 
-    /*
-     This function obtain the URL of the ChatStorage.sqlite file in a backup and
-     associates it with the backup identifier.
-    */
+    
+    // Obtains the URL of the ChatStorage.sqlite file in a backup and
+    // associates it with the backup identifier. The API can be connected to
+    // more than one ChatStorage.sqlite file at the same time.
     public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) -> Bool {
         guard let chatStorageUrl = iPhoneBackup.getUrl(relativePath: "ChatStorage.sqlite") else {
             print("Error: No ChatStorage.sqlite file found in backup")
@@ -146,6 +141,8 @@ public class WABackup {
         return messages.sorted { $0.date > $1.date }
     }
 
+    // Private functions
+
     private func fetchChats(from db: DatabaseQueue) -> [ChatInfo] {
         var chatInfos: [ChatInfo] = []
         do {
@@ -171,6 +168,44 @@ public class WABackup {
             return []
         }
     }
+
+    private func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) -> ChatInfo? {
+        var chatInfo: ChatInfo?
+        do {
+            try dbQueue.read { db in
+                if let chatRow = try Row.fetchOne(db, sql: """
+                    SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME, ZMESSAGECOUNTER, ZLASTMESSAGEDATE
+                    FROM ZWACHATSESSION
+                    WHERE Z_PK = ?
+                    """, arguments: [id]) {
+
+                    let chatId = chatRow["Z_PK"] as? Int ?? 0
+                    let name = chatRow["ZPARTNERNAME"] as? String ?? ""
+                    let contactJid = chatRow["ZCONTACTJID"] as? String ?? ""
+                    let numberMessages = chatRow["ZMESSAGECOUNTER"] as? Int ?? 0
+                    let lastMessageDate = convertTimestampToDate(timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
+                    
+                    chatInfo = ChatInfo(id: chatId, contactJid: contactJid, name: name, 
+                                        numberMessages: numberMessages, lastMessageDate: lastMessageDate)
+                }
+            }
+            return chatInfo
+        } catch {
+            print("Database access error: \(error)")
+            return nil
+        }
+    }
+
+
+    private func convertTimestampToDate(timestamp: Any) -> Date {
+        if let timestamp = timestamp as? Double {
+            return Date(timeIntervalSinceReferenceDate: timestamp)
+        } else if let timestamp = timestamp as? Int64 {
+            return Date(timeIntervalSinceReferenceDate: Double(timestamp))
+        }
+        return Date(timeIntervalSinceReferenceDate: 0)
+    }
+
 
     private func fetchChatMessages(chatId: Int, type: ChatInfo.ChatType, directoryToSaveMedia: URL, 
                                     iPhoneBackup: IPhoneBackup, from dbQueue: DatabaseQueue) -> [MessageInfo] {
@@ -243,31 +278,51 @@ public class WABackup {
         }
     }
 
-    private func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) -> ChatInfo? {
-        var chatInfo: ChatInfo?
-        do {
-            try dbQueue.read { db in
-                if let chatRow = try Row.fetchOne(db, sql: """
-                    SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME, ZMESSAGECOUNTER, ZLASTMESSAGEDATE
-                    FROM ZWACHATSESSION
-                    WHERE Z_PK = ?
-                    """, arguments: [id]) {
+    typealias SenderInfo = (senderName: String, senderPhone: String?)
 
-                    let chatId = chatRow["Z_PK"] as? Int ?? 0
-                    let name = chatRow["ZPARTNERNAME"] as? String ?? ""
-                    let contactJid = chatRow["ZCONTACTJID"] as? String ?? ""
-                    let numberMessages = chatRow["ZMESSAGECOUNTER"] as? Int ?? 0
-                    let lastMessageDate = convertTimestampToDate(timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
-                    
-                    chatInfo = ChatInfo(id: chatId, contactJid: contactJid, name: name, 
-                                        numberMessages: numberMessages, lastMessageDate: lastMessageDate)
-                }
-            }
-            return chatInfo
-        } catch {
-            print("Database access error: \(error)")
-            return nil
+    // Returns the sender name and phone number
+    // from a group member id, available in group chats
+    private func fetchSenderInfo(groupMemberId: Int64, from db: Database) throws -> SenderInfo {
+        var partnerName = ""
+        var senderPhone: String? = nil
+
+        if let memberJid: String = try Row.fetchOne(db, sql: """
+            SELECT ZMEMBERJID FROM ZWAGROUPMEMBER WHERE Z_PK = ?
+            """, arguments: [groupMemberId])?["ZMEMBERJID"] {
+
+            senderPhone = extractPhone(from: memberJid)
+            partnerName = try fetchPartnerName(for: memberJid, from: db)
+        }    
+
+        return (partnerName, senderPhone)
+    }
+
+    // Returns the sender name and phone number from a JID 
+    // of the form: 34555931253@s.whatsapp.net, available in individual chats
+    private func fetchSenderInfo(fromJid: String, from db: Database) throws -> SenderInfo {
+        let senderPhone = extractPhone(from: fromJid)        
+        let partnerName = try fetchPartnerName(for: fromJid, from: db)
+        return (partnerName, senderPhone)
+    }
+
+    // Returns the contact name associated with a JID of the form: 34555931253@s.whatsapp.net
+    private func fetchPartnerName(for contactJid: String, from db: Database) throws -> String {
+        if let name: String = try Row.fetchOne(db, sql: """
+            SELECT ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID = ?
+            """, arguments: [contactJid])?["ZPARTNERNAME"] {
+            return name
+        } else if let name: String = try Row.fetchOne(db, sql: """
+            SELECT ZPUSHNAME FROM ZWAPROFILEPUSHNAME WHERE ZJID = ?
+            """, arguments: [contactJid])?["ZPUSHNAME"] {
+            return "~"+name
+        } else {
+            return "Unknown"
         }
+    }
+
+    // Returns the first part of ah JID of the form:  34555931253@s.whatsapp.net
+    private func extractPhone(from jid: String?) -> String {
+        return jid?.components(separatedBy: "@").first ?? ""
     }
 
     private func fetchReplyMessageId(mediaItemId: Int64, from db: Database) throws -> Int64? {
@@ -283,15 +338,6 @@ public class WABackup {
             } 
         }
         return nil
-    }
-
-    private func fetchCaption(mediaItemId: Int64, from db: Database) throws -> String? {
-        let mediaItemRow = try Row.fetchOne(db, sql: """
-            SELECT ZTITLE
-            FROM ZWAMEDIAITEM
-            WHERE Z_PK = ?
-            """, arguments: [mediaItemId])
-        return mediaItemRow?["ZTITLE"] as? String
     }
 
     // Returns the stanza id of the message that is being replied to
@@ -346,60 +392,13 @@ public class WABackup {
         }
     }
 
-    typealias SenderInfo = (senderName: String, senderPhone: String?)
-
-    // Returns the sender name and phone number
-    // from a group member id, available in group chats
-    private func fetchSenderInfo(groupMemberId: Int64, from db: Database) throws -> SenderInfo {
-        var partnerName = ""
-        var senderPhone: String? = nil
-
-        if let memberJid: String = try Row.fetchOne(db, sql: """
-            SELECT ZMEMBERJID FROM ZWAGROUPMEMBER WHERE Z_PK = ?
-            """, arguments: [groupMemberId])?["ZMEMBERJID"] {
-
-            senderPhone = extractPhone(from: memberJid)
-            partnerName = try fetchPartnerName(for: memberJid, from: db)
-        }    
-
-        return (partnerName, senderPhone)
-    }
-
-    // Returns the sender name and phone number from a JID 
-    // of the form: 34555931253@s.whatsapp.net, available in individual chats
-    private func fetchSenderInfo(fromJid: String, from db: Database) throws -> SenderInfo {
-        let senderPhone = extractPhone(from: fromJid)        
-        let partnerName = try fetchPartnerName(for: fromJid, from: db)
-        return (partnerName, senderPhone)
-    }
-
-    // Returns the contact name associated with a JID of the form: 34555931253@s.whatsapp.net
-    private func fetchPartnerName(for contactJid: String, from db: Database) throws -> String {
-        if let name: String = try Row.fetchOne(db, sql: """
-            SELECT ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID = ?
-            """, arguments: [contactJid])?["ZPARTNERNAME"] {
-            return name
-        } else if let name: String = try Row.fetchOne(db, sql: """
-            SELECT ZPUSHNAME FROM ZWAPROFILEPUSHNAME WHERE ZJID = ?
-            """, arguments: [contactJid])?["ZPUSHNAME"] {
-            return "~"+name
-        } else {
-            return "Unknown"
-        }
-    }
-
-    // Returns the first part of ah JID of the form:  34555931253@s.whatsapp.net
-    private func extractPhone(from jid: String?) -> String {
-        return jid?.components(separatedBy: "@").first ?? ""
-    }
-
-    private func convertTimestampToDate(timestamp: Any) -> Date {
-        if let timestamp = timestamp as? Double {
-            return Date(timeIntervalSinceReferenceDate: timestamp)
-        } else if let timestamp = timestamp as? Int64 {
-            return Date(timeIntervalSinceReferenceDate: Double(timestamp))
-        }
-        return Date(timeIntervalSinceReferenceDate: 0)
+    private func fetchCaption(mediaItemId: Int64, from db: Database) throws -> String? {
+        let mediaItemRow = try Row.fetchOne(db, sql: """
+            SELECT ZTITLE
+            FROM ZWAMEDIAITEM
+            WHERE Z_PK = ?
+            """, arguments: [mediaItemId])
+        return mediaItemRow?["ZTITLE"] as? String
     }
 
     private func fetchMediaFileName(forMessageId messageId: Int, from iPhoneBackup: IPhoneBackup, 
