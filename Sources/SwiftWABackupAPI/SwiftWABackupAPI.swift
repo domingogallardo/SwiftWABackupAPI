@@ -43,6 +43,11 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
         }
 }
 
+public struct Reaction: Encodable {
+    public let emoji: String
+    public let senderPhone: String
+}
+
 public struct MessageInfo: CustomStringConvertible, Encodable {
     public let id: Int
     public let message: String?
@@ -52,7 +57,8 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     public var caption: String?
     public var replyTo: Int?
     public var mediaFileName: String?
-    
+    public var reactions: [Reaction]?
+
     public var description: String {
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
@@ -207,6 +213,7 @@ public class WABackup {
                 
                 for messageRow in chatMessages {
                     let messageId = messageRow["Z_PK"] as? Int64 ?? 0
+                    print("Message id: \(messageId)")
                     let messageText = messageRow["ZTEXT"] as? String
                     let messageDate = convertTimestampToDate(timestamp: messageRow["ZMESSAGEDATE"] as Any)
 
@@ -254,6 +261,10 @@ public class WABackup {
 
                     messageInfo.mediaFileName = try fetchMediaFileName(forMessageId: messageInfo.id, from: iPhoneBackup, 
                                                                         toDirectory: directoryToSaveMedia, from: db)
+
+                    // extract the reactions
+
+                    messageInfo.reactions = try fetchReactions(forMessageId: messageInfo.id, from: db)
 
                     messages.append(messageInfo)
                 }
@@ -413,4 +424,101 @@ public class WABackup {
         }
         return mediaLocalPath
     } 
+
+    private func fetchReactions(forMessageId messageId: Int, from db: Database) throws -> [Reaction]? {
+        if let reactionsRow = try Row.fetchOne(db, sql: """
+            SELECT ZRECEIPTINFO
+            FROM ZWAMESSAGEINFO
+            WHERE ZMESSAGE = ?
+            """, arguments: [messageId]) {
+            if let reactionsData = reactionsRow["ZRECEIPTINFO"] as? Data {
+                return extractReactions(from: reactionsData)
+            }
+        }
+        return nil
+    }
+
+    // Extracts the reactions of a message from a byte array by scanning for emojis
+    // and extracting the phone number of the sender that is present just before the emoji.
+    private func extractReactions(from data: Data) -> [Reaction]? {
+        var reactions: [Reaction] = []
+        let dataArray = [UInt8](data)
+        var i = 0
+
+        while i < dataArray.count {
+            let length = Int(dataArray[i])
+            i += 1
+            let emojiEndIndex = i + length
+            if emojiEndIndex <= dataArray.count {
+                let emojiData = dataArray[i..<emojiEndIndex]
+                if let emojiStr = String(bytes: emojiData, encoding: .utf8), isSingleEmoji(emojiStr) {
+                    let senderPhone = extractPhoneNumber(from: dataArray, endIndex: i-2)
+                    reactions.append(Reaction(emoji: emojiStr, senderPhone: senderPhone ?? "Me"))
+                    i = emojiEndIndex
+                }
+            }
+        }
+        return reactions.isEmpty ? nil : reactions
+    }
+
+    // Checks if a string is a single emoji.
+    // The emoji can be a single character or a sequence of characters (e.g. 👨‍👩‍👧‍👦)
+    private func isSingleEmoji(_ string: String) -> Bool {
+        guard string.count == 1, let character = string.first else {
+            // The string has more than one character or is empty
+            return false
+        }
+        
+        let scalars = character.unicodeScalars
+        guard let firstScalar = scalars.first else {
+            // The character has no scalars
+            return false
+        }
+
+        return firstScalar.properties.isEmoji && 
+            (firstScalar.properties.isEmojiPresentation || scalars.contains { $0.properties.isEmojiPresentation })
+    }
+
+    // Extracts the phone number from a byte array of the form: phone-number@s.whatsapp.net
+    // The endIndex is the index of the last byte of the phone number
+    private func extractPhoneNumber(from data: [UInt8], endIndex: Int) -> String? {
+        let senderSuffix = "@s.whatsapp.net"
+        let suffixData = Array(senderSuffix.utf8)
+        var endIndex = endIndex - 1
+        
+        // Check if the senderSuffix is present
+        var suffixEndIndex = suffixData.count - 1
+        while suffixEndIndex >= 0 && endIndex >= 0 {
+            if data[endIndex] != suffixData[suffixEndIndex] {
+                return nil
+            }
+            suffixEndIndex -= 1
+            endIndex -= 1
+        }
+
+        // The senderSuffix was not fully found
+        if suffixEndIndex >= 0 {
+            return nil
+        }
+
+        // Extract the phone number
+        var phoneNumberData: [UInt8] = []
+        while endIndex >= 0 {
+            let char = data[endIndex]
+            if char < 48 || char > 57 { // ASCII values for '0' is 48 and '9' is 57
+                break
+            }
+            phoneNumberData.append(char)
+            endIndex -= 1
+        }
+
+        // The phone number was not found
+        if phoneNumberData.isEmpty {
+            return nil
+        }
+
+        // Convert the phone number data to a string
+        let phoneNumber = String(bytes: phoneNumberData.reversed(), encoding: .utf8)
+        return phoneNumber
+    }
 }
