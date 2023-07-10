@@ -63,10 +63,15 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     }
 }
 
+public protocol WABackupDelegate: AnyObject {
+    func didWriteMediaFile(fileName: String)
+}
+
 public class WABackup {
 
     let phoneBackup = BackupManager()
-    
+    public weak var delegate: WABackupDelegate?
+
     // We allow to connect to more than one ChatStorage.sqlite file at the same time
     // The key is the backup identifier
     private var chatDatabases: [String: DatabaseQueue] = [:]
@@ -254,6 +259,11 @@ public class WABackup {
 
                     messageInfo.mediaFileName = try fetchMediaFileName(forMessageId: messageInfo.id, from: iPhoneBackup, 
                                                                         toDirectory: directoryToSaveMedia, from: db)
+
+                    // call the delegate function after the media file is written
+                    if let mediaFileName = messageInfo.mediaFileName {
+                        delegate?.didWriteMediaFile(fileName: mediaFileName)
+                    }
 
                     messages.append(messageInfo)
                 }
