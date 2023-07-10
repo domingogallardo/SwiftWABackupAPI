@@ -385,7 +385,10 @@ public class WABackup {
             FROM ZWAMEDIAITEM
             WHERE Z_PK = ?
             """, arguments: [mediaItemId])
-        return mediaItemRow?["ZTITLE"] as? String
+        if let caption = mediaItemRow?["ZTITLE"] as? String, !caption.isEmpty {
+            return caption
+        }
+        return nil
     }
 
     private func fetchMediaFileName(forMessageId messageId: Int, from iPhoneBackup: IPhoneBackup, 
