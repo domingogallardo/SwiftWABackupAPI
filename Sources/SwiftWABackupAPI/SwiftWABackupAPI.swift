@@ -213,7 +213,6 @@ public class WABackup {
                 
                 for messageRow in chatMessages {
                     let messageId = messageRow["Z_PK"] as? Int64 ?? 0
-                    print("Message id: \(messageId)")
                     let messageText = messageRow["ZTEXT"] as? String
                     let messageDate = convertTimestampToDate(timestamp: messageRow["ZMESSAGEDATE"] as Any)
 
