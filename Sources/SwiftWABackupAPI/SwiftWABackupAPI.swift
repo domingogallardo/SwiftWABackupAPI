@@ -446,7 +446,7 @@ public class WABackup {
         }
         return nil
     }
-
+    
     // Extracts the reactions of a message from a byte array by scanning for emojis
     // and extracting the phone number of the sender that is present just before the emoji.
     private func extractReactions(from data: Data) -> [Reaction]? {
@@ -455,20 +455,28 @@ public class WABackup {
         var i = 0
 
         while i < dataArray.count {
-            let length = Int(dataArray[i])
-            i += 1
-            let emojiEndIndex = i + length
-            if emojiEndIndex <= dataArray.count {
-                let emojiData = dataArray[i..<emojiEndIndex]
-                if let emojiStr = String(bytes: emojiData, encoding: .utf8), isSingleEmoji(emojiStr) {
-                    let senderPhone = extractPhoneNumber(from: dataArray, endIndex: i-2)
-                    reactions.append(Reaction(emoji: emojiStr, senderPhone: senderPhone ?? "Me"))
-                    i = emojiEndIndex
+            // Before the emoji there is a byte with the length of the emoji
+            let emojiLength = Int(dataArray[i])
+            if emojiLength <= 28 {
+                // The maximum possible length of an emoji is 28 bytes (e.g. 👨‍👩‍👧‍👦)
+                i += 1
+                let emojiEndIndex = i + emojiLength
+                if emojiEndIndex <= dataArray.count {
+                    let emojiData = dataArray[i..<emojiEndIndex]
+                    // Check if the bytes are a single emoji
+                    if let emojiStr = String(bytes: emojiData, encoding: .utf8), isSingleEmoji(emojiStr) {
+                        let senderPhone = extractPhoneNumber(from: dataArray, endIndex: i-2)
+                        reactions.append(Reaction(emoji: emojiStr, senderPhone: senderPhone ?? "Me"))
+                        i = emojiEndIndex - 1
+                    }
                 }
+            } else {
+                i += 1 
             }
         }
         return reactions.isEmpty ? nil : reactions
     }
+
 
     // Checks if a string is a single emoji.
     // The emoji can be a single character or a sequence of characters (e.g. 👨‍👩‍👧‍👦)
