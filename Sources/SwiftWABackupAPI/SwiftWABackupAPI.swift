@@ -234,7 +234,6 @@ public class WABackup {
                             if let groupMemberId = groupMemberId {
                                 (senderName, senderPhone) = try fetchSenderInfo(groupMemberId: groupMemberId, from: db)
                             }
-                            // If not exists a group member id, it is a message sent by me
                         case .individual:
                             let fromJid = messageRow["ZFROMJID"] as? String
                             if let fromJid = fromJid {
@@ -290,7 +289,7 @@ public class WABackup {
     // Returns the sender name and phone number
     // from a group member id, available in group chats
     private func fetchSenderInfo(groupMemberId: Int64, from db: Database) throws -> SenderInfo {
-        var partnerName = ""
+        var senderName = ""
         var senderPhone: String? = nil
 
         if let memberJid: String = try Row.fetchOne(db, sql: """
@@ -298,10 +297,10 @@ public class WABackup {
             """, arguments: [groupMemberId])?["ZMEMBERJID"] {
 
             senderPhone = extractPhone(from: memberJid)
-            partnerName = try fetchSenderName(for: memberJid, from: db)
+            senderName = try fetchSenderName(for: memberJid, from: db)
         }    
 
-        return (partnerName, senderPhone)
+        return (senderName, senderPhone)
     }
 
     // Returns the sender name and phone number from a JID 
