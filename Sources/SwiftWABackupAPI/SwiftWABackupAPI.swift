@@ -298,7 +298,7 @@ public class WABackup {
             """, arguments: [groupMemberId])?["ZMEMBERJID"] {
 
             senderPhone = extractPhone(from: memberJid)
-            partnerName = try fetchPartnerName(for: memberJid, from: db)
+            partnerName = try fetchSenderName(for: memberJid, from: db)
         }    
 
         return (partnerName, senderPhone)
@@ -308,12 +308,12 @@ public class WABackup {
     // of the form: 34555931253@s.whatsapp.net, available in individual chats
     private func fetchSenderInfo(fromJid: String, from db: Database) throws -> SenderInfo {
         let senderPhone = extractPhone(from: fromJid)        
-        let partnerName = try fetchPartnerName(for: fromJid, from: db)
-        return (partnerName, senderPhone)
+        let senderName = try fetchSenderName(for: fromJid, from: db)
+        return (senderName, senderPhone)
     }
 
     // Returns the contact name associated with a JID of the form: 34555931253@s.whatsapp.net
-    private func fetchPartnerName(for contactJid: String, from db: Database) throws -> String {
+    private func fetchSenderName(for contactJid: String, from db: Database) throws -> String {
         if let name: String = try Row.fetchOne(db, sql: """
             SELECT ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID = ?
             """, arguments: [contactJid])?["ZPARTNERNAME"] {
