@@ -235,8 +235,8 @@ public class WABackup {
                                 (senderName, senderPhone) = try fetchSenderInfo(groupMemberId: groupMemberId, from: db)
                             }
                         case .individual:
-                            // We don't use the ZFROMJID field because there are cases where is 
-                            // a broadcast message and the ZFROMJID is not the sender
+                            // We don't use the ZFROMJID field because there are cases where 
+                            // is a broadcast message and the ZFROMJID is of the form: number@broadcast
                             (senderName, senderPhone) = try fetchSenderInfo(fromChatSession: chatId, from: db)
                     }
                     messageInfo.senderName = senderName
@@ -291,14 +291,24 @@ public class WABackup {
         var senderName = ""
         var senderPhone: String? = nil
 
-        if let memberJid: String = try Row.fetchOne(db, sql: """
-            SELECT ZMEMBERJID FROM ZWAGROUPMEMBER WHERE Z_PK = ?
-            """, arguments: [groupMemberId])?["ZMEMBERJID"] {
-
-            senderPhone = extractPhone(from: memberJid)
-            senderName = try fetchSenderName(for: memberJid, from: db)
+        if let memberRow = try Row.fetchOne(db, sql: """
+            SELECT ZMEMBERJID, ZCONTACTNAME FROM ZWAGROUPMEMBER WHERE Z_PK = ?
+            """, arguments: [groupMemberId]) {
+            if let memberJid = memberRow["ZMEMBERJID"] as? String {
+                senderPhone = extractPhone(from: memberJid)
+                // First try to get the name from the JID
+                if let nameFromJid = try? fetchSenderName(for: memberJid, from: db) {
+                    senderName = nameFromJid
+                }  else {
+                    // If the name is not available in the JID, try to get it from the group id
+                    if let nameFromGroupId = memberRow["ZCONTACTNAME"] as? String {
+                        senderName = nameFromGroupId
+                    } else {
+                        senderName = "Unknown"
+                    }
+                }
+            }
         }    
-
         return (senderName, senderPhone)
     }
 
@@ -321,7 +331,7 @@ public class WABackup {
     }
 
     // Returns the contact name associated with a JID of the form: 34555931253@s.whatsapp.net
-    private func fetchSenderName(for contactJid: String, from db: Database) throws -> String {
+    private func fetchSenderName(for contactJid: String, from db: Database) throws -> String? {
         if let name: String = try Row.fetchOne(db, sql: """
             SELECT ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID = ?
             """, arguments: [contactJid])?["ZPARTNERNAME"] {
@@ -331,7 +341,7 @@ public class WABackup {
             """, arguments: [contactJid])?["ZPUSHNAME"] {
             return "~"+name
         } else {
-            return "Unknown"
+            return nil
         }
     }
 
