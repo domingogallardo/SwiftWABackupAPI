@@ -235,10 +235,9 @@ public class WABackup {
                                 (senderName, senderPhone) = try fetchSenderInfo(groupMemberId: groupMemberId, from: db)
                             }
                         case .individual:
-                            let fromJid = messageRow["ZFROMJID"] as? String
-                            if let fromJid = fromJid {
-                                (senderName, senderPhone) = try fetchSenderInfo(fromJid: fromJid, from: db)
-                            }
+                            // We don't use the ZFROMJID field because there are cases where is 
+                            // a broadcast message and the ZFROMJID is not the sender
+                            (senderName, senderPhone) = try fetchSenderInfo(fromChatSession: chatId, from: db)
                     }
                     messageInfo.senderName = senderName
                     messageInfo.senderPhone = senderPhone
@@ -303,11 +302,21 @@ public class WABackup {
         return (senderName, senderPhone)
     }
 
-    // Returns the sender name and phone number from a JID 
-    // of the form: 34555931253@s.whatsapp.net, available in individual chats
-    private func fetchSenderInfo(fromJid: String, from db: Database) throws -> SenderInfo {
-        let senderPhone = extractPhone(from: fromJid)        
-        let senderName = try fetchSenderName(for: fromJid, from: db)
+    // Returns the sender name and phone number from a chat id, available in individual chats
+    private func fetchSenderInfo(fromChatSession chatId: Int, from db: Database) throws -> SenderInfo {
+        var senderName = ""
+        var senderPhone: String? = nil
+
+        if let sessionRow = try Row.fetchOne(db, sql: """
+            SELECT ZCONTACTJID, ZPARTNERNAME FROM ZWACHATSESSION WHERE Z_PK = ?
+            """, arguments: [chatId]) {
+            if let contactJid = sessionRow["ZCONTACTJID"] as? String {
+                senderPhone = extractPhone(from: contactJid)
+            }
+            if let partnerName = sessionRow["ZPARTNERNAME"] as? String {
+                senderName = partnerName
+            }
+        }
         return (senderName, senderPhone)
     }
 
