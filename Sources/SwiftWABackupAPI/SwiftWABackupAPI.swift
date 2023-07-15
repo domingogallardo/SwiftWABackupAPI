@@ -309,30 +309,6 @@ public class WABackup {
         return (senderName, senderPhone)
     }
 
-    /*
-    private func fetchSenderInfo(groupMemberId: Int64, from db: Database) throws -> SenderInfo {
-        var senderName = ""
-        var senderPhone: String? = nil
-
-        if let memberRow = try Row.fetchOne(db, sql: """
-            SELECT ZMEMBERJID, ZCONTACTNAME FROM ZWAGROUPMEMBER WHERE Z_PK = ?
-            """, arguments: [groupMemberId]) {
-            if let memberJid = memberRow["ZMEMBERJID"] as? String {
-                senderPhone = extractPhone(from: memberJid)
-                if let nameFromJid = try? fetchSenderName(for: memberJid, from: db) {
-                    senderName = nameFromJid
-                }  else {
-                    if let nameFromGroupId = memberRow["ZCONTACTNAME"] as? String {
-                        senderName = nameFromGroupId
-                    } else {
-                        senderName = "Unknown"
-                    }
-                }
-            }
-        }    
-        return (senderName, senderPhone)
-    }*/
-
     // Returns the sender name and phone number from a chat id, available in individual chats
     private func fetchSenderInfo(fromChatSession chatId: Int, from db: Database) throws -> SenderInfo {
         var senderName = ""
