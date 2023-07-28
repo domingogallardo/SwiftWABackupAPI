@@ -50,6 +50,7 @@ public struct Reaction: Encodable {
 
 public struct MessageInfo: CustomStringConvertible, Encodable {
     public let id: Int
+    public let chatId: Int
     public let message: String?
     public let date: Date
     public var senderName: String = ""
@@ -221,7 +222,7 @@ public class WABackup {
                     let messageText = messageRow["ZTEXT"] as? String
                     let messageDate = convertTimestampToDate(timestamp: messageRow["ZMESSAGEDATE"] as Any)
 
-                    var messageInfo = MessageInfo(id: Int(messageId), message: messageText, date: messageDate)
+                    var messageInfo = MessageInfo(id: Int(messageId), chatId: chatId, message: messageText, date: messageDate)
 
                     // obtain the sender name and phone number
 
@@ -311,7 +312,7 @@ public class WABackup {
 
     // Returns the sender name and phone number from a chat id, available in individual chats
     private func fetchSenderInfo(fromChatSession chatId: Int, from db: Database) throws -> SenderInfo {
-        var senderName = ""
+        var senderName = "Unknown"
         var senderPhone: String? = nil
 
         if let sessionRow = try Row.fetchOne(db, sql: """
