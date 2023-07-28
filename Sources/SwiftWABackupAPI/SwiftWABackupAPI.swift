@@ -70,6 +70,17 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     }
 }
 
+public struct ProfileInfo: CustomStringConvertible, Encodable {
+    public let phone: String
+    public let name: String
+    public var photoFileName: String?
+    public var thumbnailFileName: String?
+
+    public var description: String {
+        return "Profile: Phone - \(phone), Name - \(name)"
+    }
+}
+
 public protocol WABackupDelegate: AnyObject {
     func didWriteMediaFile(fileName: String)
 }
@@ -138,6 +149,20 @@ public class WABackup {
         let messages = fetchChatMessages(chatId: chatId, type: chatInfo.chatType, directoryToSaveMedia: directory, 
                                         iPhoneBackup: iPhoneBackup, from: db)
         return messages.sorted { $0.date > $1.date }
+    }
+
+    public func getProfiles(from iPhoneBackup: IPhoneBackup) -> [ProfileInfo] {
+        guard let db = chatDatabases[iPhoneBackup.identifier] else {
+            print("Error: ChatStorage.sqlite database is not connected for this backup")
+            return []
+        }
+        let chats = fetchChats(from: db)
+        var profiles: [ProfileInfo] = []
+        for chat in chats {
+            let profile = ProfileInfo(phone: chat.contactJid, name: chat.name)
+            profiles.append(profile)
+        }
+        return profiles
     }
 
     // Private functions
