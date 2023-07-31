@@ -60,6 +60,7 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     public var replyTo: Int?
     public var mediaFileName: String?
     public var reactions: [Reaction]?
+    public var error: String?
 
     public var description: String {
         let dateFormatter = DateFormatter()
@@ -283,22 +284,30 @@ public class WABackup {
                         }
                     }
 
-                    // if it is an image with a caption, get the caption
+                    // if it is an image, extract the image and the caption
 
                     if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
-                        if let caption = try fetchCaption(mediaItemId: mediaItemId, from: db) {
-                            messageInfo.caption = caption
+                        if let mediaFileName = try fetchMediaFileName(forMessageId: messageInfo.id, from: iPhoneBackup, 
+                                                                        toDirectory: directoryToSaveMedia, from: db) {
+                            
+                            switch mediaFileName {
+                                case .fileName(let fileName):
+                                    messageInfo.mediaFileName = fileName
+                                case .error(let error):
+                                    messageInfo.error = error
+                                    print("Error: \(error)")
+                            }
+
+                            // call the delegate function after the media file is written
+                            if let mediaFileName = messageInfo.mediaFileName {
+                                delegate?.didWriteMediaFile(fileName: mediaFileName)
+                            }
+
+                            if let caption = try fetchCaption(mediaItemId: mediaItemId, from: db) {
+                                messageInfo.caption = caption
+                            }
+
                         }
-                    }
-
-                    // extract the media and update the media file name
-
-                    messageInfo.mediaFileName = try fetchMediaFileName(forMessageId: messageInfo.id, from: iPhoneBackup, 
-                                                                        toDirectory: directoryToSaveMedia, from: db)
-
-                    // call the delegate function after the media file is written
-                    if let mediaFileName = messageInfo.mediaFileName {
-                        delegate?.didWriteMediaFile(fileName: mediaFileName)
                     }
 
                     // extract the reactions
@@ -459,28 +468,29 @@ public class WABackup {
         return nil
     }
 
-    private func fetchMediaFileName(forMessageId messageId: Int, from iPhoneBackup: IPhoneBackup, 
-                                    toDirectory directoryURL: URL, from db: Database) throws ->  String? {
-        var mediaLocalPath: String? = nil
-        if let messageRow = try Row.fetchOne(db, sql: "SELECT ZMEDIAITEM FROM ZWAMESSAGE WHERE Z_PK = ?", arguments: [messageId]) {
-                if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
-                    let mediaItemRow = try Row.fetchOne(db, sql: "SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM WHERE Z_PK = ?", arguments: [mediaItemId])
-                    mediaLocalPath = mediaItemRow?["ZMEDIALOCALPATH"] as? String
-                }
-        }
+    enum MediaFileName {
+        case fileName(String)
+        case error(String)
+    }
 
-        do {
-            if let mediaLocalPath = mediaLocalPath, let sourceFileUrl = iPhoneBackup.getUrl(relativePath: mediaLocalPath) {
-                let mediaFileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
-                let targetFileUrl = directoryURL.appendingPathComponent(mediaFileName)
-                try FileManager.default.copyItem(at: sourceFileUrl, to: targetFileUrl)
-                return targetFileUrl.lastPathComponent
+    private func fetchMediaFileName(forMessageId messageId: Int, from iPhoneBackup: IPhoneBackup, 
+                                    toDirectory directoryURL: URL, from db: Database) throws -> MediaFileName? {
+        if let messageRow = try Row.fetchOne(db, sql: "SELECT ZMEDIAITEM FROM ZWAMESSAGE WHERE Z_PK = ?", arguments: [messageId]),
+        let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64,
+        let mediaItemRow = try Row.fetchOne(db, sql: "SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM WHERE Z_PK = ?", arguments: [mediaItemId]),
+        let mediaLocalPath = mediaItemRow["ZMEDIALOCALPATH"] as? String {
+
+            guard let sourceFileUrl = iPhoneBackup.getUrl(relativePath: mediaLocalPath) else {
+                return MediaFileName.error("Media file not found: \(mediaLocalPath)")
             }
-        } catch {
-            print("Error copying media file: \(error)")
+
+            let targetFileUrl = directoryURL.appendingPathComponent(URL(fileURLWithPath: mediaLocalPath).lastPathComponent)
+            try FileManager.default.copyItem(at: sourceFileUrl, to: targetFileUrl)
+
+            return MediaFileName.fileName(targetFileUrl.lastPathComponent)
         }
-        return mediaLocalPath
-    } 
+        return nil
+    }
 
     private func fetchReactions(forMessageId messageId: Int, from db: Database) throws -> [Reaction]? {
         if let reactionsRow = try Row.fetchOne(db, sql: """
