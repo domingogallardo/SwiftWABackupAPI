@@ -53,7 +53,8 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     public let chatId: Int
     public let message: String?
     public let date: Date
-    public var senderName: String = ""
+    public var isFromMe: Bool 
+    public var senderName: String?
     public var senderPhone: String?
     public var caption: String?
     public var replyTo: Int?
@@ -66,7 +67,7 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
         dateFormatter.timeStyle = .medium
         let localDateString = dateFormatter.string(from: date)
 
-        return "Message: ID - \(id), Sender - \(senderName), Message - \(message ?? ""), Date - \(localDateString)"
+        return "Message: ID - \(id), IsFromMe - \(isFromMe), Message - \(message ?? ""), Date - \(localDateString)"
     }
 }
 
@@ -237,7 +238,7 @@ public class WABackup {
         do {
             try dbQueue.read { db in
                 let chatMessages = try Row.fetchAll(db, sql: """
-                    SELECT ZWAMESSAGE.Z_PK, ZWAMESSAGE.ZTEXT, ZWAMESSAGE.ZMESSAGEDATE, ZWAMESSAGE.ZGROUPMEMBER, ZWAMESSAGE.ZFROMJID, ZWAMESSAGE.ZMEDIAITEM
+                    SELECT ZWAMESSAGE.Z_PK, ZWAMESSAGE.ZTEXT, ZWAMESSAGE.ZMESSAGEDATE, ZWAMESSAGE.ZGROUPMEMBER, ZWAMESSAGE.ZFROMJID, ZWAMESSAGE.ZMEDIAITEM, ZWAMESSAGE.ZISFROMME
                     FROM ZWAMESSAGE
                     WHERE ZWAMESSAGE.ZCHATSESSION = ?
                     """, arguments: [chatId])
@@ -246,27 +247,32 @@ public class WABackup {
                     let messageId = messageRow["Z_PK"] as? Int64 ?? 0
                     let messageText = messageRow["ZTEXT"] as? String
                     let messageDate = convertTimestampToDate(timestamp: messageRow["ZMESSAGEDATE"] as Any)
+                    let isFromMe = messageRow["ZISFROMME"] as? Int64 == 1
 
-                    var messageInfo = MessageInfo(id: Int(messageId), chatId: chatId, message: messageText, date: messageDate)
+                    var messageInfo = MessageInfo(id: Int(messageId), chatId: chatId, 
+                                                  message: messageText, date: messageDate, isFromMe: isFromMe)
 
-                    // obtain the sender name and phone number
+                    if !isFromMe {
 
-                    var senderName = "Me"
-                    var senderPhone: String? = nil
+                        // obtain the sender name and phone number
 
-                    switch type {
-                        case .group:
-                            let groupMemberId = messageRow["ZGROUPMEMBER"] as? Int64    
-                            if let groupMemberId = groupMemberId {
-                                (senderName, senderPhone) = try fetchSenderInfo(groupMemberId: groupMemberId, from: db)
-                            }
-                        case .individual:
-                            // We don't use the ZFROMJID field because there are cases where 
-                            // is a broadcast message and the ZFROMJID is of the form: number@broadcast
-                            (senderName, senderPhone) = try fetchSenderInfo(fromChatSession: chatId, from: db)
+                        switch type {
+                            case .group:
+                                let groupMemberId = messageRow["ZGROUPMEMBER"] as? Int64    
+                                if let groupMemberId = groupMemberId {
+                                    let (senderName, senderPhone) = try fetchSenderInfo(groupMemberId: groupMemberId, from: db)
+                                    messageInfo.senderName = senderName
+                                    messageInfo.senderPhone = senderPhone
+                                }
+                                
+                            case .individual:
+                                // We don't use the ZFROMJID field because there are cases where 
+                                // is a broadcast message and the ZFROMJID is of the form: number@broadcast
+                                let (senderName, senderPhone) = try fetchSenderInfo(fromChatSession: chatId, from: db)
+                                messageInfo.senderName = senderName
+                                messageInfo.senderPhone = senderPhone
+                        }
                     }
-                    messageInfo.senderName = senderName
-                    messageInfo.senderPhone = senderPhone
 
                     // if it is a reply update the id of the message that is replying to
 
@@ -309,13 +315,14 @@ public class WABackup {
         }
     }
 
-    typealias SenderInfo = (senderName: String, senderPhone: String?)
+    typealias SenderInfo = (senderName: String?, senderPhone: String?)
 
 
     // Returns the sender name and phone number
     // from a group member id, available in group chats
+    // of a message that is not from me
     private func fetchSenderInfo(groupMemberId: Int64, from db: Database) throws -> SenderInfo {
-        var senderName = "Unknown"
+        var senderName: String? = nil
         var senderPhone: String? = nil
 
         if let memberRow = try Row.fetchOne(db, sql: """
@@ -330,14 +337,14 @@ public class WABackup {
             // in the ZWAGROUPMEMBER table
             senderName = (try? fetchSenderName(for: memberJid, from: db))
                     ?? memberRow["ZCONTACTNAME"] as? String 
-                    ?? senderName
         }
         return (senderName, senderPhone)
     }
 
     // Returns the sender name and phone number from a chat id, available in individual chats
+    // of a message that is not from me
     private func fetchSenderInfo(fromChatSession chatId: Int, from db: Database) throws -> SenderInfo {
-        var senderName = "Unknown"
+        var senderName: String? = nil
         var senderPhone: String? = nil
 
         if let sessionRow = try Row.fetchOne(db, sql: """
