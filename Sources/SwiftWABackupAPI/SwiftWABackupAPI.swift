@@ -270,7 +270,6 @@ public class WABackup {
                                     messageInfo.mediaFileName = fileName
                                 case .error(let error):
                                     messageInfo.error = error
-                                    print("Error: \(error)")
                             }
 
                             // call the delegate function after the media file is written
@@ -294,7 +293,7 @@ public class WABackup {
             }
             return messages
         } catch {
-            print("Database access error: \(error)")
+            print("Error: \(error)")
             return []
         }
     }
