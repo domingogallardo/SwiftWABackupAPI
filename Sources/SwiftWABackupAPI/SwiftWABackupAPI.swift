@@ -48,6 +48,13 @@ public struct Reaction: Encodable {
     public let senderPhone: String
 }
 
+
+public struct MessageInfo: CustomStringConvertible, Encodable {
+    public let id: Int
+    public let chatId: Int
+    public let message: String?
+    public let date: Date
+    public let isFromMe: Bool 
 /*
 Type of messages supported:
   - Text (MessageType = 0)
@@ -60,15 +67,6 @@ Type of messages supported:
   - GIFs (MessageType = 11)
   - Sticker (MessageType = 15)
 */
-
-
-public struct MessageInfo: CustomStringConvertible, Encodable {
-    public let id: Int
-    public let chatId: Int
-    public let chatGroup: Bool
-    public let message: String?
-    public let date: Date
-    public let isFromMe: Bool 
     public let messageType: String
     public var senderName: String?
     public var senderPhone: String?
@@ -272,7 +270,6 @@ public class WABackup {
                     }
 
                     var messageInfo = MessageInfo(id: Int(messageId), chatId: chatId, 
-                                                  chatGroup: type == .group,
                                                   message: messageText, date: messageDate, isFromMe: isFromMe,
                                                   messageType: messageTypeStr)
 
@@ -307,10 +304,10 @@ public class WABackup {
                         }
                     }
 
-                    // if it is an image, extract the image and the caption
+                    // if it is an image, extract it, the thumbnail and the caption
 
                     if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
-                        if let mediaFileName = try fetchMediaFileName(forMessageId: messageInfo.id, from: iPhoneBackup, 
+                        if let mediaFileName = try fetchMediaFileName(forMediaItem: mediaItemId, from: iPhoneBackup, 
                                                                         toDirectory: directoryToSaveMedia, from: db) {
                             
                             switch mediaFileName {
@@ -495,12 +492,10 @@ public class WABackup {
         case error(String)
     }
 
-    private func fetchMediaFileName(forMessageId messageId: Int, from iPhoneBackup: IPhoneBackup, 
+    private func fetchMediaFileName(forMediaItem mediaItemId: Int64, from iPhoneBackup: IPhoneBackup, 
                                     toDirectory directoryURL: URL, from db: Database) throws -> MediaFileName? {
-        if let messageRow = try Row.fetchOne(db, sql: "SELECT ZMEDIAITEM FROM ZWAMESSAGE WHERE Z_PK = ?", arguments: [messageId]),
-        let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64,
-        let mediaItemRow = try Row.fetchOne(db, sql: "SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM WHERE Z_PK = ?", arguments: [mediaItemId]),
-        let mediaLocalPath = mediaItemRow["ZMEDIALOCALPATH"] as? String {
+        if let mediaItemRow = try Row.fetchOne(db, sql: "SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM WHERE Z_PK = ?", arguments: [mediaItemId]),
+           let mediaLocalPath = mediaItemRow["ZMEDIALOCALPATH"] as? String {
 
             guard let sourceFileUrl = iPhoneBackup.getUrl(relativePath: mediaLocalPath) else {
                 return MediaFileName.error("Media file not found: \(mediaLocalPath)")
