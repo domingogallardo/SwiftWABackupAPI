@@ -48,12 +48,28 @@ public struct Reaction: Encodable {
     public let senderPhone: String
 }
 
+/*
+Type of messages supported:
+  - Text (MessageType = 0)
+  - Image (MessageType = 1)
+  - Video (MessageType = 2)
+  - Audio (MessageType = 3)
+  - Location (MessageType = 5)
+  - Links (MessageType = 7)
+  - Docs (MessageType = 8)
+  - GIFs (MessageType = 11)
+  - Sticker (MessageType = 15)
+*/
+
+
 public struct MessageInfo: CustomStringConvertible, Encodable {
     public let id: Int
     public let chatId: Int
+    public let chatGroup: Bool
     public let message: String?
     public let date: Date
-    public var isFromMe: Bool 
+    public let isFromMe: Bool 
+    public let messageType: String
     public var senderName: String?
     public var senderPhone: String?
     public var caption: String?
@@ -214,7 +230,9 @@ public class WABackup {
         do {
             try dbQueue.read { db in
                 let chatMessages = try Row.fetchAll(db, sql: """
-                    SELECT ZWAMESSAGE.Z_PK, ZWAMESSAGE.ZTEXT, ZWAMESSAGE.ZMESSAGEDATE, ZWAMESSAGE.ZGROUPMEMBER, ZWAMESSAGE.ZFROMJID, ZWAMESSAGE.ZMEDIAITEM, ZWAMESSAGE.ZISFROMME
+                    SELECT ZWAMESSAGE.Z_PK, ZWAMESSAGE.ZTEXT, ZWAMESSAGE.ZMESSAGEDATE, 
+                           ZWAMESSAGE.ZGROUPMEMBER, ZWAMESSAGE.ZFROMJID, ZWAMESSAGE.ZMEDIAITEM, 
+                           ZWAMESSAGE.ZISFROMME, ZWAMESSAGE.ZGROUPEVENTTYPE, ZWAMESSAGE.ZMESSAGETYPE
                     FROM ZWAMESSAGE
                     WHERE ZWAMESSAGE.ZCHATSESSION = ?
                     """, arguments: [chatId])
@@ -224,9 +242,39 @@ public class WABackup {
                     let messageText = messageRow["ZTEXT"] as? String
                     let messageDate = convertTimestampToDate(timestamp: messageRow["ZMESSAGEDATE"] as Any)
                     let isFromMe = messageRow["ZISFROMME"] as? Int64 == 1
+                    let messageType = messageRow["ZMESSAGETYPE"] as? Int64 ?? 0
+
+                    var messageTypeStr = ""
+
+                    switch messageType {
+                        case 0:
+                            messageTypeStr = "Text"
+                        case 1:
+                            messageTypeStr = "Image"
+                        case 2:
+                            messageTypeStr = "Video"
+                        case 3:
+                            messageTypeStr = "Audio"
+                        case 5:
+                            messageTypeStr = "Location"
+                        case 7:
+                            messageTypeStr = "Link"
+                        case 8:
+                            messageTypeStr = "Document"
+                        case 11:
+                            messageTypeStr = "GIF"
+                        case 15:
+                            messageTypeStr = "Sticker"
+                        default:
+                            // We don't support other message types
+                            // and skip this message
+                            continue
+                    }
 
                     var messageInfo = MessageInfo(id: Int(messageId), chatId: chatId, 
-                                                  message: messageText, date: messageDate, isFromMe: isFromMe)
+                                                  chatGroup: type == .group,
+                                                  message: messageText, date: messageDate, isFromMe: isFromMe,
+                                                  messageType: messageTypeStr)
 
                     if !isFromMe {
 
