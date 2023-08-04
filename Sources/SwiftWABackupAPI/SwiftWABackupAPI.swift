@@ -48,12 +48,26 @@ public struct Reaction: Encodable {
     public let senderPhone: String
 }
 
+
 public struct MessageInfo: CustomStringConvertible, Encodable {
     public let id: Int
     public let chatId: Int
     public let message: String?
     public let date: Date
-    public var isFromMe: Bool 
+    public let isFromMe: Bool 
+/*
+Type of messages supported:
+  - Text (MessageType = 0)
+  - Image (MessageType = 1)
+  - Video (MessageType = 2)
+  - Audio (MessageType = 3)
+  - Location (MessageType = 5)
+  - Links (MessageType = 7)
+  - Docs (MessageType = 8)
+  - GIFs (MessageType = 11)
+  - Sticker (MessageType = 15)
+*/
+    public let messageType: String
     public var senderName: String?
     public var senderPhone: String?
     public var caption: String?
@@ -239,7 +253,9 @@ public class WABackup {
         do {
             try dbQueue.read { db in
                 let chatMessages = try Row.fetchAll(db, sql: """
-                    SELECT ZWAMESSAGE.Z_PK, ZWAMESSAGE.ZTEXT, ZWAMESSAGE.ZMESSAGEDATE, ZWAMESSAGE.ZGROUPMEMBER, ZWAMESSAGE.ZFROMJID, ZWAMESSAGE.ZMEDIAITEM, ZWAMESSAGE.ZISFROMME
+                    SELECT ZWAMESSAGE.Z_PK, ZWAMESSAGE.ZTEXT, ZWAMESSAGE.ZMESSAGEDATE, 
+                           ZWAMESSAGE.ZGROUPMEMBER, ZWAMESSAGE.ZFROMJID, ZWAMESSAGE.ZMEDIAITEM, 
+                           ZWAMESSAGE.ZISFROMME, ZWAMESSAGE.ZGROUPEVENTTYPE, ZWAMESSAGE.ZMESSAGETYPE
                     FROM ZWAMESSAGE
                     WHERE ZWAMESSAGE.ZCHATSESSION = ?
                     """, arguments: [chatId])
@@ -249,9 +265,38 @@ public class WABackup {
                     let messageText = messageRow["ZTEXT"] as? String
                     let messageDate = convertTimestampToDate(timestamp: messageRow["ZMESSAGEDATE"] as Any)
                     let isFromMe = messageRow["ZISFROMME"] as? Int64 == 1
+                    let messageType = messageRow["ZMESSAGETYPE"] as? Int64 ?? 0
+
+                    var messageTypeStr = ""
+
+                    switch messageType {
+                        case 0:
+                            messageTypeStr = "Text"
+                        case 1:
+                            messageTypeStr = "Image"
+                        case 2:
+                            messageTypeStr = "Video"
+                        case 3:
+                            messageTypeStr = "Audio"
+                        case 5:
+                            messageTypeStr = "Location"
+                        case 7:
+                            messageTypeStr = "Link"
+                        case 8:
+                            messageTypeStr = "Document"
+                        case 11:
+                            messageTypeStr = "GIF"
+                        case 15:
+                            messageTypeStr = "Sticker"
+                        default:
+                            // We don't support other message types
+                            // and skip this message
+                            continue
+                    }
 
                     var messageInfo = MessageInfo(id: Int(messageId), chatId: chatId, 
-                                                  message: messageText, date: messageDate, isFromMe: isFromMe)
+                                                  message: messageText, date: messageDate, isFromMe: isFromMe,
+                                                  messageType: messageTypeStr)
 
                     if !isFromMe {
 
@@ -284,10 +329,10 @@ public class WABackup {
                         }
                     }
 
-                    // if it is an image, extract the image and the caption
+                    // if it is an image, extract it, the thumbnail and the caption
 
                     if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
-                        if let mediaFileName = try fetchMediaFileName(forMessageId: messageInfo.id, from: iPhoneBackup, 
+                        if let mediaFileName = try fetchMediaFileName(forMediaItem: mediaItemId, from: iPhoneBackup, 
                                                                         toDirectory: directoryToSaveMedia, from: db) {
                             
                             switch mediaFileName {
@@ -295,7 +340,6 @@ public class WABackup {
                                     messageInfo.mediaFileName = fileName
                                 case .error(let error):
                                     messageInfo.error = error
-                                    print("Error: \(error)")
                             }
 
                             // call the delegate function after the media file is written
@@ -319,7 +363,7 @@ public class WABackup {
             }
             return messages
         } catch {
-            print("Database access error: \(error)")
+            print("Error: \(error)")
             return []
         }
     }
@@ -473,12 +517,10 @@ public class WABackup {
         case error(String)
     }
 
-    private func fetchMediaFileName(forMessageId messageId: Int, from iPhoneBackup: IPhoneBackup, 
+    private func fetchMediaFileName(forMediaItem mediaItemId: Int64, from iPhoneBackup: IPhoneBackup, 
                                     toDirectory directoryURL: URL, from db: Database) throws -> MediaFileName? {
-        if let messageRow = try Row.fetchOne(db, sql: "SELECT ZMEDIAITEM FROM ZWAMESSAGE WHERE Z_PK = ?", arguments: [messageId]),
-        let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64,
-        let mediaItemRow = try Row.fetchOne(db, sql: "SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM WHERE Z_PK = ?", arguments: [mediaItemId]),
-        let mediaLocalPath = mediaItemRow["ZMEDIALOCALPATH"] as? String {
+        if let mediaItemRow = try Row.fetchOne(db, sql: "SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM WHERE Z_PK = ?", arguments: [mediaItemId]),
+           let mediaLocalPath = mediaItemRow["ZMEDIALOCALPATH"] as? String {
 
             guard let sourceFileUrl = iPhoneBackup.getUrl(relativePath: mediaLocalPath) else {
                 return MediaFileName.error("Media file not found: \(mediaLocalPath)")
