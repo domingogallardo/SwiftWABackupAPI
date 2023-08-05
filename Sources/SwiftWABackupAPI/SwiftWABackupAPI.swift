@@ -87,6 +87,7 @@ Type of messages supported:
 }
 
 public struct ProfileInfo: CustomStringConvertible, Encodable {
+    public let isMe: Bool = false
     public let phone: String
     public let name: String
     public var photoFileName: String?
