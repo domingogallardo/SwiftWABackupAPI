@@ -48,7 +48,6 @@ public struct Reaction: Encodable {
     public let senderPhone: String
 }
 
-
 public struct MessageInfo: CustomStringConvertible, Encodable {
     public let id: Int
     public let chatId: Int
@@ -106,14 +105,12 @@ public class WABackup {
         return phoneBackup.hasLocalBackups()
     }
 
-    
     // The function needs permission to access ~/Library/Application Support/MobileSync/Backup/
     // Go to System Preferences -> Security & Privacy -> Full Disk Access
     public func getLocalBackups() -> [IPhoneBackup] {
         return phoneBackup.getLocalBackups()
     }
 
-    
     // Obtains the URL of the ChatStorage.sqlite file in a backup and
     // associates it with the backup identifier. The API can be connected to
     // more than one ChatStorage.sqlite file at the same time.
@@ -211,7 +208,6 @@ public class WABackup {
         }
     }
 
-
     private func convertTimestampToDate(timestamp: Any) -> Date {
         if let timestamp = timestamp as? Double {
             return Date(timeIntervalSinceReferenceDate: timestamp)
@@ -220,7 +216,6 @@ public class WABackup {
         }
         return Date(timeIntervalSinceReferenceDate: 0)
     }
-
 
     private func fetchChatMessages(chatId: Int, type: ChatInfo.ChatType, directoryToSaveMedia: URL, 
                                     iPhoneBackup: IPhoneBackup, from dbQueue: DatabaseQueue) -> [MessageInfo] {
@@ -242,31 +237,9 @@ public class WABackup {
                     let isFromMe = messageRow["ZISFROMME"] as? Int64 == 1
                     let messageType = messageRow["ZMESSAGETYPE"] as? Int64 ?? 0
 
-                    var messageTypeStr = ""
-
-                    switch messageType {
-                        case 0:
-                            messageTypeStr = "Text"
-                        case 1:
-                            messageTypeStr = "Image"
-                        case 2:
-                            messageTypeStr = "Video"
-                        case 3:
-                            messageTypeStr = "Audio"
-                        case 5:
-                            messageTypeStr = "Location"
-                        case 7:
-                            messageTypeStr = "Link"
-                        case 8:
-                            messageTypeStr = "Document"
-                        case 11:
-                            messageTypeStr = "GIF"
-                        case 15:
-                            messageTypeStr = "Sticker"
-                        default:
-                            // We don't support other message types
-                            // and skip this message
-                            continue
+                    guard let messageTypeStr = getMessageType(code: Int(messageType)) else {
+                        // Skip not supported message types
+                        continue
                     }
 
                     var messageInfo = MessageInfo(id: Int(messageId), chatId: chatId, 
@@ -304,7 +277,7 @@ public class WABackup {
                         }
                     }
 
-                    // if it is an image, extract it, the thumbnail and the caption
+                    // if it has a media file, extract it, the thumbnail and the caption
 
                     if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
                         if let mediaFileName = try fetchMediaFileName(forMediaItem: mediaItemId, from: iPhoneBackup, 
@@ -333,6 +306,8 @@ public class WABackup {
 
                     messageInfo.reactions = try fetchReactions(forMessageId: messageInfo.id, from: db)
 
+                    // we've done with this message, add it to the list
+
                     messages.append(messageInfo)
                 }
             }
@@ -343,8 +318,34 @@ public class WABackup {
         }
     }
 
-    typealias SenderInfo = (senderName: String?, senderPhone: String?)
+    private func getMessageType(code: Int) -> String? {
+        var messageTypeStr: String? = nil
+        switch code {
+            case 0:
+                messageTypeStr = "Text"
+            case 1:
+                messageTypeStr = "Image"
+            case 2:
+                messageTypeStr = "Video"
+            case 3:
+                messageTypeStr = "Audio"
+            case 5:
+                messageTypeStr = "Location"
+            case 7:
+                messageTypeStr = "Link"
+            case 8:
+                messageTypeStr = "Document"
+            case 11:
+                messageTypeStr = "GIF"
+            case 15:
+                messageTypeStr = "Sticker"
+            default:
+                break
+        }
+        return messageTypeStr
+    }
 
+    typealias SenderInfo = (senderName: String?, senderPhone: String?)
 
     // Returns the sender name and phone number
     // from a group member id, available in group chats
@@ -551,7 +552,6 @@ public class WABackup {
         }
         return reactions.isEmpty ? nil : reactions
     }
-
 
     // Checks if a string is a single emoji.
     // The emoji can be a single character or a sequence of characters (e.g. 👨‍👩‍👧‍👦)
