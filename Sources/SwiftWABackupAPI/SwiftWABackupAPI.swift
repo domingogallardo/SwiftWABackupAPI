@@ -220,8 +220,16 @@ public class WABackup {
     private func fetchChatMessages(chatId: Int, type: ChatInfo.ChatType, directoryToSaveMedia: URL, 
                                     iPhoneBackup: IPhoneBackup, from dbQueue: DatabaseQueue) -> [MessageInfo] {
         var messages: [MessageInfo] = []
+        
         do {
             try dbQueue.read { db in
+                var chatPartnerName: String? = nil
+                var chatPartnerPhone: String? = nil
+
+                if (type == .individual) {
+                    (chatPartnerName, chatPartnerPhone) = try fetchSenderInfo(fromChatSession: chatId, from: db)
+                }
+
                 let chatMessages = try Row.fetchAll(db, sql: """
                     SELECT ZWAMESSAGE.Z_PK, ZWAMESSAGE.ZTEXT, ZWAMESSAGE.ZMESSAGEDATE, 
                            ZWAMESSAGE.ZGROUPMEMBER, ZWAMESSAGE.ZFROMJID, ZWAMESSAGE.ZMEDIAITEM, 
@@ -252,19 +260,15 @@ public class WABackup {
 
                         switch type {
                             case .group:
-                                let groupMemberId = messageRow["ZGROUPMEMBER"] as? Int64    
-                                if let groupMemberId = groupMemberId {
+                                if let groupMemberId = messageRow["ZGROUPMEMBER"] as? Int64 {
                                     let (senderName, senderPhone) = try fetchSenderInfo(groupMemberId: groupMemberId, from: db)
                                     messageInfo.senderName = senderName
                                     messageInfo.senderPhone = senderPhone
                                 }
                                 
                             case .individual:
-                                // We don't use the ZFROMJID field because there are cases where 
-                                // is a broadcast message and the ZFROMJID is of the form: number@broadcast
-                                let (senderName, senderPhone) = try fetchSenderInfo(fromChatSession: chatId, from: db)
-                                messageInfo.senderName = senderName
-                                messageInfo.senderPhone = senderPhone
+                                messageInfo.senderName = chatPartnerName
+                                messageInfo.senderPhone = chatPartnerPhone
                         }
                     }
 
@@ -346,50 +350,42 @@ public class WABackup {
     }
 
     typealias SenderInfo = (senderName: String?, senderPhone: String?)
-
-    // Returns the sender name and phone number
-    // from a group member id, available in group chats
-    // of a message that is not from me
-    private func fetchSenderInfo(groupMemberId: Int64, from db: Database) throws -> SenderInfo {
-        var senderName: String? = nil
-        var senderPhone: String? = nil
-
-        if let memberRow = try Row.fetchOne(db, sql: """
-            SELECT ZMEMBERJID, ZCONTACTNAME FROM ZWAGROUPMEMBER WHERE Z_PK = ?
-            """, arguments: [groupMemberId]), 
-        let memberJid = memberRow["ZMEMBERJID"] as? String {
-
-            senderPhone = extractPhone(from: memberJid)
-            
-            // First try to get the name from the JID
-            // and if the name is not available in the JID, try to get it from the ZCONTACTNAME field
-            // in the ZWAGROUPMEMBER table
-            senderName = (try? fetchSenderName(for: memberJid, from: db))
-                    ?? memberRow["ZCONTACTNAME"] as? String 
-        }
-        return (senderName, senderPhone)
-    }
-
-    // Returns the sender name and phone number from a chat id, available in individual chats
-    // of a message that is not from me
+    
+    // Fetches the sender's name (ZPARTNERNAME) and phone (ZCONTACTJID) from a chat session ID.
+    // Used for individual chats.
     private func fetchSenderInfo(fromChatSession chatId: Int, from db: Database) throws -> SenderInfo {
-        var senderName: String? = nil
-        var senderPhone: String? = nil
-
         if let sessionRow = try Row.fetchOne(db, sql: """
             SELECT ZCONTACTJID, ZPARTNERNAME FROM ZWACHATSESSION WHERE Z_PK = ?
             """, arguments: [chatId]) {
-            if let contactJid = sessionRow["ZCONTACTJID"] as? String {
-                senderPhone = extractPhone(from: contactJid)
-            }
-            if let partnerName = sessionRow["ZPARTNERNAME"] as? String {
-                senderName = partnerName
-            }
+            let senderPhone = (sessionRow["ZCONTACTJID"] as? String)?.extractedPhone
+            let senderName = sessionRow["ZPARTNERNAME"] as? String
+            return (senderName, senderPhone)
         }
-        return (senderName, senderPhone)
+        return (nil, nil)
     }
 
-    // Returns the contact name associated with a JID of the form: 34555931253@s.whatsapp.net
+    // Fetches the sender's name and phone from a group member ID. Used for group chats.
+    private func fetchSenderInfo(groupMemberId: Int64, from db: Database) throws -> SenderInfo {
+        if let memberRow = try Row.fetchOne(db, sql: """
+            SELECT ZMEMBERJID, ZCONTACTNAME FROM ZWAGROUPMEMBER WHERE Z_PK = ?
+            """, arguments: [groupMemberId]),
+            let memberJid = memberRow["ZMEMBERJID"] as? String {
+            return obtainSenderInfo(jid: memberJid, contactNameGroupMember: memberRow["ZCONTACTNAME"], from: db)
+        }
+        return (nil, nil)
+    }
+
+    // Determines the sender's name using JID and, if unavailable, falls back to the group member contact name.
+    private func obtainSenderInfo(jid: String, contactNameGroupMember: String?, from db: Database) -> SenderInfo {
+        let senderPhone = jid.extractedPhone
+        if let senderName = try? fetchSenderName(for: jid, from: db) {
+            return (senderName, senderPhone)
+        } else {
+            return (contactNameGroupMember, senderPhone)
+        }
+    }
+    
+    // Fetches the sender's name using contact JID. Prioritizes chat session and then profile push name.
     private func fetchSenderName(for contactJid: String, from db: Database) throws -> String? {
         if let name: String = try Row.fetchOne(db, sql: """
             SELECT ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID = ?
@@ -399,14 +395,8 @@ public class WABackup {
             SELECT ZPUSHNAME FROM ZWAPROFILEPUSHNAME WHERE ZJID = ?
             """, arguments: [contactJid])?["ZPUSHNAME"] {
             return "~"+name
-        } else {
-            return nil
         }
-    }
-
-    // Returns the first part of ah JID of the form:  34555931253@s.whatsapp.net
-    private func extractPhone(from jid: String?) -> String {
-        return jid?.components(separatedBy: "@").first ?? ""
+        return nil
     }
 
     private func fetchReplyMessageId(mediaItemId: Int64, from db: Database) throws -> Int64? {
@@ -612,5 +602,12 @@ public class WABackup {
         // Convert the phone number data to a string
         let phoneNumber = String(bytes: phoneNumberData.reversed(), encoding: .utf8)
         return phoneNumber
+    }
+}
+
+extension String {
+    // Extracts phone from a JID string.
+    var extractedPhone: String {
+        return self.components(separatedBy: "@").first ?? ""
     }
 }
