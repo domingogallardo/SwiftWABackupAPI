@@ -127,10 +127,12 @@ public class WABackup {
     // associates it with the backup identifier. The API can be connected to
     // more than one ChatStorage.sqlite file at the same time.
     public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) -> Bool {
-        guard let chatStorageUrl = iPhoneBackup.getUrl(relativePath: "ChatStorage.sqlite") else {
+        guard let chatStorageHash = iPhoneBackup.getHash(relativePath: "ChatStorage.sqlite") else {
             print("Error: No ChatStorage.sqlite file found in backup")
             return false
         }
+
+        let chatStorageUrl = iPhoneBackup.getUrl(fileHash: chatStorageHash)
 
         guard let chatStorageDb = try? DatabaseQueue(path: chatStorageUrl.path) else {
             print("Error: Cannot connect to ChatStorage.sqlite file")
@@ -514,16 +516,20 @@ public class WABackup {
         if let mediaItemRow = try Row.fetchOne(db, sql: "SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM WHERE Z_PK = ?", arguments: [mediaItemId]),
            let mediaLocalPath = mediaItemRow["ZMEDIALOCALPATH"] as? String {
 
-            guard let sourceFileUrl = iPhoneBackup.getUrl(relativePath: mediaLocalPath) else {
+            guard let hashFile = iPhoneBackup.getHash(relativePath: mediaLocalPath) else {
                 return MediaFileName.error("Media file not found: \(mediaLocalPath)")
             }
 
             let targetFileUrl = directoryURL.appendingPathComponent(URL(fileURLWithPath: mediaLocalPath).lastPathComponent)
-            try FileManager.default.copyItem(at: sourceFileUrl, to: targetFileUrl)
-
+            try copy(hashFile: hashFile, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)             
             return MediaFileName.fileName(targetFileUrl.lastPathComponent)
         }
         return nil
+    }
+
+    private func copy(hashFile: String, toTargetFileUrl url: URL, from iPhoneBackup: IPhoneBackup) throws {
+        let sourceFileUrl = iPhoneBackup.getUrl(fileHash: hashFile) 
+        try FileManager.default.copyItem(at: sourceFileUrl, to: url)
     }
 
     private func fetchReactions(forMessageId messageId: Int, from db: Database) throws -> [Reaction]? {
