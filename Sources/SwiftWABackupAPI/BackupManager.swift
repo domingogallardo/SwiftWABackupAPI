@@ -42,8 +42,8 @@ public struct IPhoneBackup {
         
         return backupUrl
     }
-    
-    // Returns the file hash of the file with a relative path in the WhatsApp backup
+
+        // Returns the file hash of the file with a relative path in the WhatsApp backup
     // inside the iPhone backup.
     public func fetchFileHash(relativePath: String) -> String? {
         var backupUrl = self.url
@@ -69,7 +69,7 @@ public struct IPhoneBackup {
             return nil
         }
     }
-
+    
     // Returns an array of tuples containing the filename and its corresponding file hash 
     // for files with a relative path in the WhatsApp backup inside the iPhone backup.
     public func fetchFileDetails(relativePath: String) -> [(filename: String, fileHash: String)] {

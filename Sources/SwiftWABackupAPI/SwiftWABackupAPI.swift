@@ -85,10 +85,10 @@ Type of messages supported:
     }
 }
 
-public struct ProfileInfo: CustomStringConvertible, Encodable {
+public struct ProfileInfo: CustomStringConvertible, Encodable, Hashable {
     public let isMe: Bool = false
-    public let phone: String
     public let name: String
+    public let phone: String
     public var photoFileName: String?
     public var thumbnailFileName: String?
 
@@ -167,21 +167,105 @@ public class WABackup {
         return messages.sorted { $0.date > $1.date }
     }
 
-    public func getProfiles(from iPhoneBackup: IPhoneBackup) -> [ProfileInfo] {
+    public func getProfiles(directoryToSaveMedia directory: URL, from iPhoneBackup: IPhoneBackup) -> [ProfileInfo] {
         guard let db = chatDatabases[iPhoneBackup.identifier] else {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
             return []
         }
         let chats = fetchChats(from: db)
-        var profiles: [ProfileInfo] = []
+        var profilesSet: Set<ProfileInfo> = []
         for chat in chats {
-            let profile = ProfileInfo(phone: chat.contactJid, name: chat.name)
-            profiles.append(profile)
+            switch chat.chatType {
+                case .individual:
+                    let profile = ProfileInfo(name: chat.name, phone: chat.contactJid.extractedPhone)
+                    profilesSet.insert(profile)
+                case .group:
+                    let profile = ProfileInfo(name: chat.name, phone: chat.contactJid.extractedPhone)
+                    profilesSet.insert(profile)
+                    let groupMembersProfiles = fetchGroupMembersProfiles(chatId: chat.id, from: db)
+                    profilesSet.formUnion(groupMembersProfiles)
+            }
         }
-        return profiles
+        // Obtain the profiles photos
+
+        var resultProfiles: [ProfileInfo] = []
+
+        for profile in profilesSet {
+            var resultProfile = profile
+
+            let profilePhotoFileName = "Media/Profile/\(profile.phone)"
+            let profilePhotoNameAndHash = iPhoneBackup.fetchFileDetails(relativePath: profilePhotoFileName)
+
+            // Obtain the latest file for each profile
+        
+            var latestFiles: [String: (suffix: Int, filename: String, fileHash: String, extension: String)] = [:]
+
+            for nameAndHash in profilePhotoNameAndHash {
+                if let details = extractDetails(from: nameAndHash.filename) {
+                    let key = "\(details.phone)-\(details.extension)"
+                    
+                    // If no file exists for this key, or if this file's suffix is greater than the saved file's suffix, update the file details
+                    if let existingDetail = latestFiles[key] {
+                        if details.suffix > existingDetail.suffix {
+                            latestFiles[key] = (suffix: details.suffix, filename: nameAndHash.filename, fileHash: nameAndHash.fileHash, details.extension)
+                        }
+                    } else {
+                        latestFiles[key] = (suffix: details.suffix, filename: nameAndHash.filename, fileHash: nameAndHash.fileHash, details.extension)
+                    }
+                }
+            }
+
+            for (_, value) in latestFiles {
+                if (value.extension == "thumb") {
+                    resultProfile.thumbnailFileName = profile.phone + ".thumb"
+                } else {
+                    resultProfile.photoFileName = profile.phone + ".jpg"
+                }
+            }
+            resultProfiles.append(resultProfile)
+        }
+
+        return resultProfiles.sorted { $0.name < $1.name }
+    }
+
+    private func extractDetails(from filename: String) -> (phone: String, suffix: Int, extension: String)? {
+        // This pattern captures the phone number, the suffix, and the extension
+        let pattern = "Media\\/Profile\\/(\\d+)-(\\d+)\\.(jpg|thumb)"
+        let regex = try? NSRegularExpression(pattern: pattern)
+
+        if let match = regex?.firstMatch(in: filename, range: NSRange(filename.startIndex..<filename.endIndex, in: filename)) {
+            let phone = (filename as NSString).substring(with: match.range(at: 1))
+            let suffix = Int((filename as NSString).substring(with: match.range(at: 2))) ?? 0
+            let fileExtension = (filename as NSString).substring(with: match.range(at: 3))
+            return (phone, suffix, fileExtension)
+        }
+        return nil
     }
 
     // Private functions
+
+    private func fetchGroupMembersProfiles(chatId: Int, from db: DatabaseQueue) -> Set<ProfileInfo> {
+        var groupMembers: [Int64] = []
+        var profilesSet: Set<ProfileInfo> = []
+        do {
+            try db.read { db in
+                let groupMembersRows = try Row.fetchAll(db, sql: "SELECT Z_PK FROM ZWAGROUPMEMBER WHERE ZCHATSESSION = ?", arguments: [chatId])
+                for memberRow in groupMembersRows {
+                    if let memberId = memberRow["Z_PK"] as? Int64 {
+                        groupMembers.append(memberId)
+                    }
+                }
+                for memberId in groupMembers {
+                    let (senderName, senderPhone) = try fetchSenderInfo(groupMemberId: memberId, from: db)
+                    let profile = ProfileInfo(name: senderName ?? "Unknown", phone: senderPhone ?? "Unknown")
+                    profilesSet.insert(profile)
+                }
+            }
+        } catch {
+            print("Error: \(error)")
+        }
+        return profilesSet
+    }
 
     private func fetchChats(from db: DatabaseQueue) -> [ChatInfo] {
         var chatInfos: [ChatInfo] = []
