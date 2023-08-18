@@ -43,6 +43,33 @@ public struct IPhoneBackup {
         return backupUrl
     }
     
+    // Returns the file hash of the file with a relative path in the WhatsApp backup
+    // inside the iPhone backup.
+    public func fetchFileHash(relativePath: String) -> String? {
+        var backupUrl = self.url
+
+        // Path to the Manifest.db file
+        backupUrl.appendPathComponent("Manifest.db")
+        let manifestDBPath = backupUrl.path
+
+        // Attempt to connect to the Manifest.db
+        guard let manifestDb = try? DatabaseQueue(path: manifestDBPath) else {
+            return nil
+        }
+
+        do {
+            var fileHash: String? = nil
+            try manifestDb.read { db in
+                let row = try Row.fetchOne(db, sql: "SELECT fileID FROM Files WHERE relativePath LIKE ? AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'", arguments: ["%"+relativePath])
+                fileHash = row?["fileID"]
+            }
+            return fileHash
+        } catch {
+            print("Cannot execute query: \(error)")
+            return nil
+        }
+    }
+
     // Returns an array of tuples containing the filename and its corresponding file hash 
     // for files with a relative path in the WhatsApp backup inside the iPhone backup.
     public func fetchFileDetails(relativePath: String) -> [(filename: String, fileHash: String)] {

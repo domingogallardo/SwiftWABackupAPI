@@ -127,7 +127,7 @@ public class WABackup {
     // associates it with the backup identifier. The API can be connected to
     // more than one ChatStorage.sqlite file at the same time.
     public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) -> Bool {
-        guard let chatStorageHash = iPhoneBackup.getHash(relativePath: "ChatStorage.sqlite") else {
+        guard let chatStorageHash = iPhoneBackup.fetchFileHash(relativePath: "ChatStorage.sqlite") else {
             print("Error: No ChatStorage.sqlite file found in backup")
             return false
         }
@@ -516,7 +516,7 @@ public class WABackup {
         if let mediaItemRow = try Row.fetchOne(db, sql: "SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM WHERE Z_PK = ?", arguments: [mediaItemId]),
            let mediaLocalPath = mediaItemRow["ZMEDIALOCALPATH"] as? String {
 
-            guard let hashFile = iPhoneBackup.getHash(relativePath: mediaLocalPath) else {
+            guard let hashFile = iPhoneBackup.fetchFileHash(relativePath: mediaLocalPath) else {
                 return MediaFileName.error("Media file not found: \(mediaLocalPath)")
             }
 
