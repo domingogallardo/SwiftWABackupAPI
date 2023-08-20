@@ -191,8 +191,10 @@ public class WABackup {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
             return []
         }
+        
         let chats = fetchChats(from: db)
         var profilesSet: Set<ProfileInfo> = []
+
         for chat in chats {
             switch chat.chatType {
                 case .individual:
@@ -201,68 +203,72 @@ public class WABackup {
                 case .group:
                     let profile = ProfileInfo(name: chat.name, phone: chat.contactJid.extractedPhone)
                     profilesSet.insert(profile)
-                    let groupMembersProfiles = fetchGroupMembersProfiles(chatId: chat.id, from: db)
-                    profilesSet.formUnion(groupMembersProfiles)
+                    profilesSet.formUnion(fetchGroupMembersProfiles(chatId: chat.id, from: db))
             }
         }
-        // Obtain the profiles photos
 
-        var resultProfiles: [ProfileInfo] = []
-
-        for profile in profilesSet {
-            var resultProfile = profile
-
+        return profilesSet.map { profile in
             let profilePhotoFileName = "Media/Profile/\(profile.phone)"
             let profilePhotoNameAndHash = iPhoneBackup.fetchFileDetails(relativePath: profilePhotoFileName)
+            
+            let latestFiles = getLatestFiles(for: profilePhotoNameAndHash)
+            return copyProfileFiles(for: profile, latestFiles: latestFiles, to: directory, from: iPhoneBackup)
+        }.sorted { $0.name < $1.name }
+    }
 
-            // Obtain the latest file for each profile
-        
-            var latestFiles: [String: (suffix: Int, filename: String, fileHash: String, extension: String)] = [:]
+    // Private functions
 
-            for nameAndHash in profilePhotoNameAndHash {
-                if let details = extractDetails(from: nameAndHash.filename) {
-                    let key = "\(details.phone)-\(details.extension)"
-                    
-                    // If no file exists for this key, or if this file's suffix is greater than the saved file's suffix, update the file details
-                    if let existingDetail = latestFiles[key] {
-                        if details.suffix > existingDetail.suffix {
-                            latestFiles[key] = (suffix: details.suffix, filename: nameAndHash.filename, fileHash: nameAndHash.fileHash, details.extension)
-                        }
-                    } else {
-                        latestFiles[key] = (suffix: details.suffix, filename: nameAndHash.filename, fileHash: nameAndHash.fileHash, details.extension)
-                    }
-                }
-            }
+    // Helper function: Obtain the latest files for the given profile
+    private func getLatestFiles(for nameAndHashList: [(filename: String, fileHash: String)]) -> [String: (suffix: Int, filename: String, fileHash: String, extension: String)] {
+        var latestFiles: [String: (suffix: Int, filename: String, fileHash: String, extension: String)] = [:]
 
-            for (_, value) in latestFiles {
-                if (value.extension == "thumb") {
-                    let thumbnailFileName = profile.phone + ".thumb"
-                    let hashFile = value.fileHash
-                    let targetFileUrl = directory.appendingPathComponent(thumbnailFileName)
-                    do {
-                        try copy(hashFile: hashFile, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
-                        resultProfile.thumbnailFileName = thumbnailFileName
-                        print("Thumbnail file copied to \(targetFileUrl.path)")
-                    } catch {
-                        print("Error: Cannot copy thumbnail file to \(targetFileUrl.path)")
-                    }
+        for nameAndHash in nameAndHashList {
+            if let details = extractDetails(from: nameAndHash.filename) {
+                let key = "\(details.phone)-\(details.extension)"
+                
+                if let existingDetail = latestFiles[key], details.suffix > existingDetail.suffix {
+                    latestFiles[key] = (suffix: details.suffix, filename: nameAndHash.filename, fileHash: nameAndHash.fileHash, details.extension)
                 } else {
-                    let photoFileName = profile.phone + ".jpg"
-                    let hashFile = value.fileHash
-                    let targetFileUrl = directory.appendingPathComponent(photoFileName)
-                    do {
-                        try copy(hashFile: hashFile, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
-                        resultProfile.photoFileName = photoFileName
-                        print("Photo file copied to \(targetFileUrl.path)")
-                    } catch {
-                        print("Error: Cannot copy photo file to \(targetFileUrl.path)")
-                    }
+                    latestFiles[key] = (suffix: details.suffix, filename: nameAndHash.filename, fileHash: nameAndHash.fileHash, details.extension)
                 }
             }
-            resultProfiles.append(resultProfile)
         }
 
-        return resultProfiles.sorted { $0.name < $1.name }
+        return latestFiles
+    }
+
+    // Helper function: Copy the profile files (photo or thumbnail) based on the given details
+    private func copyProfileFiles(for profile: ProfileInfo, latestFiles: [String: (suffix: Int, filename: String, fileHash: String, extension: String)], to directory: URL, from iPhoneBackup: IPhoneBackup) -> ProfileInfo {
+        var updatedProfile = profile
+
+        for (_, value) in latestFiles {
+            let targetFileName: String
+            let hashFile = value.fileHash
+            var targetFileUrl: URL
+            
+            if (value.extension == "thumb") {
+                targetFileName = profile.phone + ".thumb"
+            } else {
+                targetFileName = profile.phone + ".jpg"
+            }
+            
+            targetFileUrl = directory.appendingPathComponent(targetFileName)
+
+            do {
+                try copy(hashFile: hashFile, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
+                
+                // Update the updatedProfile only if there's no error in copying
+                if (value.extension == "thumb") {
+                    updatedProfile.thumbnailFileName = targetFileName
+                } else {
+                    updatedProfile.photoFileName = targetFileName
+                }
+            } catch {
+                print("Error: Cannot copy \(value.extension) file to \(targetFileUrl.path)")
+            }
+        }
+        
+        return updatedProfile
     }
 
     private func extractDetails(from filename: String) -> (phone: String, suffix: Int, extension: String)? {
@@ -278,8 +284,6 @@ public class WABackup {
         }
         return nil
     }
-
-    // Private functions
 
     // Fetch the profile info of the participants of a gruop chat
     private func fetchGroupMembersProfiles(chatId: Int, from db: DatabaseQueue) -> Set<ProfileInfo> {
