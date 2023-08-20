@@ -20,13 +20,19 @@ public struct IPhoneBackup {
 
     // Returns the full URL of the file given a relativePath in the WhatsApp backup
     // inside the iPhone backup.
-    public func getUrl(relativePath: String) -> URL? {
-
-        // Fetch file hash of the file
-        guard let fileHash = fetchFileHash(relativePath: relativePath) else {
+    public func getHash(relativePath: String) -> String? {
+        let fileDetails = fetchFileDetails(relativePath: relativePath)
+        
+        if fileDetails.isEmpty {
             return nil
+        } else {
+            // Access the fileHash from the first tuple
+            return fileDetails[0].fileHash
         }
+    }
 
+    // Returns the full URL of a hash file
+    public func getUrl(fileHash: String) -> URL {
         var backupUrl = self.url
 
         // Add the two first letters of the file hash to the URL
@@ -36,8 +42,8 @@ public struct IPhoneBackup {
         
         return backupUrl
     }
-    
-    // Returns the file hash of the file with a relative path in the WhatsApp backup
+
+        // Returns the file hash of the file with a relative path in the WhatsApp backup
     // inside the iPhone backup.
     public func fetchFileHash(relativePath: String) -> String? {
         var backupUrl = self.url
@@ -62,6 +68,36 @@ public struct IPhoneBackup {
             print("Cannot execute query: \(error)")
             return nil
         }
+    }
+    
+    // Returns an array of tuples containing the filename and its corresponding file hash 
+    // for files with a relative path in the WhatsApp backup inside the iPhone backup.
+    public func fetchFileDetails(relativePath: String) -> [(filename: String, fileHash: String)] {
+        var backupUrl = self.url
+
+        // Path to the Manifest.db file
+        backupUrl.appendPathComponent("Manifest.db")
+        let manifestDBPath = backupUrl.path
+
+        // Attempt to connect to the Manifest.db
+        guard let manifestDb = try? DatabaseQueue(path: manifestDBPath) else {
+            return []
+        }
+
+        var fileDetails: [(filename: String, fileHash: String)] = []
+        do {
+            try manifestDb.read { db in
+                let rows = try Row.fetchAll(db, sql: "SELECT fileID, relativePath FROM Files WHERE relativePath LIKE ? AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'", arguments: ["%" + relativePath + "%"])
+                for row in rows {
+                    if let fileHash = row["fileID"] as? String, let filename = row["relativePath"] as? String {
+                        fileDetails.append((filename: filename, fileHash: fileHash))
+                    }
+                }
+            }
+        } catch {
+            print("Cannot execute query: \(error)")
+        }
+        return fileDetails
     }
 }
 
