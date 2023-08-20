@@ -48,24 +48,43 @@ public struct Reaction: Encodable {
     public let senderPhone: String
 }
 
+enum SupportedMessageType: Int64, CaseIterable {
+    case text = 0
+    case image = 1
+    case video = 2
+    case audio = 3
+    case location = 5
+    case links = 7
+    case docs = 8
+    case gifs = 11
+    case sticker = 15
+
+    var description: String {
+        switch self {
+        case .text: return "Text"
+        case .image: return "Image"
+        case .video: return "Video"
+        case .audio: return "Audio"
+        case .location: return "Location"
+        case .links: return "Link"
+        case .docs: return "Document"
+        case .gifs: return "GIF"
+        case .sticker: return "Sticker"
+        }
+    }
+
+    // Get all supported message types as an array of Int64 values
+    static var allValues: [Int64] {
+        return Self.allCases.map { $0.rawValue }
+    }
+}
+
 public struct MessageInfo: CustomStringConvertible, Encodable {
     public let id: Int
     public let chatId: Int
     public let message: String?
     public let date: Date
     public let isFromMe: Bool 
-/*
-Type of messages supported:
-  - Text (MessageType = 0)
-  - Image (MessageType = 1)
-  - Video (MessageType = 2)
-  - Audio (MessageType = 3)
-  - Location (MessageType = 5)
-  - Links (MessageType = 7)
-  - Docs (MessageType = 8)
-  - GIFs (MessageType = 11)
-  - Sticker (MessageType = 15)
-*/
     public let messageType: String
     public var senderName: String?
     public var senderPhone: String?
@@ -217,9 +236,27 @@ public class WABackup {
 
             for (_, value) in latestFiles {
                 if (value.extension == "thumb") {
-                    resultProfile.thumbnailFileName = profile.phone + ".thumb"
+                    let thumbnailFileName = profile.phone + ".thumb"
+                    let hashFile = value.fileHash
+                    let targetFileUrl = directory.appendingPathComponent(thumbnailFileName)
+                    do {
+                        try copy(hashFile: hashFile, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
+                        resultProfile.thumbnailFileName = thumbnailFileName
+                        print("Thumbnail file copied to \(targetFileUrl.path)")
+                    } catch {
+                        print("Error: Cannot copy thumbnail file to \(targetFileUrl.path)")
+                    }
                 } else {
-                    resultProfile.photoFileName = profile.phone + ".jpg"
+                    let photoFileName = profile.phone + ".jpg"
+                    let hashFile = value.fileHash
+                    let targetFileUrl = directory.appendingPathComponent(photoFileName)
+                    do {
+                        try copy(hashFile: hashFile, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
+                        resultProfile.photoFileName = photoFileName
+                        print("Photo file copied to \(targetFileUrl.path)")
+                    } catch {
+                        print("Error: Cannot copy photo file to \(targetFileUrl.path)")
+                    }
                 }
             }
             resultProfiles.append(resultProfile)
@@ -244,20 +281,27 @@ public class WABackup {
 
     // Private functions
 
+    // Fetch the profile info of the participants of a gruop chat
     private func fetchGroupMembersProfiles(chatId: Int, from db: DatabaseQueue) -> Set<ProfileInfo> {
         var groupMembers: [Int64] = []
         var profilesSet: Set<ProfileInfo> = []
         do {
             try db.read { db in
-                let groupMembersRows = try Row.fetchAll(db, sql: "SELECT Z_PK FROM ZWAGROUPMEMBER WHERE ZCHATSESSION = ?", arguments: [chatId])
+                // Fetch the distinct members of the messages in the group chat
+
+                // Prepare the IN clause for the SQL query using the supported message types
+                let supportedMessageTypes = SupportedMessageType.allValues.map { "\($0)" }.joined(separator: ", ")
+
+                // Fetch the distinct members of the messages in the group chat of supported message types
+                let groupMembersRows = try Row.fetchAll(db, sql: "SELECT DISTINCT ZGROUPMEMBER FROM ZWAMESSAGE WHERE ZCHATSESSION = ? AND ZMESSAGETYPE IN (\(supportedMessageTypes))", arguments: [chatId])
                 for memberRow in groupMembersRows {
-                    if let memberId = memberRow["Z_PK"] as? Int64 {
+                    if let memberId = memberRow["ZGROUPMEMBER"] as? Int64 {
                         groupMembers.append(memberId)
                     }
                 }
                 for memberId in groupMembers {
                     let (senderName, senderPhone) = try fetchSenderInfo(groupMemberId: memberId, from: db)
-                    let profile = ProfileInfo(name: senderName ?? "Unknown", phone: senderPhone ?? "Unknown")
+                    let profile = ProfileInfo(name: senderName ?? "", phone: senderPhone ?? "")
                     profilesSet.insert(profile)
                 }
             }
@@ -342,12 +386,15 @@ public class WABackup {
                     (chatPartnerName, chatPartnerPhone) = try fetchSenderInfo(fromChatSession: chatId, from: db)
                 }
 
+                // Prepare the IN clause using the supported message types
+                let supportedMessageTypes = SupportedMessageType.allValues.map { "\($0)" }.joined(separator: ", ")
+
                 let chatMessages = try Row.fetchAll(db, sql: """
                     SELECT ZWAMESSAGE.Z_PK, ZWAMESSAGE.ZTEXT, ZWAMESSAGE.ZMESSAGEDATE, 
-                           ZWAMESSAGE.ZGROUPMEMBER, ZWAMESSAGE.ZFROMJID, ZWAMESSAGE.ZMEDIAITEM, 
-                           ZWAMESSAGE.ZISFROMME, ZWAMESSAGE.ZGROUPEVENTTYPE, ZWAMESSAGE.ZMESSAGETYPE
+                        ZWAMESSAGE.ZGROUPMEMBER, ZWAMESSAGE.ZFROMJID, ZWAMESSAGE.ZMEDIAITEM, 
+                        ZWAMESSAGE.ZISFROMME, ZWAMESSAGE.ZGROUPEVENTTYPE, ZWAMESSAGE.ZMESSAGETYPE
                     FROM ZWAMESSAGE
-                    WHERE ZWAMESSAGE.ZCHATSESSION = ?
+                    WHERE ZWAMESSAGE.ZCHATSESSION = ? AND ZWAMESSAGE.ZMESSAGETYPE IN (\(supportedMessageTypes))
                     """, arguments: [chatId])
                 
                 for messageRow in chatMessages {
@@ -435,30 +482,7 @@ public class WABackup {
     }
 
     private func getMessageType(code: Int) -> String? {
-        var messageTypeStr: String? = nil
-        switch code {
-            case 0:
-                messageTypeStr = "Text"
-            case 1:
-                messageTypeStr = "Image"
-            case 2:
-                messageTypeStr = "Video"
-            case 3:
-                messageTypeStr = "Audio"
-            case 5:
-                messageTypeStr = "Location"
-            case 7:
-                messageTypeStr = "Link"
-            case 8:
-                messageTypeStr = "Document"
-            case 11:
-                messageTypeStr = "GIF"
-            case 15:
-                messageTypeStr = "Sticker"
-            default:
-                break
-        }
-        return messageTypeStr
+        return SupportedMessageType(rawValue: Int64(code))?.description
     }
 
     typealias SenderInfo = (senderName: String?, senderPhone: String?)
