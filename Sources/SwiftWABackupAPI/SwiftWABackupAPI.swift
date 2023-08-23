@@ -105,7 +105,6 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
 }
 
 public struct ProfileInfo: CustomStringConvertible, Encodable, Hashable {
-    public let isMe: Bool = false
     public let name: String
     public let phone: String
     public var photoFileName: String?
@@ -191,98 +190,138 @@ public class WABackup {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
             return []
         }
-        
+
         let chats = fetchChats(from: db)
-        var profilesSet: Set<ProfileInfo> = []
-
-        for chat in chats {
-            switch chat.chatType {
-                case .individual:
-                    let profile = ProfileInfo(name: chat.name, phone: chat.contactJid.extractedPhone)
-                    profilesSet.insert(profile)
-                case .group:
-                    let profile = ProfileInfo(name: chat.name, phone: chat.contactJid.extractedPhone)
-                    profilesSet.insert(profile)
-                    profilesSet.formUnion(fetchGroupMembersProfiles(chatId: chat.id, from: db))
-            }
-        }
-
+        let profilesSet = extractProfiles(from: chats, using: db)
+        
         return profilesSet.map { profile in
-            let profilePhotoFileName = "Media/Profile/\(profile.phone)"
-            let profilePhotoNameAndHash = iPhoneBackup.fetchFileDetails(relativePath: profilePhotoFileName)
-            
-            let latestFiles = getLatestFiles(for: profilePhotoNameAndHash)
-            return copyProfileFiles(for: profile, latestFiles: latestFiles, to: directory, from: iPhoneBackup)
+            return copyProfileMedia(for: profile, from: iPhoneBackup, to: directory)
         }.sorted { $0.name < $1.name }
     }
 
+    public func getMyProfile(directoryToSaveMedia directory: URL, from iPhoneBackup: IPhoneBackup) -> ProfileInfo? {
+        guard let db = chatDatabases[iPhoneBackup.identifier] else {
+            print("Error: ChatStorage.sqlite database is not connected for this backup")
+            return nil
+        }
+        var myProfile = fetchMyProfile(from: db)
+        let myPhotoTargetUrl = directory.appendingPathComponent("Photo.jpg")
+        let myThumbnailTargetUrl = directory.appendingPathComponent("Photo.thumb")
+        if let myPhotoHash = iPhoneBackup.fetchFileHash(relativePath: "Media/Profile/Photo.jpg") {
+            do {
+                try copy(hashFile: myPhotoHash, toTargetFileUrl: myPhotoTargetUrl, from: iPhoneBackup)
+                myProfile.photoFileName = "Photo.jpg"
+            } catch {
+                print("Error: Cannot copy my photo file to \(myPhotoTargetUrl.path)")
+            }
+        }
+        if let myThumbnailHash = iPhoneBackup.fetchFileHash(relativePath: "Media/Profile/Photo.thumb") {
+            do {
+                try copy(hashFile: myThumbnailHash, toTargetFileUrl: myThumbnailTargetUrl, from: iPhoneBackup)
+                myProfile.thumbnailFileName = "Photo.thumb"
+            } catch {
+                print("Error: Cannot copy my thumbnail file to \(myThumbnailTargetUrl.path)")
+            }
+        }
+        return myProfile
+    } 
+
     // Private functions
 
-    // Helper function: Obtain the latest files for the given profile
-    private func getLatestFiles(for nameAndHashList: [(filename: String, fileHash: String)]) -> [String: (suffix: Int, filename: String, fileHash: String, extension: String)] {
-        var latestFiles: [String: (suffix: Int, filename: String, fileHash: String, extension: String)] = [:]
-
-        for nameAndHash in nameAndHashList {
-            if let details = extractDetails(from: nameAndHash.filename) {
-                let key = "\(details.phone)-\(details.extension)"
-                
-                if let existingDetail = latestFiles[key], details.suffix > existingDetail.suffix {
-                    latestFiles[key] = (suffix: details.suffix, filename: nameAndHash.filename, fileHash: nameAndHash.fileHash, details.extension)
-                } else {
-                    latestFiles[key] = (suffix: details.suffix, filename: nameAndHash.filename, fileHash: nameAndHash.fileHash, details.extension)
-                }
+    private func extractProfiles(from chats: [ChatInfo], using db: DatabaseQueue) -> Set<ProfileInfo> {
+        var profilesSet: Set<ProfileInfo> = []
+        for chat in chats {
+            let profile = ProfileInfo(name: chat.name, phone: chat.contactJid.extractedPhone)
+            profilesSet.insert(profile)
+            if chat.chatType == .group {
+                profilesSet.formUnion(fetchGroupMembersProfiles(chatId: chat.id, from: db))
             }
         }
-
-        return latestFiles
+        return profilesSet
     }
 
-    // Helper function: Copy the profile files (photo or thumbnail) based on the given details
-    private func copyProfileFiles(for profile: ProfileInfo, latestFiles: [String: (suffix: Int, filename: String, fileHash: String, extension: String)], to directory: URL, from iPhoneBackup: IPhoneBackup) -> ProfileInfo {
+    private func copyProfileMedia(for profile: ProfileInfo, from iPhoneBackup: IPhoneBackup, to directory: URL) -> ProfileInfo {
         var updatedProfile = profile
-
-        for (_, value) in latestFiles {
-            let targetFileName: String
-            let hashFile = value.fileHash
-            var targetFileUrl: URL
-            
-            if (value.extension == "thumb") {
-                targetFileName = profile.phone + ".thumb"
-            } else {
-                targetFileName = profile.phone + ".jpg"
-            }
-            
-            targetFileUrl = directory.appendingPathComponent(targetFileName)
-
+        let profilePhotoFileName = "Media/Profile/\(profile.phone)"
+        let filesNamesAndHashes = iPhoneBackup.fetchFileDetails(relativePath: profilePhotoFileName)
+        
+        if let latestFile = getLatestFile(for: profilePhotoFileName, fileExtension: "jpg", files: filesNamesAndHashes) {
+            let targetFileName = profile.phone + ".jpg"
             do {
-                try copy(hashFile: hashFile, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
-                
-                // Update the updatedProfile only if there's no error in copying
-                if (value.extension == "thumb") {
-                    updatedProfile.thumbnailFileName = targetFileName
-                } else {
-                    updatedProfile.photoFileName = targetFileName
-                }
+                try copy(hashFile: latestFile.fileHash, toTargetFileUrl: directory.appendingPathComponent(targetFileName), from: iPhoneBackup)
+                updatedProfile.photoFileName = targetFileName
             } catch {
-                print("Error: Cannot copy \(value.extension) file to \(targetFileUrl.path)")
+                print("Error: Cannot copy photo file to \(directory.appendingPathComponent(targetFileName).path)")
             }
         }
-        
+        if let latestFile = getLatestFile(for: profilePhotoFileName, fileExtension: "thumb", files: filesNamesAndHashes) {
+            let targetFileName = profile.phone + ".thumb"
+            do {
+                try copy(hashFile: latestFile.fileHash, toTargetFileUrl: directory.appendingPathComponent(targetFileName), from: iPhoneBackup)
+                updatedProfile.thumbnailFileName = targetFileName
+            } catch {
+                print("Error: Cannot copy photo file to \(directory.appendingPathComponent(targetFileName).path)")
+            }
+        }
         return updatedProfile
     }
 
-    private func extractDetails(from filename: String) -> (phone: String, suffix: Int, extension: String)? {
-        // This pattern captures the phone number, the suffix, and the extension
-        let pattern = "Media\\/Profile\\/(\\d+)-(\\d+)\\.(jpg|thumb)"
+
+    // Obtain the latest files for the given filename and file extension
+    //     prefixFilename: the prefix of the file (the phone number), e.g. 1234567890 or 1234567890-202302323 for a group chat
+    //     fileExtension: the wanted extension of the file, (.jpg or .thumb)
+    //     namesAndHashes: an array of tuples containing the real filenames (phone number + sufix + extension) and the file hash
+    //                     the suffix is the timestamp of the photo
+    // The function returns a tuple containing the real filename and the file hash of the file with the latest suffix and
+    // the corresponding extension
+    private func getLatestFile(for prefixFilename: String, fileExtension: String, files namesAndHashes: [(filename: String, fileHash: String)]) -> (filename: String, fileHash: String)? {
+
+        guard !namesAndHashes.isEmpty else {
+            return nil
+        }
+
+        var latestFile: (filename: String, fileHash: String)?  = nil
+        var latestTimeSuffix = 0
+
+        for nameAndHash in namesAndHashes {
+            if let timeSuffix = extractTimeSuffix(from: prefixFilename, fileExtension: fileExtension, fileName: nameAndHash.filename) {
+                if timeSuffix > latestTimeSuffix {
+                    latestFile = (nameAndHash.filename, nameAndHash.fileHash)
+                    latestTimeSuffix = timeSuffix
+                }
+            }
+        }
+        return latestFile
+    }
+
+    private func extractTimeSuffix(from prefixFilename: String, fileExtension: String, fileName: String) -> Int? {
+        let pattern = prefixFilename + "-(\\d+)\\." + fileExtension
         let regex = try? NSRegularExpression(pattern: pattern)
 
-        if let match = regex?.firstMatch(in: filename, range: NSRange(filename.startIndex..<filename.endIndex, in: filename)) {
-            let phone = (filename as NSString).substring(with: match.range(at: 1))
-            let suffix = Int((filename as NSString).substring(with: match.range(at: 2))) ?? 0
-            let fileExtension = (filename as NSString).substring(with: match.range(at: 3))
-            return (phone, suffix, fileExtension)
+        if let match = regex?.firstMatch(in: fileName, range: NSRange(fileName.startIndex..<fileName.endIndex, in: fileName)) {
+            let timeSuffix = Int((fileName as NSString).substring(with: match.range(at: 1))) ?? 0
+            return timeSuffix
         }
         return nil
+    }
+
+    private func fetchMyProfile(from db: DatabaseQueue) -> ProfileInfo {
+        var profilePhone = ""
+        
+        // Fetch my phone number
+        do {
+            try db.read { db in
+                // Fetch one row from ZWAMESSAGE table where ZMESSAGETYPE = 6 or 10, my phone number is in ZTOJID
+                let myProfileRow = try Row.fetchOne(db, sql: "SELECT ZTOJID FROM ZWAMESSAGE WHERE ZMESSAGETYPE IN (6, 10)")
+                if let myPhone = myProfileRow?["ZTOJID"] as? String {
+                    profilePhone = myPhone.extractedPhone
+                }
+            }
+        } catch {
+            print("Error: \(error)")
+        }
+
+        return ProfileInfo(name: "Me", phone: profilePhone)
     }
 
     // Fetch the profile info of the participants of a gruop chat
