@@ -43,7 +43,7 @@ public struct IPhoneBackup {
         return backupUrl
     }
 
-        // Returns the file hash of the file with a relative path in the WhatsApp backup
+    // Returns the file hash of the file with a relative path in the WhatsApp backup
     // inside the iPhone backup.
     public func fetchFileHash(relativePath: String) -> String? {
         var backupUrl = self.url
@@ -62,7 +62,7 @@ public struct IPhoneBackup {
             try manifestDb.read { db in
                 let row = try Row.fetchOne(db, sql: "SELECT fileID FROM Files WHERE relativePath LIKE ? AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'", arguments: ["%"+relativePath])
                 fileHash = row?["fileID"]
-            }
+            }          
             return fileHash
         } catch {
             print("Cannot execute query: \(error)")
