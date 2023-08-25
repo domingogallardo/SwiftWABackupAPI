@@ -210,6 +210,10 @@ public class WABackup {
         if let myPhotoHash = iPhoneBackup.fetchFileHash(relativePath: "Media/Profile/Photo.jpg") {
             do {
                 try copy(hashFile: myPhotoHash, toTargetFileUrl: myPhotoTargetUrl, from: iPhoneBackup)
+
+                // Inform the delegate that a media file has been written
+                delegate?.didWriteMediaFile(fileName: myPhotoTargetUrl.path)
+
                 myProfile.photoFileName = "Photo.jpg"
             } catch {
                 print("Error: Cannot copy my photo file to \(myPhotoTargetUrl.path)")
@@ -218,6 +222,10 @@ public class WABackup {
         if let myThumbnailHash = iPhoneBackup.fetchFileHash(relativePath: "Media/Profile/Photo.thumb") {
             do {
                 try copy(hashFile: myThumbnailHash, toTargetFileUrl: myThumbnailTargetUrl, from: iPhoneBackup)
+
+                // Inform the delegate that a media file has been written
+                delegate?.didWriteMediaFile(fileName: myThumbnailTargetUrl.path)
+
                 myProfile.thumbnailFileName = "Photo.thumb"
             } catch {
                 print("Error: Cannot copy my thumbnail file to \(myThumbnailTargetUrl.path)")
@@ -248,7 +256,12 @@ public class WABackup {
         if let latestFile = getLatestFile(for: profilePhotoFileName, fileExtension: "jpg", files: filesNamesAndHashes) {
             let targetFileName = profile.phone + ".jpg"
             do {
-                try copy(hashFile: latestFile.fileHash, toTargetFileUrl: directory.appendingPathComponent(targetFileName), from: iPhoneBackup)
+                let targetFileUrl = directory.appendingPathComponent(targetFileName)
+                try copy(hashFile: latestFile.fileHash, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
+
+                // Inform the delegate that a media file has been written
+                delegate?.didWriteMediaFile(fileName: targetFileUrl.path)
+
                 updatedProfile.photoFileName = targetFileName
             } catch {
                 print("Error: Cannot copy photo file to \(directory.appendingPathComponent(targetFileName).path)")
@@ -257,7 +270,12 @@ public class WABackup {
         if let latestFile = getLatestFile(for: profilePhotoFileName, fileExtension: "thumb", files: filesNamesAndHashes) {
             let targetFileName = profile.phone + ".thumb"
             do {
-                try copy(hashFile: latestFile.fileHash, toTargetFileUrl: directory.appendingPathComponent(targetFileName), from: iPhoneBackup)
+                let targetFileUrl = directory.appendingPathComponent(targetFileName)
+                try copy(hashFile: latestFile.fileHash, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
+
+                // Inform the delegate that a media file has been written
+                delegate?.didWriteMediaFile(fileName: targetFileUrl.path)
+
                 updatedProfile.thumbnailFileName = targetFileName
             } catch {
                 print("Error: Cannot copy photo file to \(directory.appendingPathComponent(targetFileName).path)")
