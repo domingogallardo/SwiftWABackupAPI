@@ -30,8 +30,8 @@ public struct IPhoneBackup {
 
     // Returns the full URL of the file given a relativePath in the
     // WhatsApp backup inside the iPhone backup.
-    public func getHash(relativePath: String) -> String? {
-        let fileDetails = fetchFileDetails(relativePath: relativePath)
+    public func getWAHash(contains relativePath: String) -> String? {
+        let fileDetails = fetchWAFileDetails(contains: relativePath)
         return fileDetails.first?.fileHash
     }
 
@@ -44,7 +44,7 @@ public struct IPhoneBackup {
 
     // Returns the file hash of the file with a relative path in the 
     // WhatsApp backup inside the iPhone backup.
-    public func fetchFileHash(relativePath: String) -> String? {
+    public func fetchWAFileHash(endsWith relativePath: String) -> String? {
         guard let manifestDb = connectToManifestDB() else {
             return nil
         }
@@ -66,7 +66,7 @@ public struct IPhoneBackup {
     // Returns an array of tuples containing the filename and its corresponding
     // file hash for files that contains the relative path string in the 
     // WhatsApp backup inside the iPhone backup.
-    public func fetchFileDetails(relativePath: String) -> [FileNameAndHash] {
+    public func fetchWAFileDetails(contains relativePath: String) -> [FileNameAndHash] {
         var backupUrl = self.url
 
         // Path to the Manifest.db file
@@ -78,7 +78,7 @@ public struct IPhoneBackup {
             return []
         }
 
-        var fileDetails: [(filename: String, fileHash: String)] = []
+        var fileDetails: [FileNameAndHash] = []
         do {
             try manifestDb.read { db in
                 let rows = try Row.fetchAll(db, sql: """
