@@ -28,13 +28,6 @@ public struct IPhoneBackup {
         return try? DatabaseQueue(path: manifestDBPath)
     }
 
-    // Returns the full URL of the file given a relativePath in the
-    // WhatsApp backup inside the iPhone backup.
-    public func getWAHash(contains relativePath: String) -> String? {
-        let fileDetails = fetchWAFileDetails(contains: relativePath)
-        return fileDetails.first?.fileHash
-    }
-
     // Returns the full URL of a hash file
     public func getUrl(fileHash: String) -> URL {
         return url
@@ -45,6 +38,7 @@ public struct IPhoneBackup {
     // Returns the file hash of the file with a relative path in the 
     // WhatsApp backup inside the iPhone backup.
     public func fetchWAFileHash(endsWith relativePath: String) -> String? {
+        
         guard let manifestDb = connectToManifestDB() else {
             return nil
         }
@@ -68,14 +62,8 @@ public struct IPhoneBackup {
     // WhatsApp backup inside the iPhone backup.
     public func fetchWAFileDetails(
         contains relativePath: String) -> [FileNameAndHash] {
-        var backupUrl = self.url
 
-        // Path to the Manifest.db file
-        backupUrl.appendPathComponent("Manifest.db")
-        let manifestDBPath = backupUrl.path
-
-        // Attempt to connect to the Manifest.db
-        guard let manifestDb = try? DatabaseQueue(path: manifestDBPath) else {
+        guard let manifestDb = connectToManifestDB() else {
             return []
         }
 
@@ -114,8 +102,7 @@ struct BackupManager {
     
     // This function fetches the list of all local backups available at the default 
     // backup path.
-    // Each backup is represented as a Backup struct, containing the path to the backup 
-    // and its creation date.
+    // Each backup is represented as a IPhoneBackup struct.
     // The function needs permission to access 
     // ~/Library/Application Support/MobileSync/Backup/
     // Go to System Preferences -> Security & Privacy -> Full Disk Access
