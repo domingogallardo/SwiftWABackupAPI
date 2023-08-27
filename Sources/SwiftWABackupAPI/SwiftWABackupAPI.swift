@@ -91,7 +91,7 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     public var senderPhone: String?
     public var caption: String?
     public var replyTo: Int?
-    public var mediaFileName: String?
+    public var mediaFilename: String?
     public var reactions: [Reaction]?
     public var error: String?
 
@@ -111,8 +111,8 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
 public struct ProfileInfo: CustomStringConvertible, Encodable, Hashable {
     public let name: String
     public let phone: String
-    public var photoFileName: String?
-    public var thumbnailFileName: String?
+    public var photoFilename: String?
+    public var thumbnailFilename: String?
 
     public var description: String {
         return "Profile: Phone - \(phone), Name - \(name)"
@@ -228,7 +228,7 @@ public class WABackup {
                 // Inform the delegate that a media file has been written
                 delegate?.didWriteMediaFile(fileName: myPhotoTargetUrl.path)
 
-                myProfile.photoFileName = "Photo.jpg"
+                myProfile.photoFilename = "Photo.jpg"
             } catch {
                 print("Error: Cannot copy my photo file to "
                       + "\(myPhotoTargetUrl.path)")
@@ -244,7 +244,7 @@ public class WABackup {
                 // Inform the delegate that a media file has been written
                 delegate?.didWriteMediaFile(fileName: myThumbnailTargetUrl.path)
 
-                myProfile.thumbnailFileName = "Photo.thumb"
+                myProfile.thumbnailFilename = "Photo.thumb"
             } catch {
                 print("Error: Cannot copy my photo file to "
                       + "\(myPhotoTargetUrl.path)")
@@ -275,16 +275,16 @@ public class WABackup {
                                   from iPhoneBackup: IPhoneBackup, 
                                   to directory: URL) -> ProfileInfo {
         var updatedProfile = profile
-        let profilePhotoFileName = "Media/Profile/\(profile.phone)"
+        let profilePhotoFilename = "Media/Profile/\(profile.phone)"
         let filesNamesAndHashes = 
-            iPhoneBackup.fetchWAFileDetails(contains: profilePhotoFileName)
+            iPhoneBackup.fetchWAFileDetails(contains: profilePhotoFilename)
         
-        if let latestFile = getLatestFile(for: profilePhotoFileName, 
+        if let latestFile = getLatestFile(for: profilePhotoFilename, 
                                           fileExtension: "jpg", 
                                           files: filesNamesAndHashes) {
-            let targetFileName = profile.phone + ".jpg"
+            let targetFilename = profile.phone + ".jpg"
             do {
-                let targetFileUrl = directory.appendingPathComponent(targetFileName)
+                let targetFileUrl = directory.appendingPathComponent(targetFilename)
                 try copy(hashFile: latestFile.fileHash, 
                          toTargetFileUrl: targetFileUrl, 
                          from: iPhoneBackup)
@@ -292,18 +292,18 @@ public class WABackup {
                 // Inform the delegate that a media file has been written
                 delegate?.didWriteMediaFile(fileName: targetFileUrl.path)
 
-                updatedProfile.photoFileName = targetFileName
+                updatedProfile.photoFilename = targetFilename
             } catch {
                 print("Error: Cannot copy photo file to " + 
-                      "\(directory.appendingPathComponent(targetFileName).path)")
+                      "\(directory.appendingPathComponent(targetFilename).path)")
             }
         }
-        if let latestFile = getLatestFile(for: profilePhotoFileName, 
+        if let latestFile = getLatestFile(for: profilePhotoFilename, 
                                           fileExtension: "thumb", 
                                           files: filesNamesAndHashes) {
-            let targetFileName = profile.phone + ".thumb"
+            let targetFilename = profile.phone + ".thumb"
             do {
-                let targetFileUrl = directory.appendingPathComponent(targetFileName)
+                let targetFileUrl = directory.appendingPathComponent(targetFilename)
                 try copy(hashFile: latestFile.fileHash, 
                          toTargetFileUrl: targetFileUrl, 
                          from: iPhoneBackup)
@@ -311,10 +311,10 @@ public class WABackup {
                 // Inform the delegate that a media file has been written
                 delegate?.didWriteMediaFile(fileName: targetFileUrl.path)
 
-                updatedProfile.thumbnailFileName = targetFileName
+                updatedProfile.thumbnailFilename = targetFilename
             } catch {
                 print("Error: Cannot copy photo file to " + 
-                      "\(directory.appendingPathComponent(targetFileName).path)")
+                      "\(directory.appendingPathComponent(targetFilename).path)")
             }
         }
         return updatedProfile
@@ -332,14 +332,14 @@ public class WABackup {
     //    of the file with the latest suffix and the corresponding extension
     private func getLatestFile(for prefixFilename: String, 
                                fileExtension: String, 
-                               files namesAndHashes: [FileNameAndHash]) 
+                               files namesAndHashes: [FilenameAndHash]) 
                                -> (filename: String, fileHash: String)? {
 
         guard !namesAndHashes.isEmpty else {
             return nil
         }
 
-        var latestFile: FileNameAndHash?  = nil
+        var latestFile: FilenameAndHash?  = nil
         var latestTimeSuffix = 0
 
         for nameAndHash in namesAndHashes {
@@ -591,22 +591,22 @@ public class WABackup {
                     // the caption
 
                     if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
-                        if let mediaFileName = 
-                           try fetchMediaFileName(forMediaItem: mediaItemId, 
+                        if let mediaFilename = 
+                           try fetchMediaFilename(forMediaItem: mediaItemId, 
                                                   from: iPhoneBackup, 
                                                   toDirectory: directoryToSaveMedia, 
                                                   from: db) {
                             
-                            switch mediaFileName {
+                            switch mediaFilename {
                                 case .fileName(let fileName):
-                                    messageInfo.mediaFileName = fileName
+                                    messageInfo.mediaFilename = fileName
                                 case .error(let error):
                                     messageInfo.error = error
                             }
 
                             // call the delegate function after the media file is written
-                            if let mediaFileName = messageInfo.mediaFileName {
-                                delegate?.didWriteMediaFile(fileName: mediaFileName)
+                            if let mediaFilename = messageInfo.mediaFilename {
+                                delegate?.didWriteMediaFile(fileName: mediaFilename)
                             }
 
                             if let caption = try fetchCaption(mediaItemId: mediaItemId, 
@@ -774,15 +774,15 @@ public class WABackup {
         return nil
     }
 
-    enum MediaFileName {
+    enum MediaFilename {
         case fileName(String)
         case error(String)
     }
 
-    private func fetchMediaFileName(forMediaItem mediaItemId: Int64, 
+    private func fetchMediaFilename(forMediaItem mediaItemId: Int64, 
                                     from iPhoneBackup: IPhoneBackup, 
                                     toDirectory directoryURL: URL, 
-                                    from db: Database) throws -> MediaFileName? {
+                                    from db: Database) throws -> MediaFilename? {
         if let mediaItemRow = try Row.fetchOne(db, sql: """
            SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM WHERE Z_PK = ?
            """, arguments: [mediaItemId]),
@@ -790,14 +790,14 @@ public class WABackup {
 
             guard let hashFile = iPhoneBackup.fetchWAFileHash(
                 endsWith: mediaLocalPath) else {
-                return MediaFileName.error("Media file not found: \(mediaLocalPath)")
+                return MediaFilename.error("Media file not found: \(mediaLocalPath)")
             }
             let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
             let targetFileUrl = directoryURL.appendingPathComponent(fileName)
             try copy(hashFile: hashFile, 
                      toTargetFileUrl: targetFileUrl, 
                      from: iPhoneBackup)             
-            return MediaFileName.fileName(targetFileUrl.lastPathComponent)
+            return MediaFilename.fileName(targetFileUrl.lastPathComponent)
         }
         return nil
     }
