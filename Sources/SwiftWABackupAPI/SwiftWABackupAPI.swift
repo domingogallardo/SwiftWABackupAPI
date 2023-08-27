@@ -150,8 +150,8 @@ public class WABackup {
     // associates it with the backup identifier. The API can be connected to
     // more than one ChatStorage.sqlite file at the same time.
     public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) -> Bool {
-        guard let chatStorageHash = iPhoneBackup.fetchFileHash(
-                                            relativePath: "ChatStorage.sqlite") else {
+        guard let chatStorageHash = iPhoneBackup.fetchWAFileHash(
+                                            endsWith: "ChatStorage.sqlite") else {
             print("Error: No ChatStorage.sqlite file found in backup")
             return false
         }
@@ -218,8 +218,8 @@ public class WABackup {
         var myProfile = fetchMyProfile(from: db)
         let myPhotoTargetUrl = directory.appendingPathComponent("Photo.jpg")
         let myThumbnailTargetUrl = directory.appendingPathComponent("Photo.thumb")
-        if let myPhotoHash = iPhoneBackup.fetchFileHash(
-            relativePath: "Media/Profile/Photo.jpg") {
+        if let myPhotoHash = iPhoneBackup.fetchWAFileHash(
+            endsWith: "Media/Profile/Photo.jpg") {
             do {
                 try copy(hashFile: myPhotoHash, 
                          toTargetFileUrl: myPhotoTargetUrl, 
@@ -234,8 +234,8 @@ public class WABackup {
                       + "\(myPhotoTargetUrl.path)")
             }
         }
-        if let myThumbnailHash = iPhoneBackup.fetchFileHash(
-            relativePath: "Media/Profile/Photo.thumb") {
+        if let myThumbnailHash = iPhoneBackup.fetchWAFileHash(
+            endsWith: "Media/Profile/Photo.thumb") {
             do {
                 try copy(hashFile: myThumbnailHash, 
                          toTargetFileUrl: myThumbnailTargetUrl, 
@@ -277,7 +277,7 @@ public class WABackup {
         var updatedProfile = profile
         let profilePhotoFileName = "Media/Profile/\(profile.phone)"
         let filesNamesAndHashes = 
-            iPhoneBackup.fetchFileDetails(relativePath: profilePhotoFileName)
+            iPhoneBackup.fetchWAFileDetails(contains: profilePhotoFileName)
         
         if let latestFile = getLatestFile(for: profilePhotoFileName, 
                                           fileExtension: "jpg", 
@@ -788,8 +788,8 @@ public class WABackup {
            """, arguments: [mediaItemId]),
            let mediaLocalPath = mediaItemRow["ZMEDIALOCALPATH"] as? String {
 
-            guard let hashFile = iPhoneBackup.fetchFileHash(
-                relativePath: mediaLocalPath) else {
+            guard let hashFile = iPhoneBackup.fetchWAFileHash(
+                endsWith: mediaLocalPath) else {
                 return MediaFileName.error("Media file not found: \(mediaLocalPath)")
             }
             let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
