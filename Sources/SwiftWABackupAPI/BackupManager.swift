@@ -8,87 +8,6 @@
 import Foundation
 import GRDB
 
-public typealias FileNameAndHash = (filename: String, fileHash: String)
-    
-public struct IPhoneBackup {
-    let url: URL
-    public var path: String {
-        return url.path
-    }
-    public let creationDate: Date
-    public var identifier: String {
-        return url.lastPathComponent
-    }
-
-    private var manifestDBPath: String {
-        return url.appendingPathComponent("Manifest.db").path
-    }
-
-    private func connectToManifestDB() -> DatabaseQueue? {
-        return try? DatabaseQueue(path: manifestDBPath)
-    }
-
-    // Returns the full URL of a hash file
-    public func getUrl(fileHash: String) -> URL {
-        return url
-            .appendingPathComponent(String(fileHash.prefix(2)))
-            .appendingPathComponent(fileHash)
-    }
-
-    // Returns the file hash of the file with a relative path in the 
-    // WhatsApp backup inside the iPhone backup.
-    public func fetchWAFileHash(endsWith relativePath: String) -> String? {
-        
-        guard let manifestDb = connectToManifestDB() else {
-            return nil
-        }
-
-        do {
-            return try manifestDb.read { db in
-                let row = try Row.fetchOne(db, sql: """
-                SELECT fileID FROM Files WHERE relativePath LIKE ? 
-                AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'
-                """, arguments: ["%"+relativePath])
-                return row?["fileID"]
-            }          
-        } catch {
-            print("Cannot execute query: \(error)")
-            return nil
-        }
-    }
-
-    // Returns an array of tuples containing the filename and its corresponding
-    // file hash for files that contains the relative path string in the 
-    // WhatsApp backup inside the iPhone backup.
-    public func fetchWAFileDetails(
-        contains relativePath: String) -> [FileNameAndHash] {
-
-        guard let manifestDb = connectToManifestDB() else {
-            return []
-        }
-
-        var fileDetails: [FileNameAndHash] = []
-        do {
-            try manifestDb.read { db in
-                let rows = try Row.fetchAll(db, sql: """
-                SELECT fileID, relativePath FROM Files WHERE relativePath LIKE ? 
-                AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'
-                """, arguments: ["%" + relativePath + "%"])
-                for row in rows {
-                    if let fileHash = row["fileID"] as? String, 
-                       let filename = row["relativePath"] as? String {
-                           let filenameAndHash = (filename: filename, fileHash: fileHash)
-                           fileDetails.append(filenameAndHash)
-                    }
-                }
-            }
-        } catch {
-            print("Cannot execute query: \(error)")
-        }
-        return fileDetails
-    }
-}
-
 struct BackupManager {
     // This is the default directory where iPhone stores backups on macOS.
     private let defaultBackupPath = "~/Library/Application Support/MobileSync/Backup/"
@@ -170,5 +89,86 @@ struct BackupManager {
         var isDir: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, 
                     isDirectory: &isDir) && isDir.boolValue
+    }
+}
+
+public typealias FilenameAndHash = (filename: String, fileHash: String)
+    
+public struct IPhoneBackup {
+    let url: URL
+    public var path: String {
+        return url.path
+    }
+    public let creationDate: Date
+    public var identifier: String {
+        return url.lastPathComponent
+    }
+
+    private var manifestDBPath: String {
+        return url.appendingPathComponent("Manifest.db").path
+    }
+
+    private func connectToManifestDB() -> DatabaseQueue? {
+        return try? DatabaseQueue(path: manifestDBPath)
+    }
+
+    // Returns the full URL of a hash file
+    public func getUrl(fileHash: String) -> URL {
+        return url
+            .appendingPathComponent(String(fileHash.prefix(2)))
+            .appendingPathComponent(fileHash)
+    }
+
+    // Returns the file hash of the file with a relative path in the 
+    // WhatsApp backup inside the iPhone backup.
+    public func fetchWAFileHash(endsWith relativePath: String) -> String? {
+
+        guard let manifestDb = connectToManifestDB() else {
+            return nil
+        }
+
+        do {
+            return try manifestDb.read { db in
+                let row = try Row.fetchOne(db, sql: """
+                SELECT fileID FROM Files WHERE relativePath LIKE ? 
+                AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'
+                """, arguments: ["%"+relativePath])
+                return row?["fileID"]
+            }          
+        } catch {
+            print("Cannot execute query: \(error)")
+            return nil
+        }
+    }
+
+    // Returns an array of tuples containing the filename and its corresponding
+    // file hash for files that contains the relative path string in the 
+    // WhatsApp backup inside the iPhone backup.
+    public func fetchWAFileDetails(
+        contains relativePath: String) -> [FilenameAndHash] {
+
+        guard let manifestDb = connectToManifestDB() else {
+            return []
+        }
+
+        var fileDetails: [FilenameAndHash] = []
+        do {
+            try manifestDb.read { db in
+                let rows = try Row.fetchAll(db, sql: """
+                SELECT fileID, relativePath FROM Files WHERE relativePath LIKE ? 
+                AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'
+                """, arguments: ["%" + relativePath + "%"])
+                for row in rows {
+                    if let fileHash = row["fileID"] as? String, 
+                       let filename = row["relativePath"] as? String {
+                           let filenameAndHash = (filename: filename, fileHash: fileHash)
+                           fileDetails.append(filenameAndHash)
+                    }
+                }
+            }
+        } catch {
+            print("Cannot execute query: \(error)")
+        }
+        return fileDetails
     }
 }
