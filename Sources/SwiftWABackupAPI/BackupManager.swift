@@ -8,7 +8,8 @@
 import Foundation
 import GRDB
 
-
+public typealias FileNameAndHash = (filename: String, fileHash: String)
+    
 public struct IPhoneBackup {
     let url: URL
     public var path: String {
@@ -61,11 +62,11 @@ public struct IPhoneBackup {
             return nil
         }
     }
-    
+
     // Returns an array of tuples containing the filename and its corresponding
     // file hash for files that contains the relative path string in the 
     // WhatsApp backup inside the iPhone backup.
-    public func fetchFileDetails(relativePath: String) -> [(filename: String, fileHash: String)] {
+    public func fetchFileDetails(relativePath: String) -> [FileNameAndHash] {
         var backupUrl = self.url
 
         // Path to the Manifest.db file
