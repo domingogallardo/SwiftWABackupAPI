@@ -66,7 +66,8 @@ public struct IPhoneBackup {
     // Returns an array of tuples containing the filename and its corresponding
     // file hash for files that contains the relative path string in the 
     // WhatsApp backup inside the iPhone backup.
-    public func fetchWAFileDetails(contains relativePath: String) -> [FileNameAndHash] {
+    public func fetchWAFileDetails(
+        contains relativePath: String) -> [FileNameAndHash] {
         var backupUrl = self.url
 
         // Path to the Manifest.db file
@@ -88,7 +89,8 @@ public struct IPhoneBackup {
                 for row in rows {
                     if let fileHash = row["fileID"] as? String, 
                        let filename = row["relativePath"] as? String {
-                           fileDetails.append((filename: filename, fileHash: fileHash))
+                           let filenameAndHash = (filename: filename, fileHash: fileHash)
+                           fileDetails.append(filenameAndHash)
                     }
                 }
             }
@@ -109,26 +111,29 @@ struct BackupManager {
         return FileManager.default.fileExists(atPath: backupPath)
     }
 
-    /* 
-     This function fetches the list of all local backups available at the default backup path.
-     Each backup is represented as a Backup struct, containing the path to the backup 
-     and its creation date.
-     The function needs permission to access ~/Library/Application Support/MobileSync/Backup/
-     Go to System Preferences -> Security & Privacy -> Full Disk Access
-    */
+    
+    // This function fetches the list of all local backups available at the default 
+    // backup path.
+    // Each backup is represented as a Backup struct, containing the path to the backup 
+    // and its creation date.
+    // The function needs permission to access 
+    // ~/Library/Application Support/MobileSync/Backup/
+    // Go to System Preferences -> Security & Privacy -> Full Disk Access
     func getLocalBackups() -> [IPhoneBackup] {
         let backupPath = NSString(string: defaultBackupPath).expandingTildeInPath
         let backupUrl = URL(fileURLWithPath: backupPath)
         do {
-            let directoryContents = try FileManager.default.contentsOfDirectory(at: backupUrl, 
-                                                            includingPropertiesForKeys: nil)
+            let directoryContents = 
+                try FileManager.default
+                    .contentsOfDirectory(at: backupUrl, 
+                                         includingPropertiesForKeys: nil)
             
             // Filter out .DS_Store and return the list of backups
             return directoryContents
                 .filter { !$0.lastPathComponent.hasPrefix(".DS_Store") }
                 .compactMap { getBackup(at: $0 ) }
         } catch {
-            print("Error while enumerating files \(backupUrl.path): \(error.localizedDescription)")
+            print("Error while enumerating files \(backupUrl.path): \(error))")
             return []
         }
     }
@@ -143,23 +148,32 @@ struct BackupManager {
 
         let expectedFiles = ["Info.plist", "Manifest.db", "Status.plist"]
         for file in expectedFiles {
-            if !fileManager.fileExists(atPath: url.appendingPathComponent(file).path) {
+            let filePath = url.appendingPathComponent(file).path
+            if !fileManager.fileExists(atPath: filePath) {
                 print("Directory does not contain a backup: \(url.path)")
                 return nil
             }
         }
 
         do {
-            let statusPlistData = try Data(contentsOf: url.appendingPathComponent("Status.plist"))
-            let plistObj = try PropertyListSerialization
-                                .propertyList(from: statusPlistData, options: [], format: nil)
-            if let plistDict = plistObj as? [String: Any], let date = plistDict["Date"] as? Date {
+            let statusPlistData = 
+                try Data(
+                    contentsOf: url
+                        .appendingPathComponent("Status.plist"))
+            let plistObj = 
+                try PropertyListSerialization
+                    .propertyList(from: statusPlistData, 
+                                  options: [], 
+                                  format: nil)
+            if let plistDict = plistObj as? [String: Any], 
+               let date = plistDict["Date"] as? Date {
                 return IPhoneBackup(url: url, creationDate: date)
             } else {
-                print("Could not read Date from Status.plist in backup: \(url.path)")
+                print("Could not read Date from Status.plist in backup: " + 
+                      "\(url.path)")
             }
         } catch {
-            print("Error while getting backup info \(url.path): \(error.localizedDescription)")
+            print("Error while getting backup info \(url.path): \(error)")
         }
 
         return nil
