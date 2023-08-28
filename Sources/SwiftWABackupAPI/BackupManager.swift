@@ -9,18 +9,17 @@ import Foundation
 import GRDB
 
 struct BackupManager {
-    // This is the default directory where iPhone stores backups on macOS.
+    // Default directory where iPhone stores backups on macOS.
     private let defaultBackupPath = "~/Library/Application Support/MobileSync/Backup/"
 
-    // This function checks if any local backups exist at the default backup path.
+    // Checks if any local backups exist at the default backup path.
     func hasLocalBackups() -> Bool {
         let backupPath = NSString(string: defaultBackupPath).expandingTildeInPath
         return FileManager.default.fileExists(atPath: backupPath)
     }
 
     
-    // This function fetches the list of all local backups available at the default 
-    // backup path.
+    // Fetches the list of all local backups available at the default backup path.
     // Each backup is represented as a IPhoneBackup struct.
     // The function needs permission to access 
     // ~/Library/Application Support/MobileSync/Backup/
