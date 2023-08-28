@@ -169,18 +169,18 @@ public class WABackup {
     }
 
     public func getChats(from iPhoneBackup: IPhoneBackup) -> [ChatInfo] {
-        guard let db = chatDatabases[iPhoneBackup.identifier] else {
+        guard let dbQueue = chatDatabases[iPhoneBackup.identifier] else {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
             return []
         }
-        let chats = fetchChats(from: db)
+        let chats = fetchChats(from: dbQueue)
         return chats.sorted { $0.lastMessageDate > $1.lastMessageDate }
     }
 
     public func getChatMessages(chatId: Int, 
                                 directoryToSaveMedia directory: URL, 
                                 from iPhoneBackup: IPhoneBackup) -> [MessageInfo] {
-        guard let db = chatDatabases[iPhoneBackup.identifier] else {
+        guard let dbQueue = chatDatabases[iPhoneBackup.identifier] else {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
             return []
         }
@@ -190,73 +190,73 @@ public class WABackup {
         }
         let messages = fetchChatMessages(chatId: chatId, type: chatInfo.chatType, 
                                          directoryToSaveMedia: directory, 
-                                         iPhoneBackup: iPhoneBackup, from: db)
+                                         iPhoneBackup: iPhoneBackup, from: dbQueue)
         return messages.sorted { $0.date > $1.date }
     }
 
     public func getProfiles(directoryToSaveMedia directory: URL, 
                             from iPhoneBackup: IPhoneBackup) -> [ProfileInfo] {
-        guard let db = chatDatabases[iPhoneBackup.identifier] else {
+        guard let dbQueue = chatDatabases[iPhoneBackup.identifier] else {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
             return []
         }
 
-        let chats = fetchChats(from: db)
-        let profilesSet = extractProfiles(from: chats, using: db)
+        let chats = fetchChats(from: dbQueue)
+        let profilesSet = extractProfiles(from: chats, using: dbQueue)
         
         return profilesSet.map { profile in
             return copyProfileMedia(for: profile, from: iPhoneBackup, to: directory)
         }.sorted { $0.name < $1.name }
     }
 
-    public func getMyProfile(directoryToSaveMedia directory: URL, 
+    public func getUserProfile(directoryToSaveMedia directory: URL, 
                              from iPhoneBackup: IPhoneBackup) -> ProfileInfo? {
-        guard let db = chatDatabases[iPhoneBackup.identifier] else {
+        guard let dbQueue = chatDatabases[iPhoneBackup.identifier] else {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
             return nil
         }
-        var myProfile = fetchMyProfile(from: db)
-        let myPhotoTargetUrl = directory.appendingPathComponent("Photo.jpg")
-        let myThumbnailTargetUrl = directory.appendingPathComponent("Photo.thumb")
-        if let myPhotoHash = iPhoneBackup.fetchWAFileHash(
+        var userProfile = fetchUserProfile(from: dbQueue)
+        let userPhotoTargetUrl = directory.appendingPathComponent("Photo.jpg")
+        let userThumbnailTargetUrl = directory.appendingPathComponent("Photo.thumb")
+        if let userPhotoHash = iPhoneBackup.fetchWAFileHash(
             endsWith: "Media/Profile/Photo.jpg") {
             do {
-                try copy(hashFile: myPhotoHash, 
-                         toTargetFileUrl: myPhotoTargetUrl, 
+                try copy(hashFile: userPhotoHash, 
+                         toTargetFileUrl: userPhotoTargetUrl, 
                          from: iPhoneBackup)
 
                 // Inform the delegate that a media file has been written
-                delegate?.didWriteMediaFile(fileName: myPhotoTargetUrl.path)
+                delegate?.didWriteMediaFile(fileName: userPhotoTargetUrl.path)
 
-                myProfile.photoFilename = "Photo.jpg"
+                userProfile.photoFilename = "Photo.jpg"
             } catch {
-                print("Error: Cannot copy my photo file to "
-                      + "\(myPhotoTargetUrl.path)")
+                print("Error: Cannot copy user photo file to "
+                      + "\(userPhotoTargetUrl.path)")
             }
         }
-        if let myThumbnailHash = iPhoneBackup.fetchWAFileHash(
+        if let userThumbnailHash = iPhoneBackup.fetchWAFileHash(
             endsWith: "Media/Profile/Photo.thumb") {
             do {
-                try copy(hashFile: myThumbnailHash, 
-                         toTargetFileUrl: myThumbnailTargetUrl, 
+                try copy(hashFile: userThumbnailHash, 
+                         toTargetFileUrl: userThumbnailTargetUrl, 
                          from: iPhoneBackup)
 
                 // Inform the delegate that a media file has been written
-                delegate?.didWriteMediaFile(fileName: myThumbnailTargetUrl.path)
+                delegate?.didWriteMediaFile(fileName: userThumbnailTargetUrl.path)
 
-                myProfile.thumbnailFilename = "Photo.thumb"
+                userProfile.thumbnailFilename = "Photo.thumb"
             } catch {
-                print("Error: Cannot copy my photo file to "
-                      + "\(myPhotoTargetUrl.path)")
+                print("Error: Cannot copy user photo file to "
+                      + "\(userPhotoTargetUrl.path)")
             }
         }
-        return myProfile
+        return userProfile
     } 
 
     // Private functions
 
     private func extractProfiles(from chats: [ChatInfo], 
-                                 using db: DatabaseQueue) -> Set<ProfileInfo> {
+                                 using dbQueue: DatabaseQueue) -> Set<ProfileInfo> {
         var profilesSet: Set<ProfileInfo> = []
         for chat in chats {
             let profile = ProfileInfo(name: chat.name, 
@@ -264,7 +264,7 @@ public class WABackup {
             profilesSet.insert(profile)
             if chat.chatType == .group {
                     let groupProfiles = fetchGroupMembersProfiles(chatId: chat.id, 
-                                                                  from: db)
+                                                                  from: dbQueue)
                     profilesSet.formUnion(groupProfiles)
             }
         }
@@ -369,19 +369,19 @@ public class WABackup {
         return nil
     }
 
-    private func fetchMyProfile(from db: DatabaseQueue) -> ProfileInfo {
+    private func fetchUserProfile(from dbQueue: DatabaseQueue) -> ProfileInfo {
         var profilePhone = ""
         
-        // Fetch my phone number
+        // Fetch user phone number
         do {
-            try db.read { db in
+            try dbQueue.read { db in
                 // Fetch one row from ZWAMESSAGE table where ZMESSAGETYPE = 6 or 10, 
-                // my phone number is in ZTOJID
-                let myProfileRow = try Row.fetchOne(db, sql: """
+                // user phone number is in ZTOJID
+                let userProfileRow = try Row.fetchOne(db, sql: """
                 SELECT ZTOJID FROM ZWAMESSAGE WHERE ZMESSAGETYPE IN (6, 10)
                 """)
-                if let myPhone = myProfileRow?["ZTOJID"] as? String {
-                    profilePhone = myPhone.extractedPhone
+                if let userPhone = userProfileRow?["ZTOJID"] as? String {
+                    profilePhone = userPhone.extractedPhone
                 }
             }
         } catch {
@@ -393,11 +393,11 @@ public class WABackup {
 
     // Fetch the profile info of the participants of a gruop chat
     private func fetchGroupMembersProfiles(chatId: Int, 
-                                           from db: DatabaseQueue) -> Set<ProfileInfo> {
+                                           from dbQueue: DatabaseQueue) -> Set<ProfileInfo> {
         var groupMembers: [Int64] = []
         var profilesSet: Set<ProfileInfo> = []
         do {
-            try db.read { db in
+            try dbQueue.read { db in
                 // Fetch the distinct members of the messages in the group chat
 
                 // Prepare the IN clause for the SQL query using the supported message types
@@ -430,10 +430,10 @@ public class WABackup {
         return profilesSet
     }
 
-    private func fetchChats(from db: DatabaseQueue) -> [ChatInfo] {
+    private func fetchChats(from dbQueue: DatabaseQueue) -> [ChatInfo] {
         var chatInfos: [ChatInfo] = []
         do {
-            try db.read { db in
+            try dbQueue.read { db in
                 // Chats ending with "status" are not real chats
                 let chatSessions = try Row.fetchAll(db, sql: """
                 SELECT * FROM ZWACHATSESSION WHERE ZCONTACTJID NOT LIKE ?
