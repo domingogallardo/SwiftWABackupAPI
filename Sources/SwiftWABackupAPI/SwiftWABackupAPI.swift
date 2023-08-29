@@ -184,7 +184,7 @@ public class WABackup {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
             return []
         }
-        guard let chatInfo = fetchChatInfo(id: chatId, from: db) else {
+        guard let chatInfo = fetchChatInfo(id: chatId, from: dbQueue) else {
             print("Error: Chat with id \(chatId) not found")
             return []
         }
@@ -320,6 +320,12 @@ public class WABackup {
         return updatedProfile
     }
 
+    private func copy(hashFile: String, 
+                      toTargetFileUrl url: URL, 
+                      from iPhoneBackup: IPhoneBackup) throws {
+        let sourceFileUrl = iPhoneBackup.getUrl(fileHash: hashFile) 
+        try FileManager.default.copyItem(at: sourceFileUrl, to: url)
+    }
 
     // Obtain the latest files for the given filename and file extension
     //     prefixFilename: the prefix of the file (the phone number), 
@@ -333,7 +339,7 @@ public class WABackup {
     private func getLatestFile(for prefixFilename: String, 
                                fileExtension: String, 
                                files namesAndHashes: [FilenameAndHash]) 
-                               -> (filename: String, fileHash: String)? {
+                               -> (FilenameAndHash)? {
 
         guard !namesAndHashes.isEmpty else {
             return nil
@@ -436,7 +442,8 @@ public class WABackup {
             try dbQueue.read { db in
                 // Chats ending with "status" are not real chats
                 let chatSessions = try Row.fetchAll(db, sql: """
-                SELECT * FROM ZWACHATSESSION WHERE ZCONTACTJID NOT LIKE ?
+                SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME, ZLASTMESSAGEDATE 
+                FROM ZWACHATSESSION WHERE ZCONTACTJID NOT LIKE ?
                 """, arguments: ["%@status"])
                 for chatRow in chatSessions {
                     let chatId = chatRow["Z_PK"] as? Int64 ?? 0
@@ -529,11 +536,11 @@ public class WABackup {
                     .joined(separator: ", ")
 
                 let chatMessages = try Row.fetchAll(db, sql: """
-                    SELECT ZWAMESSAGE.Z_PK, ZWAMESSAGE.ZTEXT, ZWAMESSAGE.ZMESSAGEDATE, 
-                        ZWAMESSAGE.ZGROUPMEMBER, ZWAMESSAGE.ZFROMJID, ZWAMESSAGE.ZMEDIAITEM, 
-                        ZWAMESSAGE.ZISFROMME, ZWAMESSAGE.ZGROUPEVENTTYPE, ZWAMESSAGE.ZMESSAGETYPE
+                    SELECT Z_PK, ZTEXT, ZMESSAGEDATE, 
+                        ZGROUPMEMBER, ZFROMJID, ZMEDIAITEM, 
+                        ZISFROMME, ZGROUPEVENTTYPE, ZMESSAGETYPE
                     FROM ZWAMESSAGE
-                    WHERE ZWAMESSAGE.ZCHATSESSION = ? AND ZWAMESSAGE.ZMESSAGETYPE IN (\(supportedMessageTypes))
+                    WHERE ZCHATSESSION = ? AND ZMESSAGETYPE IN (\(supportedMessageTypes))
                     """, arguments: [chatId])
                 
                 for messageRow in chatMessages {
@@ -800,13 +807,6 @@ public class WABackup {
             return MediaFilename.fileName(targetFileUrl.lastPathComponent)
         }
         return nil
-    }
-
-    private func copy(hashFile: String, 
-                      toTargetFileUrl url: URL, 
-                      from iPhoneBackup: IPhoneBackup) throws {
-        let sourceFileUrl = iPhoneBackup.getUrl(fileHash: hashFile) 
-        try FileManager.default.copyItem(at: sourceFileUrl, to: url)
     }
 
     private func fetchReactions(forMessageId messageId: Int, 
