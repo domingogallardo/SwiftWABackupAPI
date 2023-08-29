@@ -8,6 +8,8 @@
 import Foundation
 import GRDB
 
+public typealias WADatabase = UUID
+
 public struct ChatInfo: CustomStringConvertible, Encodable {
     public enum ChatType: String, Codable {
         case group
@@ -130,15 +132,11 @@ public class WABackup {
 
     // We allow to connect to more than one ChatStorage.sqlite file at the same time
     // The key is the backup identifier
-    private var chatDatabases: [String: DatabaseQueue] = [:]
+    private var chatDatabases: [WADatabase: DatabaseQueue] = [:]
+    private var iPhoneBackups: [WADatabase: IPhoneBackup] = [:]
 
     public init() {}    
     
-    // This function checks if any local backups exist at the default backup path.
-    public func hasLocalBackups() -> Bool {
-        return phoneBackup.hasLocalBackups()
-    }
-
     // The function needs permission to access 
     // ~/Library/Application Support/MobileSync/Backup/
     // Go to System Preferences -> Security & Privacy -> Full Disk Access
@@ -149,27 +147,32 @@ public class WABackup {
     // Obtains the URL of the ChatStorage.sqlite file in a backup and
     // associates it with the backup identifier. The API can be connected to
     // more than one ChatStorage.sqlite file at the same time.
-    public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) -> Bool {
+    public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) -> WADatabase? {
         guard let chatStorageHash = iPhoneBackup.fetchWAFileHash(
                                             endsWith: "ChatStorage.sqlite") else {
             print("Error: No ChatStorage.sqlite file found in backup")
-            return false
+            return nil
         }
 
         let chatStorageUrl = iPhoneBackup.getUrl(fileHash: chatStorageHash)
 
         guard let chatStorageDb = try? DatabaseQueue(path: chatStorageUrl.path) else {
             print("Error: Cannot connect to ChatStorage.sqlite file")
-            return false
+            return nil
         }
 
-        // Store the connected DatabaseQueue for future use
-        chatDatabases[iPhoneBackup.identifier] = chatStorageDb
-        return true
+        // Generate a unique identifier for this database connection
+        let uniqueIdentifier = WADatabase()
+
+        // Store the connected DatabaseQueue and iPhoneBackup for future use
+        chatDatabases[uniqueIdentifier] = chatStorageDb
+        iPhoneBackups[uniqueIdentifier] = iPhoneBackup
+
+        return uniqueIdentifier
     }
 
-    public func getChats(from iPhoneBackup: IPhoneBackup) -> [ChatInfo] {
-        guard let dbQueue = chatDatabases[iPhoneBackup.identifier] else {
+    public func getChats(from waDatabase: WADatabase) -> [ChatInfo] {
+        guard let dbQueue = chatDatabases[waDatabase] else {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
             return []
         }
@@ -179,13 +182,17 @@ public class WABackup {
 
     public func getChatMessages(chatId: Int, 
                                 directoryToSaveMedia directory: URL, 
-                                from iPhoneBackup: IPhoneBackup) -> [MessageInfo] {
-        guard let dbQueue = chatDatabases[iPhoneBackup.identifier] else {
+                                from waDatabase: WADatabase) -> [MessageInfo] {
+        guard let dbQueue = chatDatabases[waDatabase] else {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
             return []
         }
         guard let chatInfo = fetchChatInfo(id: chatId, from: dbQueue) else {
             print("Error: Chat with id \(chatId) not found")
+            return []
+        }
+        guard let iPhoneBackup = iPhoneBackups[waDatabase] else {
+            print("Error: iPhone backup not found")
             return []
         }
         let messages = fetchChatMessages(chatId: chatId, type: chatInfo.chatType, 
@@ -195,9 +202,13 @@ public class WABackup {
     }
 
     public func getProfiles(directoryToSaveMedia directory: URL, 
-                            from iPhoneBackup: IPhoneBackup) -> [ProfileInfo] {
-        guard let dbQueue = chatDatabases[iPhoneBackup.identifier] else {
+                            from waDatabase: WADatabase) -> [ProfileInfo] {
+        guard let dbQueue = chatDatabases[waDatabase] else {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
+            return []
+        }
+        guard let iPhoneBackup = iPhoneBackups[waDatabase] else {
+            print("Error: iPhone backup not found")
             return []
         }
 
@@ -210,9 +221,13 @@ public class WABackup {
     }
 
     public func getUserProfile(directoryToSaveMedia directory: URL, 
-                             from iPhoneBackup: IPhoneBackup) -> ProfileInfo? {
-        guard let dbQueue = chatDatabases[iPhoneBackup.identifier] else {
+                             from waDatabase: WADatabase) -> ProfileInfo? {
+        guard let dbQueue = chatDatabases[waDatabase] else {
             print("Error: ChatStorage.sqlite database is not connected for this backup")
+            return nil
+        }
+        guard let iPhoneBackup = iPhoneBackups[waDatabase] else {
+            print("Error: iPhone backup not found")
             return nil
         }
         var userProfile = fetchUserProfile(from: dbQueue)
