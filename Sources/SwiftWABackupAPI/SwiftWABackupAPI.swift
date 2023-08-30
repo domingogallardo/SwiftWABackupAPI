@@ -161,6 +161,12 @@ public class WABackup {
             return nil
         }
 
+        // Check the schema of the ChatStorage.sqlite file
+        guard checkSchema(of: chatStorageDb) else {
+            print("Error: ChatStorage.sqlite file has an unsupported schema")
+            return nil
+        }
+
         // Generate a unique identifier for this database connection
         let uniqueIdentifier = WADatabase()
 
@@ -269,6 +275,52 @@ public class WABackup {
     } 
 
     // Private functions
+
+    func checkSchema(of dbQueue: DatabaseQueue) -> Bool {
+        // Define the expected tables and their respective fields
+        let expectedSchema: [String: Set<String>] = [
+            "ZWAMESSAGE": ["Z_PK", "ZTOJID", "ZMESSAGETYPE", "ZGROUPMEMBER",
+                           "ZCHATSESSION", "ZTEXT", "ZMESSAGEDATE",
+                           "ZFROMJID", "ZMEDIAITEM", "ZISFROMME",
+                           "ZGROUPEVENTTYPE", "ZSTANZAID"],
+            "ZWACHATSESSION": ["Z_PK", "ZCONTACTJID", "ZPARTNERNAME", 
+                               "ZLASTMESSAGEDATE", "ZMESSAGECOUNTER"],
+            "ZWAGROUPMEMBER": ["Z_PK", "ZMEMBERJID", "ZCONTACTNAME"],
+            "ZWAPROFILEPUSHNAME": ["ZPUSHNAME", "ZJID"],
+            "ZWAMEDIAITEM": ["Z_PK", "ZMETADATA", "ZTITLE", "ZMEDIALOCALPATH"],
+            "ZWAMESSAGEINFO": ["ZRECEIPTINFO", "ZMESSAGE"]
+        ]
+
+        var schemaMatches = true
+
+        do {
+            try dbQueue.read { db in
+                for (table, expectedFields) in expectedSchema {
+                    // Check if table exists
+                    if try db.tableExists(table) {
+                        // Fetch columns of the table
+                        let columns = try db.columns(in: table)
+                        let columnNames = Set(columns.map { $0.name.uppercased() })
+                        
+                        // Check if all expected fields exist in the table
+                        if !expectedFields.isSubset(of: columnNames) {
+                            print("Table \(table) does not have all expected fields")
+                            schemaMatches = false
+                            return
+                        }
+                    } else {
+                        print("Table \(table) does not exist")
+                        schemaMatches = false
+                        return
+                    }
+                }
+            }
+        } catch {
+            print("Database schema check error: \(error)")
+            schemaMatches = false
+        }
+        return schemaMatches
+    }
 
     private func extractProfiles(from chats: [ChatInfo], 
                                  using dbQueue: DatabaseQueue) -> Set<ProfileInfo> {
