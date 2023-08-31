@@ -140,8 +140,8 @@ public class WABackup {
     // The function needs permission to access 
     // ~/Library/Application Support/MobileSync/Backup/
     // Go to System Preferences -> Security & Privacy -> Full Disk Access
-    public func getLocalBackups() -> [IPhoneBackup] {
-        return phoneBackup.getLocalBackups()
+    public func getBackups() throws -> BackupFetchResult {
+        return try phoneBackup.getBackups()
     }
 
     // Obtains the URL of the ChatStorage.sqlite file in a backup and
