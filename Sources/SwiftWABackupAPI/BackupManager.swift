@@ -11,7 +11,6 @@ import GRDB
 
 public enum BackupManagerError: Error {
     case directoryAccessError(error: Error)
-    // case noFileFoundForHash(String)
 }
 
 // A backup is valid if it contains the WhatsApp sqlite database
