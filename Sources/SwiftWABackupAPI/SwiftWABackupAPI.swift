@@ -10,6 +10,13 @@ import GRDB
 
 public typealias WADatabase = UUID
 
+public enum WABackupError: Error {
+    case directoryAccessError(error: Error)
+    case noChatStorageFile
+    case databaseConnectionError(error: Error)
+    case databaseHasUnsupportedSchema
+}
+
 public struct ChatInfo: CustomStringConvertible, Encodable {
     public enum ChatType: String, Codable {
         case group
@@ -141,40 +148,46 @@ public class WABackup {
     // ~/Library/Application Support/MobileSync/Backup/
     // Go to System Preferences -> Security & Privacy -> Full Disk Access
     public func getBackups() throws -> BackupFetchResult {
-        return try phoneBackup.getBackups()
+        do {
+            return try phoneBackup.getBackups()
+        } catch {
+            throw WABackupError.directoryAccessError(error: error)
+        }
     }
 
     // Obtains the URL of the ChatStorage.sqlite file in a backup and
     // associates it with the backup identifier. The API can be connected to
     // more than one ChatStorage.sqlite file at the same time.
-    public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) -> WADatabase? {
+    public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) throws -> WADatabase {
         guard let chatStorageHash = iPhoneBackup.fetchWAFileHash(
                                             endsWith: "ChatStorage.sqlite") else {
-            print("Error: No ChatStorage.sqlite file found in backup")
-            return nil
+            throw WABackupError.noChatStorageFile
         }
 
         let chatStorageUrl = iPhoneBackup.getUrl(fileHash: chatStorageHash)
 
-        guard let chatStorageDb = try? DatabaseQueue(path: chatStorageUrl.path) else {
-            print("Error: Cannot connect to ChatStorage.sqlite file")
-            return nil
+        // Connect to the ChatStorage.sqlite file
+
+        do {
+            let chatStorageDb = try DatabaseQueue(path: chatStorageUrl.path)
+
+            // Check the schema of the ChatStorage.sqlite file
+            if (!checkSchema(of: chatStorageDb)) {
+                throw WABackupError.databaseHasUnsupportedSchema
+            }
+            // Generate a unique identifier for this database connection
+            let uniqueIdentifier = WADatabase()
+
+            // Store the connected DatabaseQueue and iPhoneBackup for future use
+            chatDatabases[uniqueIdentifier] = chatStorageDb
+            iPhoneBackups[uniqueIdentifier] = iPhoneBackup
+
+            return uniqueIdentifier
+
+        } catch {
+            throw WABackupError.databaseConnectionError(error: error)
         }
 
-        // Check the schema of the ChatStorage.sqlite file
-        guard checkSchema(of: chatStorageDb) else {
-            print("Error: ChatStorage.sqlite file has an unsupported schema")
-            return nil
-        }
-
-        // Generate a unique identifier for this database connection
-        let uniqueIdentifier = WADatabase()
-
-        // Store the connected DatabaseQueue and iPhoneBackup for future use
-        chatDatabases[uniqueIdentifier] = chatStorageDb
-        iPhoneBackups[uniqueIdentifier] = iPhoneBackup
-
-        return uniqueIdentifier
     }
 
     public func getChats(from waDatabase: WADatabase) -> [ChatInfo] {
