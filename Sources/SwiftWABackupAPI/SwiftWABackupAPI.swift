@@ -674,21 +674,21 @@ public class WABackup {
                                 case .video, .audio:
                                     let seconds = try fetchSeconds(mediaItemId: mediaItemId, 
                                                                         from: db)
-                                    messageInfo.seconds = seconds
+                                    messageInfo.seconds = seconds                           
                                 default:
                                     break
-                             }
-
-                             // if it is a location message, extract the latitude and
-                             // longitude
-                             
-                            if messageType == .location {
-                                let (latitude, longitude) = 
-                                    try fetchLocation(mediaItemId: mediaItemId, 
-                                                        from: db)
-                                messageInfo.latitude = latitude
-                                messageInfo.longitude = longitude
                             }
+                        }
+
+                        // if it is a location message, extract the latitude and
+                        // longitude
+
+                        if messageType == .location {
+                            let (latitude, longitude) = 
+                                try fetchLocation(mediaItemId: mediaItemId, 
+                                                    from: db)
+                            messageInfo.latitude = latitude
+                            messageInfo.longitude = longitude
                         }
                     }
 
