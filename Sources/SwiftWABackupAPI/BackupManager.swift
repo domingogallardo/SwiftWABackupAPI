@@ -8,39 +8,60 @@
 import Foundation
 import GRDB
 
-struct BackupManager {
+
+public enum BackupManagerError: Error {
+    case directoryAccessError(error: Error)
+}
+
+// A backup is valid if it contains the WhatsApp sqlite database
+public typealias BackupFetchResult = (validBackups: [IPhoneBackup], invalidBackups: [URL])
+
+public struct BackupManager {
     // Default directory where iPhone stores backups on macOS.
     private let defaultBackupPath = "~/Library/Application Support/MobileSync/Backup/"
     
-    // Fetches the list of all local backups available at the default backup path.
-    // Each backup is represented as a IPhoneBackup struct.
+    // Fetches the list of all valid and invalid backups at the default backup path.
+    // Each valid backup is represented as a IPhoneBackup struct. Invalid backups are
+    // represented as a URL pointing to the invalid backup.
+    //
     // The function needs permission to access 
     // ~/Library/Application Support/MobileSync/Backup/
     // Go to System Preferences -> Security & Privacy -> Full Disk Access
-    func getLocalBackups() -> [IPhoneBackup] {
+    public func getBackups() throws -> BackupFetchResult {
         let backupPath = NSString(string: defaultBackupPath).expandingTildeInPath
         let backupUrl = URL(fileURLWithPath: backupPath)
+        var validBackups: [IPhoneBackup] = []
+        var invalidBackups: [URL] = []
         do {
             let directoryContents = 
                 try FileManager.default
                     .contentsOfDirectory(at: backupUrl, 
                                          includingPropertiesForKeys: nil)
-            
-            // Filter out .DS_Store and return the list of backups
-            return directoryContents
-                .filter { !$0.lastPathComponent.hasPrefix(".DS_Store") }
-                .compactMap { getBackup(at: $0 ) }
+            for url in directoryContents {
+                if let backup = getBackup(at: url) {
+                    switch backup {
+                    case .valid(let backup):
+                        validBackups.append(backup)
+                    case .invalid(let url):
+                        invalidBackups.append(url)
+                    }
+                }
+            }
+            return (validBackups: validBackups, invalidBackups: invalidBackups)
         } catch {
-            print("Error while enumerating files \(backupUrl.path): \(error))")
-            return []
+            throw BackupManagerError.directoryAccessError(error: error)
         }
     }
 
-    private func getBackup(at url: URL) -> IPhoneBackup? {
+    private enum BackupResult {
+        case valid(IPhoneBackup)
+        case invalid(URL)
+    }
+
+    private func getBackup(at url: URL) -> BackupResult? {
         let fileManager = FileManager.default
 
         guard isDirectory(at: url) else {
-            print("Not a directory: \(url.path)")
             return nil
         }
 
@@ -48,7 +69,6 @@ struct BackupManager {
         for file in expectedFiles {
             let filePath = url.appendingPathComponent(file).path
             if !fileManager.fileExists(atPath: filePath) {
-                print("Directory does not contain a backup: \(url.path)")
                 return nil
             }
         }
@@ -63,18 +83,32 @@ struct BackupManager {
                     .propertyList(from: statusPlistData, 
                                   options: [], 
                                   format: nil)
-            if let plistDict = plistObj as? [String: Any], 
-               let date = plistDict["Date"] as? Date {
-                return IPhoneBackup(url: url, creationDate: date)
-            } else {
-                print("Could not read Date from Status.plist in backup: " + 
-                      "\(url.path)")
-            }
-        } catch {
-            print("Error while getting backup info \(url.path): \(error)")
-        }
 
-        return nil
+                // Attempt to cast plistObj to a dictionary
+                guard let plistDict = plistObj as? [String: Any],
+                    let date = plistDict["Date"] as? Date else {
+                    return .invalid(url)
+                }
+
+                let iPhoneBackup = IPhoneBackup(url: url, creationDate: date)
+
+                // Check if the backup contains the WhatsApp database
+                guard let chatStorageHash = iPhoneBackup.fetchWAFileHash(endsWith: "ChatStorage.sqlite") else {
+                    return .invalid(url)
+                }
+
+                let chatStorageUrl = iPhoneBackup.getUrl(fileHash: chatStorageHash)
+
+                // Attempt to create a DatabaseQueue with the given path
+                guard let _ = try? DatabaseQueue(path: chatStorageUrl.path) else {
+                    return .invalid(url)
+                }
+
+                return .valid(iPhoneBackup)
+
+        } catch {
+            return .invalid(url)
+        }
     }
 
     private func isDirectory(at url: URL) -> Bool {
