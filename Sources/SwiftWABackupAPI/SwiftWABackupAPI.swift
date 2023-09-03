@@ -64,9 +64,9 @@ enum SupportedMessageType: Int64, CaseIterable {
     case video = 2
     case audio = 3
     case location = 5
-    case links = 7
+    case link = 7
     case docs = 8
-    case gifs = 11
+    case gif = 11
     case sticker = 15
 
     var description: String {
@@ -76,9 +76,9 @@ enum SupportedMessageType: Int64, CaseIterable {
         case .video: return "Video"
         case .audio: return "Audio"
         case .location: return "Location"
-        case .links: return "Link"
+        case .link: return "Link"
         case .docs: return "Document"
-        case .gifs: return "GIF"
+        case .gif: return "GIF"
         case .sticker: return "Sticker"
         }
     }
@@ -103,6 +103,9 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     public var mediaFilename: String?
     public var reactions: [Reaction]?
     public var error: String?
+    public var seconds: Int?
+    public var latitude: Double?
+    public var longitude: Double?
 
     public var description: String {
         let dateFormatter = DateFormatter()
@@ -593,11 +596,11 @@ public class WABackup {
                     let messageDate = convertTimestampToDate(
                         timestamp: messageRow["ZMESSAGEDATE"] as Any)
                     let isFromMe = messageRow["ZISFROMME"] as? Int64 == 1
-                    let messageType = messageRow["ZMESSAGETYPE"] as? Int64 ?? 0
-
-                    guard let messageTypeStr = getMessageType(code: Int(messageType)) else {
-                        // Skip not supported message types
-                        continue
+                    guard let messageType = 
+                        SupportedMessageType(rawValue: messageRow["ZMESSAGETYPE"] as Int64) 
+                            else {
+                                // Skip not supported message types
+                                continue
                     }
 
                     var messageInfo = MessageInfo(id: Int(messageId), 
@@ -605,7 +608,7 @@ public class WABackup {
                                                     message: messageText, 
                                                     date: messageDate, 
                                                     isFromMe: isFromMe,
-                                                    messageType: messageTypeStr)
+                                                    messageType: messageType.description)
 
                     if !isFromMe {
 
@@ -676,6 +679,16 @@ public class WABackup {
                                     break
                              }
 
+                             // if it is a location message, extract the latitude and
+                             // longitude
+                             
+                            if messageType == .location {
+                                let (latitude, longitude) = 
+                                    try fetchLocation(mediaItemId: mediaItemId, 
+                                                        from: db)
+                                messageInfo.latitude = latitude
+                                messageInfo.longitude = longitude
+                            }
                         }
                     }
 
@@ -696,10 +709,6 @@ public class WABackup {
         } catch {
             throw WABackupError.databaseConnectionError(error: error)
         }
-    }
-
-    private func getMessageType(code: Int) -> String? {
-        return SupportedMessageType(rawValue: Int64(code))?.description
     }
 
     typealias SenderInfo = (senderName: String?, senderPhone: String?)
@@ -866,6 +875,19 @@ public class WABackup {
                 return Int(seconds)
             }
             return 0
+        } catch {
+            throw WABackupError.databaseConnectionError(error: error)
+        }
+    }
+
+    private func fetchLocation(mediaItemId: Int64, from db: Database) throws -> (Double, Double) {
+        do {
+            let mediaItemRow = try Row.fetchOne(db, sql: """
+                SELECT ZLATITUDE, ZLONGITUDE FROM ZWAMEDIAITEM WHERE Z_PK = ?
+                """, arguments: [mediaItemId])
+            let latitude = mediaItemRow?["ZLATITUDE"] as? Double ?? 0
+            let longitude = mediaItemRow?["ZLONGITUDE"] as? Double ?? 0
+            return (latitude, longitude)
         } catch {
             throw WABackupError.databaseConnectionError(error: error)
         }
