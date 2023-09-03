@@ -638,8 +638,8 @@ public class WABackup {
                         }
                     }
 
-                    // if it has a media file, extract it, the thumbnail and 
-                    // the caption
+                    // if it has a media file, extract it, the thumbnail,  
+                    // the caption and the duration
 
                     if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
                         if let mediaFilename = 
@@ -664,6 +664,17 @@ public class WABackup {
                                                                 from: db) {
                                 messageInfo.caption = caption
                             }
+
+                            // if it is a video or audio message, extract the duration
+
+                            switch messageType {
+                                case .video, .audio:
+                                    let seconds = try fetchSeconds(mediaItemId: mediaItemId, 
+                                                                        from: db)
+                                    messageInfo.seconds = seconds
+                                default:
+                                    break
+                             }
 
                         }
                     }
@@ -841,6 +852,20 @@ public class WABackup {
                 return caption
             }
             return nil
+        } catch {
+            throw WABackupError.databaseConnectionError(error: error)
+        }
+    }
+
+    private func fetchSeconds(mediaItemId: Int64, from db: Database) throws -> Int {
+        do {
+            let mediaItemRow = try Row.fetchOne(db, sql: """
+                SELECT ZMOVIEDURATION FROM ZWAMEDIAITEM WHERE Z_PK = ?
+                """, arguments: [mediaItemId])
+            if let seconds = mediaItemRow?["ZMOVIEDURATION"] as? Int64 {
+                return Int(seconds)
+            }
+            return 0
         } catch {
             throw WABackupError.databaseConnectionError(error: error)
         }
