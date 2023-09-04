@@ -14,7 +14,7 @@ public enum WABackupError: Error {
     case directoryAccessError(error: Error)
     case noChatStorageFile
     case databaseConnectionError(error: Error)
-    case databaseHasUnsupportedSchema
+    case databaseHasUnsupportedSchema(error: Error)
 }
 
 public struct ChatInfo: CustomStringConvertible, Encodable {
@@ -175,9 +175,8 @@ public class WABackup {
             let chatStorageDb = try DatabaseQueue(path: chatStorageUrl.path)
 
             // Check the schema of the ChatStorage.sqlite file
-            if (!checkSchema(of: chatStorageDb)) {
-                throw WABackupError.databaseHasUnsupportedSchema
-            }
+            try checkSchema(of: chatStorageDb)
+
             // Generate a unique identifier for this database connection
             let uniqueIdentifier = WADatabase()
 
@@ -186,11 +185,12 @@ public class WABackup {
             iPhoneBackups[uniqueIdentifier] = iPhoneBackup
 
             return uniqueIdentifier
-
+        } catch let error as WABackupError {
+            // If the inner function throws WABackupError just rethrow it
+            throw error
         } catch {
             throw WABackupError.databaseConnectionError(error: error)
         }
-
     }
 
     public func getChats(from waDatabase: WADatabase) throws -> [ChatInfo] {
@@ -230,7 +230,7 @@ public class WABackup {
     }
 
     public func getUserProfile(directoryToSaveMedia directory: URL, 
-                             from waDatabase: WADatabase) throws -> ProfileInfo? {
+                               from waDatabase: WADatabase) throws -> ProfileInfo? {
         let dbQueue = chatDatabases[waDatabase]!
         guard let iPhoneBackup = iPhoneBackups[waDatabase] else {
             print("Error: iPhone backup not found")
@@ -266,7 +266,7 @@ public class WABackup {
 
     // Private functions
 
-    func checkSchema(of dbQueue: DatabaseQueue) -> Bool {
+    private func checkSchema(of dbQueue: DatabaseQueue) throws {
         // Define the expected tables and their respective fields
         let expectedSchema: [String: Set<String>] = [
             "ZWAMESSAGE": ["Z_PK", "ZTOJID", "ZMESSAGETYPE", "ZGROUPMEMBER",
@@ -281,8 +281,6 @@ public class WABackup {
             "ZWAMESSAGEINFO": ["ZRECEIPTINFO", "ZMESSAGE"]
         ]
 
-        var schemaMatches = true
-
         do {
             try dbQueue.read { db in
                 for (table, expectedFields) in expectedSchema {
@@ -295,21 +293,17 @@ public class WABackup {
                         // Check if all expected fields exist in the table
                         if !expectedFields.isSubset(of: columnNames) {
                             print("Table \(table) does not have all expected fields")
-                            schemaMatches = false
                             return
                         }
                     } else {
-                        print("Table \(table) does not exist")
-                        schemaMatches = false
-                        return
+                        throw WABackupError.databaseHasUnsupportedSchema(
+                            error: DatabaseError(message: "Table \(table) does not exist"))
                     }
                 }
             }
         } catch {
-            print("Database schema check error: \(error)")
-            schemaMatches = false
+            throw WABackupError.databaseHasUnsupportedSchema(error: error)
         }
-        return schemaMatches
     }
 
     private func extractProfiles(from chats: [ChatInfo], 
