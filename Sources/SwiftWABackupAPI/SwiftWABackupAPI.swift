@@ -65,7 +65,7 @@ enum SupportedMessageType: Int64, CaseIterable {
     case audio = 3
     case location = 5
     case link = 7
-    case docs = 8
+    case doc = 8
     case gif = 11
     case sticker = 15
 
@@ -77,7 +77,7 @@ enum SupportedMessageType: Int64, CaseIterable {
         case .audio: return "Audio"
         case .location: return "Location"
         case .link: return "Link"
-        case .docs: return "Document"
+        case .doc: return "Document"
         case .gif: return "GIF"
         case .sticker: return "Sticker"
         }
@@ -232,10 +232,8 @@ public class WABackup {
     public func getUserProfile(directoryToSaveMedia directory: URL, 
                                from waDatabase: WADatabase) throws -> ProfileInfo? {
         let dbQueue = chatDatabases[waDatabase]!
-        guard let iPhoneBackup = iPhoneBackups[waDatabase] else {
-            print("Error: iPhone backup not found")
-            return nil
-        }
+        let iPhoneBackup = iPhoneBackups[waDatabase]!
+        
         var userProfile = try fetchUserProfile(from: dbQueue)
         let userPhotoTargetUrl = directory.appendingPathComponent("Photo.jpg")
         let userThumbnailTargetUrl = directory.appendingPathComponent("Photo.thumb")
