@@ -120,14 +120,14 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     }
 }
 
-public struct ProfileInfo: CustomStringConvertible, Encodable, Hashable {
+public struct ContactInfo: CustomStringConvertible, Encodable, Hashable {
     public let name: String
     public let phone: String
     public var photoFilename: String?
     public var thumbnailFilename: String?
 
     public var description: String {
-        return "Profile: Phone - \(phone), Name - \(name)"
+        return "Contact: Phone - \(phone), Name - \(name)"
     }
 }
 
@@ -212,25 +212,25 @@ public class WABackup {
         return messages.sorted { $0.date > $1.date }
     }
 
-    public func getProfiles(directoryToSaveMedia directory: URL, 
-                            from waDatabase: WADatabase) throws -> [ProfileInfo] {
+    public func getContacts(directoryToSaveMedia directory: URL, 
+                            from waDatabase: WADatabase) throws -> [ContactInfo] {
         let dbQueue = chatDatabases[waDatabase]!
         let iPhoneBackup = iPhoneBackups[waDatabase]!
 
         let chats = try fetchChats(from: dbQueue)
-        let profilesSet = try extractProfiles(from: chats, using: dbQueue)
+        let contactsSet = try extractContacts(from: chats, using: dbQueue)
 
-        var updatedProfiles: [ProfileInfo] = []
-        for profile in profilesSet {
-            let updatedProfile = try copyProfileMedia(for: profile, from: iPhoneBackup, to: directory)
-            updatedProfiles.append(updatedProfile)
+        var updatedContacts: [ContactInfo] = []
+        for contact in contactsSet {
+            let updatedContact = try copyContactMedia(for: contact, from: iPhoneBackup, to: directory)
+            updatedContacts.append(updatedContact)
         }
         
-        return updatedProfiles.sorted { $0.name < $1.name }
+        return updatedContacts.sorted { $0.name < $1.name }
     }
 
     public func getUserProfile(directoryToSaveMedia directory: URL, 
-                               from waDatabase: WADatabase) throws -> ProfileInfo? {
+                               from waDatabase: WADatabase) throws -> ContactInfo? {
         let dbQueue = chatDatabases[waDatabase]!
         let iPhoneBackup = iPhoneBackups[waDatabase]!
         
@@ -304,36 +304,36 @@ public class WABackup {
         }
     }
 
-    private func extractProfiles(from chats: [ChatInfo], 
-                                 using dbQueue: DatabaseQueue) throws -> Set<ProfileInfo> {
-        var profilesSet: Set<ProfileInfo> = []
+    private func extractContacts(from chats: [ChatInfo], 
+                                 using dbQueue: DatabaseQueue) throws -> Set<ContactInfo> {
+        var contactsSet: Set<ContactInfo> = []
         for chat in chats {
-            let profile = ProfileInfo(name: chat.name, 
+            let contact = ContactInfo(name: chat.name, 
                                       phone: chat.contactJid.extractedPhone)
-            profilesSet.insert(profile)
+            contactsSet.insert(contact)
             if chat.chatType == .group {
-                    let groupProfiles = try fetchGroupMembersProfiles(chatId: chat.id, 
+                    let groupContact = try fetchGroupMembersContacts(chatId: chat.id, 
                                                                   from: dbQueue)
-                    profilesSet.formUnion(groupProfiles)
+                    contactsSet.formUnion(groupContact)
             }
         }
-        return profilesSet
+        return contactsSet
     }
 
-    private func copyProfileMedia(for profile: ProfileInfo, 
+    private func copyContactMedia(for contact: ContactInfo, 
                                   from iPhoneBackup: IPhoneBackup, 
-                                  to directory: URL) throws-> ProfileInfo {
-        var updatedProfile = profile
-        let profilePhotoFilename = "Media/Profile/\(profile.phone)"
+                                  to directory: URL) throws-> ContactInfo {
+        var updatedContact = contact
+        let contactPhotoFilename = "Media/Profile/\(contact.phone)"
         let filesNamesAndHashes = 
-            iPhoneBackup.fetchWAFileDetails(contains: profilePhotoFilename)
+            iPhoneBackup.fetchWAFileDetails(contains: contactPhotoFilename)
         
-        // Copy the latest profile photo
+        // Copy the latest contact photo
 
-        if let latestFile = getLatestFile(for: profilePhotoFilename, 
+        if let latestFile = getLatestFile(for: contactPhotoFilename, 
                                           fileExtension: "jpg", 
                                           files: filesNamesAndHashes) {
-            let targetFilename = profile.phone + ".jpg"
+            let targetFilename = contact.phone + ".jpg"
             let targetFileUrl = directory.appendingPathComponent(targetFilename)
             try copy(hashFile: latestFile.fileHash, 
                         toTargetFileUrl: targetFileUrl, 
@@ -342,15 +342,15 @@ public class WABackup {
             // Inform the delegate that a media file has been written
             delegate?.didWriteMediaFile(fileName: targetFileUrl.path)
 
-            updatedProfile.photoFilename = targetFilename
+            updatedContact.photoFilename = targetFilename
         }
 
-        // Copy the latest profile thumbnail
+        // Copy the latest contact thumbnail
 
-        if let latestFile = getLatestFile(for: profilePhotoFilename, 
+        if let latestFile = getLatestFile(for: contactPhotoFilename, 
                                           fileExtension: "thumb", 
                                           files: filesNamesAndHashes) {
-        let targetFilename = profile.phone + ".thumb"
+        let targetFilename = contact.phone + ".thumb"
             let targetFileUrl = directory.appendingPathComponent(targetFilename)
             try copy(hashFile: latestFile.fileHash, 
                         toTargetFileUrl: targetFileUrl, 
@@ -359,9 +359,9 @@ public class WABackup {
             // Inform the delegate that a media file has been written
             delegate?.didWriteMediaFile(fileName: targetFileUrl.path)
 
-            updatedProfile.thumbnailFilename = targetFilename
+            updatedContact.thumbnailFilename = targetFilename
         }
-        return updatedProfile
+        return updatedContact
     }
 
     private func copy(hashFile: String, 
@@ -419,8 +419,8 @@ public class WABackup {
         return nil
     }
 
-    private func fetchUserProfile(from dbQueue: DatabaseQueue) throws -> ProfileInfo {
-        var profilePhone = ""
+    private func fetchUserProfile(from dbQueue: DatabaseQueue) throws -> ContactInfo {
+        var userPhone = ""
         
         // Fetch user phone number
         do {
@@ -430,21 +430,21 @@ public class WABackup {
                 let userProfileRow = try Row.fetchOne(db, sql: """
                 SELECT ZTOJID FROM ZWAMESSAGE WHERE ZMESSAGETYPE IN (6, 10)
                 """)
-                if let userPhone = userProfileRow?["ZTOJID"] as? String {
-                    profilePhone = userPhone.extractedPhone
+                if let userProfilePhone = userProfileRow?["ZTOJID"] as? String {
+                    userPhone = userProfilePhone.extractedPhone
                 }
             }
-            return ProfileInfo(name: "Me", phone: profilePhone)
+            return ContactInfo(name: "Me", phone: userPhone)
         } catch {
             throw WABackupError.databaseConnectionError(error: error)
         }
     }
 
-    // Fetch the profile info of the participants of a gruop chat
-    private func fetchGroupMembersProfiles(chatId: Int, 
-                                           from dbQueue: DatabaseQueue) throws -> Set<ProfileInfo> {
+    // Fetch the contact info of the participants of a gruop chat
+    private func fetchGroupMembersContacts(chatId: Int,
+                                           from dbQueue: DatabaseQueue) throws -> Set<ContactInfo> {
         var groupMembers: [Int64] = []
-        var profilesSet: Set<ProfileInfo> = []
+        var contactsSet: Set<ContactInfo> = []
         do {
             try dbQueue.read { db in
                 // Fetch the distinct members of the messages in the group chat
@@ -468,15 +468,15 @@ public class WABackup {
                 for memberId in groupMembers {
                     let (senderName, senderPhone) = 
                         try fetchSenderInfo(groupMemberId: memberId, from: db)
-                    let profile = ProfileInfo(name: senderName ?? "", 
+                    let contact = ContactInfo(name: senderName ?? "",
                                               phone: senderPhone ?? "")
-                    profilesSet.insert(profile)
+                    contactsSet.insert(contact)
                 }
             }
         } catch {
             throw WABackupError.databaseConnectionError(error: error)
         }
-        return profilesSet
+        return contactsSet
     }
 
     private func fetchChats(from dbQueue: DatabaseQueue) throws -> [ChatInfo] {
@@ -756,8 +756,8 @@ public class WABackup {
     }
     
     // Fetches the sender's name using contact JID. Prioritizes chat session 
-    // and then profile push name.
-    private func fetchSenderName(for contactJid: String, 
+    // and then contact push name.
+    private func fetchSenderName(for contactJid: String,
                                  from db: Database) throws -> String? {
         do {
             if let name: String = try Row.fetchOne(db, sql: """
