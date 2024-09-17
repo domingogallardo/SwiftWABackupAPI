@@ -12,7 +12,7 @@ let package = Package(
             targets: ["SwiftWABackupAPI"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.15.0")
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.29.3")
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
