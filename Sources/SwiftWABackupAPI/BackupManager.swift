@@ -18,8 +18,12 @@ public typealias BackupFetchResult = (validBackups: [IPhoneBackup], invalidBacku
 
 public struct BackupManager {
     // Default directory where iPhone stores backups on macOS.
-    private let defaultBackupPath = "~/Library/Application Support/MobileSync/Backup/"
-    
+    private let backupPath: String
+
+    public init(backupPath: String = "~/Library/Application Support/MobileSync/Backup/") {
+        self.backupPath = backupPath
+    }
+
     // Fetches the list of all valid and invalid backups at the default backup path.
     // Each valid backup is represented as a IPhoneBackup struct. Invalid backups are
     // represented as a URL pointing to the invalid backup.
@@ -28,8 +32,8 @@ public struct BackupManager {
     // ~/Library/Application Support/MobileSync/Backup/
     // Go to System Preferences -> Security & Privacy -> Full Disk Access
     public func getBackups() throws -> BackupFetchResult {
-        let backupPath = NSString(string: defaultBackupPath).expandingTildeInPath
-        let backupUrl = URL(fileURLWithPath: backupPath)
+        let expandedBackupPath = NSString(string: backupPath).expandingTildeInPath
+        let backupUrl = URL(fileURLWithPath: expandedBackupPath)
         var validBackups: [IPhoneBackup] = []
         var invalidBackups: [URL] = []
         do {

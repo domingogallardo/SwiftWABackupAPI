@@ -136,8 +136,7 @@ public protocol WABackupDelegate: AnyObject {
 }
 
 public class WABackup {
-
-    let phoneBackup = BackupManager()
+    var phoneBackup = BackupManager()
     public weak var delegate: WABackupDelegate?
 
     // We allow to connect to more than one ChatStorage.sqlite file at the same time
@@ -145,7 +144,10 @@ public class WABackup {
     private var chatDatabases: [WADatabase: DatabaseQueue] = [:]
     private var iPhoneBackups: [WADatabase: IPhoneBackup] = [:]
 
-    public init() {}    
+    // Modified initializer to accept a custom backup path
+    public init(backupPath: String = "~/Library/Application Support/MobileSync/Backup/") {
+        self.phoneBackup = BackupManager(backupPath: backupPath)
+    }
     
     // The function needs permission to access 
     // ~/Library/Application Support/MobileSync/Backup/
