@@ -21,6 +21,7 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
     public enum ChatType: String, Codable {
         case group
         case individual
+        case channel
     }
 
     public let id: Int
@@ -32,14 +33,19 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
     public let isArchived: Bool
     
     init(id: Int, contactJid: String, name: String, 
-         numberMessages: Int, lastMessageDate: Date, isArchived: Bool) {
+         numberMessages: Int, lastMessageDate: Date, isArchived: Bool,
+         isChannel: Bool = false) {
         self.id = id
         self.contactJid = contactJid
         self.name = name
         self.numberMessages = numberMessages
         self.lastMessageDate = lastMessageDate
-        self.chatType = contactJid.hasSuffix("@g.us") ? .group : .individual
         self.isArchived = isArchived
+        if isChannel {
+            self.chatType = .channel
+        } else {
+            self.chatType = contactJid.hasSuffix("@g.us") ? .group : .individual
+        }
     }
 
     public var description: String {
@@ -66,6 +72,7 @@ enum SupportedMessageType: Int64, CaseIterable {
     case image = 1
     case video = 2
     case audio = 3
+    case contact = 4
     case location = 5
     case link = 7
     case doc = 8
@@ -78,6 +85,7 @@ enum SupportedMessageType: Int64, CaseIterable {
         case .image: return "Image"
         case .video: return "Video"
         case .audio: return "Audio"
+        case .contact: return "Contact"
         case .location: return "Location"
         case .link: return "Link"
         case .doc: return "Document"
@@ -276,8 +284,8 @@ public class WABackup {
                            "ZCHATSESSION", "ZTEXT", "ZMESSAGEDATE",
                            "ZFROMJID", "ZMEDIAITEM", "ZISFROMME",
                            "ZGROUPEVENTTYPE", "ZSTANZAID"],
-            "ZWACHATSESSION": ["Z_PK", "ZCONTACTJID", "ZPARTNERNAME", 
-                               "ZLASTMESSAGEDATE", "ZMESSAGECOUNTER"],
+            "ZWACHATSESSION": ["Z_PK", "ZCONTACTJID", "ZPARTNERNAME",
+                               "ZLASTMESSAGEDATE", "ZMESSAGECOUNTER", "ZSESSIONTYPE", "ZARCHIVED"],
             "ZWAGROUPMEMBER": ["Z_PK", "ZMEMBERJID", "ZCONTACTNAME"],
             "ZWAPROFILEPUSHNAME": ["ZPUSHNAME", "ZJID"],
             "ZWAMEDIAITEM": ["Z_PK", "ZMETADATA", "ZTITLE", "ZMEDIALOCALPATH"],
@@ -486,12 +494,11 @@ public class WABackup {
 
     private func fetchChats(from dbQueue: DatabaseQueue) throws -> [ChatInfo] {
         do {
-
             var chatInfos: [ChatInfo] = []
             try dbQueue.read { db in
-                // Chats ending with "status" are not real chats
+                // Include ZSESSIONTYPE in the query
                 let chatSessions = try Row.fetchAll(db, sql: """
-                SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME, ZLASTMESSAGEDATE, ZARCHIVED
+                SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME, ZLASTMESSAGEDATE, ZARCHIVED, ZSESSIONTYPE
                 FROM ZWACHATSESSION WHERE ZCONTACTJID NOT LIKE ?
                 """, arguments: ["%@status"])
                 for chatRow in chatSessions {
@@ -501,26 +508,33 @@ public class WABackup {
                     let lastMessageDate = convertTimestampToDate(
                         timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
                     let isArchived = chatRow["ZARCHIVED"] as? Int64 == 1
+                    let sessionType = chatRow["ZSESSIONTYPE"] as? Int64 ?? 0
+                    let isChannel = (sessionType == 5)
+
                     // Prepare the IN clause using the supported message types
                     let supportedMessageTypes = SupportedMessageType.allValues
                         .map { "\($0)" }
                         .joined(separator: ", ")
 
                     // Fetch number of messages of supported types
-                    let numberChatMessages = 
+                    let numberChatMessages =
                         try Int.fetchOne(db, sql: """
                         SELECT COUNT(*) FROM ZWAMESSAGE WHERE ZCHATSESSION = ? AND ZMESSAGETYPE IN (\(supportedMessageTypes))
                         """, arguments: [chatId]) ?? 0
+
                     // Chats with zero messages are not real chats
                     if numberChatMessages > 0 {
-                        let chatInfo = ChatInfo(id: Int(chatId),
-                                            contactJid: contactJid, 
-                                            name: chatName, 
-                                            numberMessages: numberChatMessages, 
-                                            lastMessageDate: lastMessageDate,
-                                            isArchived: isArchived)
+                        let chatInfo = ChatInfo(
+                            id: Int(chatId),
+                            contactJid: contactJid,
+                            name: chatName,
+                            numberMessages: numberChatMessages,
+                            lastMessageDate: lastMessageDate,
+                            isArchived: isArchived,
+                            isChannel: isChannel
+                        )
                         chatInfos.append(chatInfo)
-                    } 
+                    }
                 }
             }
             return chatInfos
@@ -528,12 +542,12 @@ public class WABackup {
             throw WABackupError.databaseConnectionError(error: error)
         }
     }
-
+    
     private func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) throws -> ChatInfo {
         return try dbQueue.read { db in
             if let chatRow = try Row.fetchOne(db, sql: """
-                    SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME, 
-                    ZMESSAGECOUNTER, ZLASTMESSAGEDATE, ZARCHIVED
+                    SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME,
+                    ZMESSAGECOUNTER, ZLASTMESSAGEDATE, ZARCHIVED, ZSESSIONTYPE
                     FROM ZWACHATSESSION
                     WHERE Z_PK = ?
                     """, arguments: [id]) {
@@ -545,11 +559,18 @@ public class WABackup {
                 let lastMessageDate = convertTimestampToDate(
                     timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
                 let isArchived = chatRow["ZARCHIVED"] as? Int64 == 1
-                return ChatInfo(id: chatId, contactJid:
-                                contactJid, name: name, 
-                                numberMessages: numberMessages, 
-                                lastMessageDate: lastMessageDate,
-                                isArchived: isArchived)
+                let sessionType = chatRow["ZSESSIONTYPE"] as? Int64 ?? 0
+                let isChannel = (sessionType == 5)
+
+                return ChatInfo(
+                    id: chatId,
+                    contactJid: contactJid,
+                    name: name,
+                    numberMessages: numberMessages,
+                    lastMessageDate: lastMessageDate,
+                    isArchived: isArchived,
+                    isChannel: isChannel
+                )
             } else {
                 throw WABackupError.databaseConnectionError(
                     error: DatabaseError(message: "Chat not found"))
@@ -567,10 +588,10 @@ public class WABackup {
         return Date(timeIntervalSinceReferenceDate: 0)
     }
 
-    private func fetchChatMessages(chatId: Int, 
-                                   type: ChatInfo.ChatType, 
-                                   directoryToSaveMedia: URL, 
-                                   iPhoneBackup: IPhoneBackup, 
+    private func fetchChatMessages(chatId: Int,
+                                   type: ChatInfo.ChatType,
+                                   directoryToSaveMedia: URL,
+                                   iPhoneBackup: IPhoneBackup,
                                    from dbQueue: DatabaseQueue) throws -> [MessageInfo] {
         var messages: [MessageInfo] = []
 
@@ -579,9 +600,9 @@ public class WABackup {
                 var chatPartnerName: String? = nil
                 var chatPartnerPhone: String? = nil
 
-                if (type == .individual) {
-                    (chatPartnerName, chatPartnerPhone) = 
-                    try fetchSenderInfo(fromChatSession: chatId, from: db)
+                // Fetch chat partner info for individual chats and channels
+                if type == .individual || type == .channel {
+                    (chatPartnerName, chatPartnerPhone) = try fetchSenderInfo(fromChatSession: chatId, from: db)
                 }
 
                 // Prepare the IN clause using the supported message types
@@ -590,50 +611,46 @@ public class WABackup {
                     .joined(separator: ", ")
 
                 let chatMessages = try Row.fetchAll(db, sql: """
-                    SELECT Z_PK, ZTEXT, ZMESSAGEDATE, 
-                        ZGROUPMEMBER, ZFROMJID, ZMEDIAITEM, 
+                    SELECT Z_PK, ZTEXT, ZMESSAGEDATE,
+                        ZGROUPMEMBER, ZFROMJID, ZMEDIAITEM,
                         ZISFROMME, ZGROUPEVENTTYPE, ZMESSAGETYPE
                     FROM ZWAMESSAGE
                     WHERE ZCHATSESSION = ? AND ZMESSAGETYPE IN (\(supportedMessageTypes))
                     """, arguments: [chatId])
-                
+
                 for messageRow in chatMessages {
                     let messageId = messageRow["Z_PK"] as? Int64 ?? 0
                     let messageText = messageRow["ZTEXT"] as? String
                     let messageDate = convertTimestampToDate(
                         timestamp: messageRow["ZMESSAGEDATE"] as Any)
                     let isFromMe = messageRow["ZISFROMME"] as? Int64 == 1
-                    guard let messageType = 
-                        SupportedMessageType(rawValue: messageRow["ZMESSAGETYPE"] as Int64) 
+                    guard let messageType =
+                        SupportedMessageType(rawValue: messageRow["ZMESSAGETYPE"] as Int64)
                             else {
                                 // Skip not supported message types
                                 continue
                     }
 
-                    var messageInfo = MessageInfo(id: Int(messageId), 
-                                                    chatId: chatId, 
-                                                    message: messageText, 
-                                                    date: messageDate, 
-                                                    isFromMe: isFromMe,
-                                                    messageType: messageType.description)
+                    var messageInfo = MessageInfo(
+                        id: Int(messageId),
+                        chatId: chatId,
+                        message: messageText,
+                        date: messageDate,
+                        isFromMe: isFromMe,
+                        messageType: messageType.description
+                    )
 
                     if !isFromMe {
-
-                        // obtain the sender name and phone number
-
                         switch type {
-                            case .group:
-                                if let groupMemberId = messageRow["ZGROUPMEMBER"] as? Int64 {
-                                    let (senderName, senderPhone) = 
-                                        try fetchSenderInfo(groupMemberId: groupMemberId, 
-                                                            from: db)
-                                    messageInfo.senderName = senderName
-                                    messageInfo.senderPhone = senderPhone
-                                }
-                                
-                            case .individual:
-                                messageInfo.senderName = chatPartnerName
-                                messageInfo.senderPhone = chatPartnerPhone
+                        case .group:
+                            if let groupMemberId = messageRow["ZGROUPMEMBER"] as? Int64 {
+                                let (senderName, senderPhone) = try fetchSenderInfo(groupMemberId: groupMemberId, from: db)
+                                messageInfo.senderName = senderName
+                                messageInfo.senderPhone = senderPhone
+                            }
+                        case .individual, .channel:
+                            messageInfo.senderName = chatPartnerName
+                            messageInfo.senderPhone = chatPartnerPhone
                         }
                     }
 
