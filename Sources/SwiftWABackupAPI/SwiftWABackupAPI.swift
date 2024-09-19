@@ -29,15 +29,17 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
     public let numberMessages: Int
     public let lastMessageDate: Date
     public let chatType: ChatType
+    public let isArchived: Bool
     
     init(id: Int, contactJid: String, name: String, 
-         numberMessages: Int, lastMessageDate: Date) {
+         numberMessages: Int, lastMessageDate: Date, isArchived: Bool) {
         self.id = id
         self.contactJid = contactJid
         self.name = name
         self.numberMessages = numberMessages
         self.lastMessageDate = lastMessageDate
         self.chatType = contactJid.hasSuffix("@g.us") ? .group : .individual
+        self.isArchived = isArchived
     }
 
     public var description: String {
@@ -48,8 +50,9 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
 
         return "Chat: ID - \(id), ContactJid - \(contactJid), " 
             + "Name - \(name), Number of Messages - \(numberMessages), "
-            + "Last Message Date - \(localDateString)"
-            + "Chat Type - \(chatType.rawValue)"
+            + "Last Message Date - \(localDateString), "
+            + "Chat Type - \(chatType.rawValue), "
+            + "Is Archived - \(isArchived)"
         }
 }
 
@@ -483,11 +486,12 @@ public class WABackup {
 
     private func fetchChats(from dbQueue: DatabaseQueue) throws -> [ChatInfo] {
         do {
+
             var chatInfos: [ChatInfo] = []
             try dbQueue.read { db in
                 // Chats ending with "status" are not real chats
                 let chatSessions = try Row.fetchAll(db, sql: """
-                SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME, ZLASTMESSAGEDATE 
+                SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME, ZLASTMESSAGEDATE, ZARCHIVED
                 FROM ZWACHATSESSION WHERE ZCONTACTJID NOT LIKE ?
                 """, arguments: ["%@status"])
                 for chatRow in chatSessions {
@@ -496,19 +500,27 @@ public class WABackup {
                     let chatName = chatRow["ZPARTNERNAME"] as? String ?? "Unknown"
                     let lastMessageDate = convertTimestampToDate(
                         timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
+                    let isArchived = chatRow["ZARCHIVED"] as? Int64 == 1
+                    // Prepare the IN clause using the supported message types
+                    let supportedMessageTypes = SupportedMessageType.allValues
+                        .map { "\($0)" }
+                        .joined(separator: ", ")
+
+                    // Fetch number of messages of supported types
                     let numberChatMessages = 
                         try Int.fetchOne(db, sql: """
-                            SELECT COUNT(*) FROM ZWAMESSAGE WHERE ZCHATSESSION = ?
-                            """, arguments: [chatId]) ?? 0
-                    // Chats with just one message are not real chats
-                    if numberChatMessages > 1 {
-                        let chatInfo = ChatInfo(id: Int(chatId), 
-                                                contactJid: contactJid, 
-                                                name: chatName, 
-                                                numberMessages: numberChatMessages, 
-                                                lastMessageDate: lastMessageDate)
+                        SELECT COUNT(*) FROM ZWAMESSAGE WHERE ZCHATSESSION = ? AND ZMESSAGETYPE IN (\(supportedMessageTypes))
+                        """, arguments: [chatId]) ?? 0
+                    // Chats with zero messages are not real chats
+                    if numberChatMessages > 0 {
+                        let chatInfo = ChatInfo(id: Int(chatId),
+                                            contactJid: contactJid, 
+                                            name: chatName, 
+                                            numberMessages: numberChatMessages, 
+                                            lastMessageDate: lastMessageDate,
+                                            isArchived: isArchived)
                         chatInfos.append(chatInfo)
-                    }
+                    } 
                 }
             }
             return chatInfos
@@ -521,7 +533,7 @@ public class WABackup {
         return try dbQueue.read { db in
             if let chatRow = try Row.fetchOne(db, sql: """
                     SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME, 
-                    ZMESSAGECOUNTER, ZLASTMESSAGEDATE
+                    ZMESSAGECOUNTER, ZLASTMESSAGEDATE, ZARCHIVED
                     FROM ZWACHATSESSION
                     WHERE Z_PK = ?
                     """, arguments: [id]) {
@@ -532,11 +544,12 @@ public class WABackup {
                 let numberMessages = chatRow["ZMESSAGECOUNTER"] as? Int ?? 0
                 let lastMessageDate = convertTimestampToDate(
                     timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
-        
-                return ChatInfo(id: chatId, contactJid: 
+                let isArchived = chatRow["ZARCHIVED"] as? Int64 == 1
+                return ChatInfo(id: chatId, contactJid:
                                 contactJid, name: name, 
                                 numberMessages: numberMessages, 
-                                lastMessageDate: lastMessageDate)
+                                lastMessageDate: lastMessageDate,
+                                isArchived: isArchived)
             } else {
                 throw WABackupError.databaseConnectionError(
                     error: DatabaseError(message: "Chat not found"))
