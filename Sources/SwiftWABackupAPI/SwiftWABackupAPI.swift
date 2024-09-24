@@ -156,6 +156,7 @@ public class WABackup {
     // The key is the backup identifier
     private var chatDatabases: [WADatabase: DatabaseQueue] = [:]
     private var iPhoneBackups: [WADatabase: IPhoneBackup] = [:]
+    private var userJidByDatabase: [WADatabase: String?] = [:]
 
     // Modified initializer to accept a custom backup path
     public init(backupPath: String = "~/Library/Application Support/MobileSync/Backup/") {
@@ -185,20 +186,20 @@ public class WABackup {
         let chatStorageUrl = iPhoneBackup.getUrl(fileHash: chatStorageHash)
 
         // Connect to the ChatStorage.sqlite file
-
+        
         do {
             let chatStorageDb = try DatabaseQueue(path: chatStorageUrl.path)
-
             // Check the schema of the ChatStorage.sqlite file
             try checkSchema(of: chatStorageDb)
-
             // Generate a unique identifier for this database connection
             let uniqueIdentifier = WADatabase()
-
             // Store the connected DatabaseQueue and iPhoneBackup for future use
             chatDatabases[uniqueIdentifier] = chatStorageDb
             iPhoneBackups[uniqueIdentifier] = iPhoneBackup
 
+            // Attempt to fetch the user's own JID; if not found, set to nil
+            let userJid = try? fetchUserJid(from: chatStorageDb)
+            userJidByDatabase[uniqueIdentifier] = userJid
             return uniqueIdentifier
         } catch let error as WABackupError {
             // If the inner function throws WABackupError just rethrow it
@@ -207,10 +208,28 @@ public class WABackup {
             throw WABackupError.databaseConnectionError(error: error)
         }
     }
+    
+    private func fetchUserJid(from dbQueue: DatabaseQueue) throws -> String? {
+        var userJid: String?
+
+        try dbQueue.read { db in
+            if let userProfileRow = try Row.fetchOne(db, sql: """
+                SELECT ZTOJID FROM ZWAMESSAGE
+                WHERE ZMESSAGETYPE IN (6, 10) AND ZTOJID IS NOT NULL
+                LIMIT 1
+                """),
+               let userProfileJid = userProfileRow["ZTOJID"] as? String {
+                userJid = userProfileJid
+            }
+            // Else, userJid remains nil
+        }
+        return userJid
+    }
 
     public func getChats(from waDatabase: WADatabase) throws -> [ChatInfo] {
         let dbQueue = chatDatabases[waDatabase]!
-        let chats = try fetchChats(from: dbQueue)
+        let userJid = userJidByDatabase[waDatabase] ?? nil
+        let chats = try fetchChats(from: dbQueue, userJid: userJid)
         return chats.sorted { $0.lastMessageDate > $1.lastMessageDate }
     }
 
@@ -231,8 +250,9 @@ public class WABackup {
                             from waDatabase: WADatabase) throws -> [ContactInfo] {
         let dbQueue = chatDatabases[waDatabase]!
         let iPhoneBackup = iPhoneBackups[waDatabase]!
-
-        let chats = try fetchChats(from: dbQueue)
+        let userJid = userJidByDatabase[waDatabase] ?? nil
+        
+        let chats = try fetchChats(from: dbQueue, userJid: userJid)
         let contactsSet = try extractContacts(from: chats, using: dbQueue)
 
         var updatedContacts: [ContactInfo] = []
@@ -433,20 +453,24 @@ public class WABackup {
         }
         return nil
     }
-
+    
     private func fetchUserProfile(from dbQueue: DatabaseQueue) throws -> ContactInfo {
         var userPhone = ""
         
-        // Fetch user phone number
         do {
             try dbQueue.read { db in
-                // Fetch one row from ZWAMESSAGE table where ZMESSAGETYPE = 6 or 10, 
-                // user phone number is in ZTOJID
-                let userProfileRow = try Row.fetchOne(db, sql: """
-                SELECT ZTOJID FROM ZWAMESSAGE WHERE ZMESSAGETYPE IN (6, 10)
-                """)
-                if let userProfilePhone = userProfileRow?["ZTOJID"] as? String {
+                // Fetch one row from ZWAMESSAGE table where ZMESSAGETYPE IN (6, 10)
+                // and ZTOJID is not NULL
+                if let userProfileRow = try Row.fetchOne(db, sql: """
+                    SELECT ZTOJID FROM ZWAMESSAGE
+                    WHERE ZMESSAGETYPE IN (6, 10) AND ZTOJID IS NOT NULL
+                    LIMIT 1
+                    """),
+                   let userProfilePhone = userProfileRow["ZTOJID"] as? String {
                     userPhone = userProfilePhone.extractedPhone
+                } else {
+                    throw WABackupError.databaseConnectionError(
+                        error: DatabaseError(message: "User profile not found"))
                 }
             }
             return ContactInfo(name: "Me", phone: userPhone)
@@ -494,7 +518,7 @@ public class WABackup {
         return contactsSet
     }
 
-    private func fetchChats(from dbQueue: DatabaseQueue) throws -> [ChatInfo] {
+    private func fetchChats(from dbQueue: DatabaseQueue, userJid: String?) throws -> [ChatInfo] {
         do {
             var chatInfos: [ChatInfo] = []
             try dbQueue.read { db in
@@ -519,7 +543,11 @@ public class WABackup {
                 for chatRow in chatSessions {
                     let chatId = chatRow["Z_PK"] as? Int64 ?? 0
                     let contactJid = chatRow["ZCONTACTJID"] as? String ?? "Unknown"
-                    let chatName = chatRow["ZPARTNERNAME"] as? String ?? "Unknown"
+                    var chatName = chatRow["ZPARTNERNAME"] as? String ?? "Unknown"
+                    // Set chat name to "Me" if contactJid matches userJid
+                    if let userJid = userJid, contactJid == userJid {
+                        chatName = "Me"
+                    }
                     let lastMessageDate = convertTimestampToDate(
                         timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
                     let isArchived = chatRow["ZARCHIVED"] as? Int64 == 1
@@ -584,7 +612,6 @@ public class WABackup {
             }
         }
     }
-
 
     private func convertTimestampToDate(timestamp: Any) -> Date {
         if let timestamp = timestamp as? Double {
