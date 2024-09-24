@@ -76,6 +76,7 @@ enum SupportedMessageType: Int64, CaseIterable {
     case location = 5
     case link = 7
     case doc = 8
+    case status = 10
     case gif = 11
     case sticker = 15
 
@@ -89,6 +90,7 @@ enum SupportedMessageType: Int64, CaseIterable {
         case .location: return "Location"
         case .link: return "Link"
         case .doc: return "Document"
+        case .status: return "Status"
         case .gif: return "GIF"
         case .sticker: return "Sticker"
         }
@@ -496,11 +498,24 @@ public class WABackup {
         do {
             var chatInfos: [ChatInfo] = []
             try dbQueue.read { db in
-                // Include ZSESSIONTYPE in the query
+                // Prepare the list of supported message types excluding Status
+                let supportedTypesExcludingStatus = SupportedMessageType.allCases
+                    .filter { $0 != .status }
+                    .map { $0.rawValue }
+
+                // Build the SQL with dynamic number of placeholders for the IN clause
+                let placeholders = databaseQuestionMarks(count: supportedTypesExcludingStatus.count)
+
+                // Fetch chat sessions that have at least one message of supported types (excluding Status)
                 let chatSessions = try Row.fetchAll(db, sql: """
-                SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME, ZLASTMESSAGEDATE, ZARCHIVED, ZSESSIONTYPE
-                FROM ZWACHATSESSION WHERE ZCONTACTJID NOT LIKE ?
-                """, arguments: ["%@status"])
+                    SELECT cs.Z_PK, cs.ZCONTACTJID, cs.ZPARTNERNAME, cs.ZLASTMESSAGEDATE,
+                           cs.ZARCHIVED, cs.ZSESSIONTYPE, COUNT(m.Z_PK) as messageCount
+                    FROM ZWACHATSESSION cs
+                    JOIN ZWAMESSAGE m ON m.ZCHATSESSION = cs.Z_PK
+                    WHERE cs.ZCONTACTJID NOT LIKE ? AND m.ZMESSAGETYPE IN (\(placeholders))
+                    GROUP BY cs.Z_PK
+                    """, arguments: StatementArguments(["%@status"] + supportedTypesExcludingStatus))
+
                 for chatRow in chatSessions {
                     let chatId = chatRow["Z_PK"] as? Int64 ?? 0
                     let contactJid = chatRow["ZCONTACTJID"] as? String ?? "Unknown"
@@ -510,37 +525,29 @@ public class WABackup {
                     let isArchived = chatRow["ZARCHIVED"] as? Int64 == 1
                     let sessionType = chatRow["ZSESSIONTYPE"] as? Int64 ?? 0
                     let isChannel = (sessionType == 5)
+                    let numberChatMessages = chatRow["messageCount"] as? Int64 ?? 0
 
-                    // Prepare the IN clause using the supported message types
-                    let supportedMessageTypes = SupportedMessageType.allValues
-                        .map { "\($0)" }
-                        .joined(separator: ", ")
-
-                    // Fetch number of messages of supported types
-                    let numberChatMessages =
-                        try Int.fetchOne(db, sql: """
-                        SELECT COUNT(*) FROM ZWAMESSAGE WHERE ZCHATSESSION = ? AND ZMESSAGETYPE IN (\(supportedMessageTypes))
-                        """, arguments: [chatId]) ?? 0
-
-                    // Chats with zero messages are not real chats
-                    if numberChatMessages > 0 {
-                        let chatInfo = ChatInfo(
-                            id: Int(chatId),
-                            contactJid: contactJid,
-                            name: chatName,
-                            numberMessages: numberChatMessages,
-                            lastMessageDate: lastMessageDate,
-                            isArchived: isArchived,
-                            isChannel: isChannel
-                        )
-                        chatInfos.append(chatInfo)
-                    }
+                    let chatInfo = ChatInfo(
+                        id: Int(chatId),
+                        contactJid: contactJid,
+                        name: chatName,
+                        numberMessages: Int(numberChatMessages),
+                        lastMessageDate: lastMessageDate,
+                        isArchived: isArchived,
+                        isChannel: isChannel
+                    )
+                    chatInfos.append(chatInfo)
                 }
             }
-            return chatInfos
+            // Sort chats by last message date in descending order
+            return chatInfos.sorted { $0.lastMessageDate > $1.lastMessageDate }
         } catch {
             throw WABackupError.databaseConnectionError(error: error)
         }
+    }
+
+    private func databaseQuestionMarks(count: Int) -> String {
+        return Array(repeating: "?", count: count).joined(separator: ", ")
     }
     
     private func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) throws -> ChatInfo {
