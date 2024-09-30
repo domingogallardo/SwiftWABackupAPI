@@ -166,7 +166,7 @@ public class WABackup {
     // The key is the backup identifier
     private var chatDatabases: [WADatabase: DatabaseQueue] = [:]
     private var iPhoneBackups: [WADatabase: IPhoneBackup] = [:]
-    private var userJidByDatabase: [WADatabase: String?] = [:]
+    private var ownerJidByDatabase: [WADatabase: String?] = [:]
 
     // Modified initializer to accept a custom backup path
     public init(backupPath: String = "~/Library/Application Support/MobileSync/Backup/") {
@@ -207,9 +207,9 @@ public class WABackup {
             chatDatabases[uniqueIdentifier] = chatStorageDb
             iPhoneBackups[uniqueIdentifier] = iPhoneBackup
 
-            // Attempt to fetch the user's own JID; if not found, set to nil
-            let userJid = try? fetchUserJid(from: chatStorageDb)
-            userJidByDatabase[uniqueIdentifier] = userJid
+            // Attempt to fetch the owner JID; if not found, set to nil
+            let ownerJid = try? fetchOwnerJid(from: chatStorageDb)
+            ownerJidByDatabase[uniqueIdentifier] = ownerJid
             return uniqueIdentifier
         } catch let error as WABackupError {
             // If the inner function throws WABackupError just rethrow it
@@ -219,30 +219,30 @@ public class WABackup {
         }
     }
     
-    private func fetchUserJid(from dbQueue: DatabaseQueue) throws -> String? {
-        var userJid: String?
+    private func fetchOwnerJid(from dbQueue: DatabaseQueue) throws -> String? {
+        var ownerJid: String?
 
         try dbQueue.read { db in
-            if let userProfileRow = try Row.fetchOne(db, sql: """
+            if let ownerProfileRow = try Row.fetchOne(db, sql: """
                 SELECT ZTOJID FROM ZWAMESSAGE
                 WHERE ZMESSAGETYPE IN (6, 10) AND ZTOJID IS NOT NULL
                 LIMIT 1
                 """),
-               let userProfileJid = userProfileRow["ZTOJID"] as? String {
-                userJid = userProfileJid
+               let ownerProfileJid = ownerProfileRow["ZTOJID"] as? String {
+                ownerJid = ownerProfileJid
             }
-            // Else, userJid remains nil
+            // Else, ownerJid remains nil
         }
-        return userJid
+        return ownerJid
     }
 
     public func getChats(from waDatabase: WADatabase) throws -> [ChatInfo] {
         let dbQueue = chatDatabases[waDatabase]!
-        let userJid = userJidByDatabase[waDatabase] ?? nil
+        let ownerJid = ownerJidByDatabase[waDatabase] ?? nil
         
-        // userJid is used to identify if there exists some chat of the owners with himself
+        // ownerJid is used to identify if there exists some chat of the owners with himself
         // in that case the chat name is changed to "Me"
-        let chats = try fetchChats(from: dbQueue, userJid: userJid)
+        let chats = try fetchChats(from: dbQueue, ownerJid: ownerJid)
         
         return chats.sorted { $0.lastMessageDate > $1.lastMessageDate }
     }
@@ -267,11 +267,11 @@ public class WABackup {
         let iPhoneBackup = iPhoneBackups[waDatabase]!
 
         // exclude the owner's contact
-        let userProfile: ContactInfo? = try fetchUserProfile(from: dbQueue)
-        let userPhone = userProfile?.phone
+        let ownerProfile: ContactInfo? = try fetchOwnerProfile(from: dbQueue)
+        let ownerPhone = ownerProfile?.phone
 
-        let chats = try fetchChats(from: dbQueue, userJid: nil)
-        let contactsSet = try extractContacts(from: chats, using: dbQueue, excludingPhone: userPhone)
+        let chats = try fetchChats(from: dbQueue, ownerJid: nil)
+        let contactsSet = try extractContacts(from: chats, using: dbQueue, excludingPhone: ownerPhone)
 
         var updatedContacts: [ContactInfo] = []
         for contact in contactsSet {
@@ -287,32 +287,32 @@ public class WABackup {
         let dbQueue = chatDatabases[waDatabase]!
         let iPhoneBackup = iPhoneBackups[waDatabase]!
         
-        var userProfile = try fetchUserProfile(from: dbQueue)
-        let userPhotoTargetUrl = directory.appendingPathComponent("Photo.jpg")
-        let userThumbnailTargetUrl = directory.appendingPathComponent("Photo.thumb")
-        if let userPhotoHash = iPhoneBackup.fetchWAFileHash(
+        var ownerProfile = try fetchOwnerProfile(from: dbQueue)
+        let ownerPhotoTargetUrl = directory.appendingPathComponent("Photo.jpg")
+        let ownerThumbnailTargetUrl = directory.appendingPathComponent("Photo.thumb")
+        if let ownerPhotoHash = iPhoneBackup.fetchWAFileHash(
             endsWith: "Media/Profile/Photo.jpg") {
-            try copy(hashFile: userPhotoHash, 
-                        toTargetFileUrl: userPhotoTargetUrl, 
+            try copy(hashFile: ownerPhotoHash, 
+                        toTargetFileUrl: ownerPhotoTargetUrl, 
                         from: iPhoneBackup)
 
             // Inform the delegate that a media file has been written
-            delegate?.didWriteMediaFile(fileName: userPhotoTargetUrl.path)
+            delegate?.didWriteMediaFile(fileName: ownerPhotoTargetUrl.path)
 
-            userProfile.photoFilename = "Photo.jpg"
+            ownerProfile.photoFilename = "Photo.jpg"
         }
-        if let userThumbnailHash = iPhoneBackup.fetchWAFileHash(
+        if let ownerThumbnailHash = iPhoneBackup.fetchWAFileHash(
             endsWith: "Media/Profile/Photo.thumb") {
-            try copy(hashFile: userThumbnailHash, 
-                        toTargetFileUrl: userThumbnailTargetUrl, 
+            try copy(hashFile: ownerThumbnailHash, 
+                        toTargetFileUrl: ownerThumbnailTargetUrl, 
                         from: iPhoneBackup)
 
             // Inform the delegate that a media file has been written
-            delegate?.didWriteMediaFile(fileName: userThumbnailTargetUrl.path)
+            delegate?.didWriteMediaFile(fileName: ownerThumbnailTargetUrl.path)
 
-            userProfile.thumbnailFilename = "Photo.thumb"
+            ownerProfile.thumbnailFilename = "Photo.thumb"
         }
-        return userProfile
+        return ownerProfile
     } 
 
     // Private functions
@@ -477,26 +477,26 @@ public class WABackup {
         return nil
     }
     
-    private func fetchUserProfile(from dbQueue: DatabaseQueue) throws -> ContactInfo {
-        var userPhone = ""
+    private func fetchOwnerProfile(from dbQueue: DatabaseQueue) throws -> ContactInfo {
+        var ownerPhone = ""
         
         do {
             try dbQueue.read { db in
                 // Fetch one row from ZWAMESSAGE table where ZMESSAGETYPE IN (6, 10)
                 // and ZTOJID is not NULL
-                if let userProfileRow = try Row.fetchOne(db, sql: """
+                if let ownerProfileRow = try Row.fetchOne(db, sql: """
                     SELECT ZTOJID FROM ZWAMESSAGE
                     WHERE ZMESSAGETYPE IN (6, 10) AND ZTOJID IS NOT NULL
                     LIMIT 1
                     """),
-                   let userProfilePhone = userProfileRow["ZTOJID"] as? String {
-                    userPhone = userProfilePhone.extractedPhone
+                   let ownerProfilePhone = ownerProfileRow["ZTOJID"] as? String {
+                    ownerPhone = ownerProfilePhone.extractedPhone
                 } else {
                     throw WABackupError.databaseConnectionError(
-                        error: DatabaseError(message: "User profile not found"))
+                        error: DatabaseError(message: "Owner profile not found"))
                 }
             }
-            return ContactInfo(name: "Me", phone: userPhone)
+            return ContactInfo(name: "Me", phone: ownerPhone)
         } catch {
             throw WABackupError.databaseConnectionError(error: error)
         }
@@ -542,7 +542,7 @@ public class WABackup {
         return contactsSet
     }
 
-    private func fetchChats(from dbQueue: DatabaseQueue, userJid: String?) throws -> [ChatInfo] {
+    private func fetchChats(from dbQueue: DatabaseQueue, ownerJid: String?) throws -> [ChatInfo] {
         do {
             var chatInfos: [ChatInfo] = []
             try dbQueue.read { db in
@@ -568,8 +568,8 @@ public class WABackup {
                     let chatId = chatRow["Z_PK"] as? Int64 ?? 0
                     let contactJid = chatRow["ZCONTACTJID"] as? String ?? "Unknown"
                     var chatName = chatRow["ZPARTNERNAME"] as? String ?? "Unknown"
-                    // Set chat name to "Me" if contactJid matches userJid
-                    if let userJid = userJid, contactJid == userJid {
+                    // Set chat name to "Me" if contactJid matches ownerJid
+                    if let userJid = ownerJid, contactJid == userJid {
                         chatName = "Me"
                     }
                     let lastMessageDate = convertTimestampToDate(
