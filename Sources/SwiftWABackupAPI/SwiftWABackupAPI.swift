@@ -142,6 +142,16 @@ public struct ContactInfo: CustomStringConvertible, Encodable, Hashable {
     public var description: String {
         return "Contact: Phone - \(phone), Name - \(name)"
     }
+
+    // Custom Hashable implementation to use only the phone number
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(phone)
+    }
+
+    // Custom Equatable implementation to use only the phone number
+    public static func == (lhs: ContactInfo, rhs: ContactInfo) -> Bool {
+        return lhs.phone == rhs.phone
+    }
 }
 
 public protocol WABackupDelegate: AnyObject {
@@ -229,7 +239,11 @@ public class WABackup {
     public func getChats(from waDatabase: WADatabase) throws -> [ChatInfo] {
         let dbQueue = chatDatabases[waDatabase]!
         let userJid = userJidByDatabase[waDatabase] ?? nil
+        
+        // userJid is used to identify if there exists some chat of the owners with himself
+        // in that case the chat name is changed to "Me"
         let chats = try fetchChats(from: dbQueue, userJid: userJid)
+        
         return chats.sorted { $0.lastMessageDate > $1.lastMessageDate }
     }
 
@@ -246,14 +260,18 @@ public class WABackup {
         return messages.sorted { $0.date > $1.date }
     }
 
-    public func getContacts(directoryToSaveMedia directory: URL, 
+    // save all the contacts except the owner's
+    public func getContacts(directoryToSaveMedia directory: URL,
                             from waDatabase: WADatabase) throws -> [ContactInfo] {
         let dbQueue = chatDatabases[waDatabase]!
         let iPhoneBackup = iPhoneBackups[waDatabase]!
-        let userJid = userJidByDatabase[waDatabase] ?? nil
-        
-        let chats = try fetchChats(from: dbQueue, userJid: userJid)
-        let contactsSet = try extractContacts(from: chats, using: dbQueue)
+
+        // exclude the owner's contact
+        let userProfile: ContactInfo? = try fetchUserProfile(from: dbQueue)
+        let userPhone = userProfile?.phone
+
+        let chats = try fetchChats(from: dbQueue, userJid: nil)
+        let contactsSet = try extractContacts(from: chats, using: dbQueue, excludingPhone: userPhone)
 
         var updatedContacts: [ContactInfo] = []
         for contact in contactsSet {
@@ -340,15 +358,19 @@ public class WABackup {
     }
 
     private func extractContacts(from chats: [ChatInfo], 
-                                 using dbQueue: DatabaseQueue) throws -> Set<ContactInfo> {
+                                 using dbQueue: DatabaseQueue,
+                                 excludingPhone: String?) throws -> Set<ContactInfo> {
         var contactsSet: Set<ContactInfo> = []
         for chat in chats {
-            let contact = ContactInfo(name: chat.name, 
-                                      phone: chat.contactJid.extractedPhone)
-            contactsSet.insert(contact)
+            let phone = chat.contactJid.extractedPhone
+            if phone != excludingPhone {
+                let contact = ContactInfo(name: chat.name, phone: phone)
+                contactsSet.insert(contact)
+            }
             if chat.chatType == .group {
                     let groupContact = try fetchGroupMembersContacts(chatId: chat.id, 
-                                                                  from: dbQueue)
+                                                                     from: dbQueue,
+                                                                     excludingPhone: excludingPhone)
                     contactsSet.formUnion(groupContact)
             }
         }
@@ -399,13 +421,14 @@ public class WABackup {
         return updatedContact
     }
 
-    private func copy(hashFile: String, 
-                      toTargetFileUrl url: URL, 
-                      from iPhoneBackup: IPhoneBackup) throws {
-        let sourceFileUrl = iPhoneBackup.getUrl(fileHash: hashFile) 
-        try FileManager.default.copyItem(at: sourceFileUrl, to: url)
+    private func copy(hashFile: String, toTargetFileUrl url: URL, from iPhoneBackup: IPhoneBackup) throws {
+        let sourceFileUrl = iPhoneBackup.getUrl(fileHash: hashFile)
+        let fileManager = FileManager.default
+        if !fileManager.fileExists(atPath: url.path) {
+            try fileManager.copyItem(at: sourceFileUrl, to: url)
+        }
     }
-
+    
     // Obtain the latest files for the given filename and file extension
     //     prefixFilename: the prefix of the file (the phone number), 
     //                     e.g. 1234567890 or 1234567890-202302323 for a group chat
@@ -481,7 +504,8 @@ public class WABackup {
 
     // Fetch the contact info of the participants of a gruop chat
     private func fetchGroupMembersContacts(chatId: Int,
-                                           from dbQueue: DatabaseQueue) throws -> Set<ContactInfo> {
+                                           from dbQueue: DatabaseQueue,
+                                           excludingPhone: String?) throws -> Set<ContactInfo> {
         var groupMembers: [Int64] = []
         var contactsSet: Set<ContactInfo> = []
         do {
@@ -505,11 +529,11 @@ public class WABackup {
                     }
                 }
                 for memberId in groupMembers {
-                    let (senderName, senderPhone) = 
-                        try fetchSenderInfo(groupMemberId: memberId, from: db)
-                    let contact = ContactInfo(name: senderName ?? "",
-                                              phone: senderPhone ?? "")
-                    contactsSet.insert(contact)
+                    let (senderName, senderPhone) = try fetchSenderInfo(groupMemberId: memberId, from: db)
+                    if senderPhone != nil && senderPhone != excludingPhone {
+                        let contact = ContactInfo(name: senderName ?? "", phone: senderPhone!)
+                        contactsSet.insert(contact)
+                    }
                 }
             }
         } catch {
