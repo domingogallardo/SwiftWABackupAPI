@@ -244,7 +244,7 @@ public class WABackup {
         // in that case the chat name is changed to "Me"
         let chats = try fetchChats(from: dbQueue, ownerJid: ownerJid)
         
-        return chats.sorted { $0.lastMessageDate > $1.lastMessageDate }
+        return sortChatsByDate(chats)
     }
 
     public func getChatMessages(chatId: Int, 
@@ -257,7 +257,7 @@ public class WABackup {
         let messages = try fetchChatMessages(chatId: chatId, type: chatInfo.chatType, 
                                          directoryToSaveMedia: directory, 
                                          iPhoneBackup: iPhoneBackup, from: dbQueue)
-        return messages.sorted { $0.date > $1.date }
+        return sortMessagesByDate(messages)
     }
 
     // save all the contacts except the owner's
@@ -591,8 +591,7 @@ public class WABackup {
                     chatInfos.append(chatInfo)
                 }
             }
-            // Sort chats by last message date in descending order
-            return chatInfos.sorted { $0.lastMessageDate > $1.lastMessageDate }
+            return chatInfos
         } catch {
             throw WABackupError.databaseConnectionError(error: error)
         }
@@ -983,6 +982,14 @@ public class WABackup {
         }
     }
 
+    private func sortChatsByDate(_ chats: [ChatInfo]) -> [ChatInfo] {
+        return chats.sorted { $0.lastMessageDate > $1.lastMessageDate }
+    }
+    
+    private func sortMessagesByDate(_ messages: [MessageInfo]) -> [MessageInfo] {
+        return messages.sorted { $0.date > $1.date }
+    }
+    
     enum MediaFilename {
         case fileName(String)
         case error(String)
