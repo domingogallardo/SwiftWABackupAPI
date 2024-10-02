@@ -678,7 +678,7 @@ public class WABackup {
 
                 for messageRow in chatMessages {
                     let messageId = messageRow["Z_PK"] as? Int64 ?? 0
-                    let messageText = messageRow["ZTEXT"] as? String
+                    var messageText = messageRow["ZTEXT"] as? String
                     let messageDate = convertTimestampToDate(
                         timestamp: messageRow["ZMESSAGEDATE"] as Any)
                     let isFromMe = messageRow["ZISFROMME"] as? Int64 == 1
@@ -687,6 +687,14 @@ public class WABackup {
                             else {
                                 // Skip not supported message types
                                 continue
+                    }
+
+                    // Extract ZGROUPEVENTTYPE
+                    let groupEventType = messageRow["ZGROUPEVENTTYPE"] as? Int64 ?? 0
+
+                    // Check if groupEventType is 38 (business chat warning"
+                    if groupEventType == 38 {
+                        messageText = "This is a business chat"
                     }
 
                     var messageInfo = MessageInfo(
