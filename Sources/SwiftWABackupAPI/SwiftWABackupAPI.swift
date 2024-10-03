@@ -404,20 +404,11 @@ public class WABackup {
         }
 
         // Copy the latest contact thumbnail
-
-        if let latestFile = getLatestFile(for: contactPhotoFilename, 
-                                          fileExtension: "thumb", 
+        if let latestFile = getLatestFile(for: contactPhotoFilename,
+                                          fileExtension: "jpg",
                                           files: filesNamesAndHashes) {
-        let targetFilename = contact.phone + ".thumb"
-            let targetFileUrl = directory.appendingPathComponent(targetFilename)
-            try copy(hashFile: latestFile.fileHash, 
-                        toTargetFileUrl: targetFileUrl, 
-                        from: iPhoneBackup)
-
-            // Inform the delegate that a media file has been written
-            delegate?.didWriteMediaFile(fileName: targetFileUrl.path)
-
-            updatedContact.thumbnailFilename = targetFilename
+            let targetFilename = contact.phone + ".jpg"
+            updatedContact.photoFilename = try copyMediaFile(hashFile: latestFile.fileHash, fileName: targetFilename, to: directory, from: iPhoneBackup)
         }
         return updatedContact
     }
@@ -996,12 +987,8 @@ public class WABackup {
                     return MediaFilename.error("Media file not found: \(mediaLocalPath)")
                 }
                 let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
-                let targetFileUrl = directoryURL.appendingPathComponent(fileName)
-
-                try copy(hashFile: hashFile, 
-                        toTargetFileUrl: targetFileUrl, 
-                        from: iPhoneBackup)             
-                return MediaFilename.fileName(targetFileUrl.lastPathComponent)
+                let mediaFileName = try copyMediaFile(hashFile: hashFile, fileName: fileName, to: directoryURL, from: iPhoneBackup)
+                return MediaFilename.fileName(mediaFileName)
             }
             return nil
         } catch let error as WABackupError {
@@ -1010,11 +997,20 @@ public class WABackup {
         } catch {
             // Other errors
             throw WABackupError.databaseConnectionError(error: error)
-
         }
     }
 
-    private func fetchReactions(forMessageId messageId: Int, 
+    private func copyMediaFile(hashFile: String, fileName: String, to directoryURL: URL, from iPhoneBackup: IPhoneBackup) throws -> String {
+        let targetFileUrl = directoryURL.appendingPathComponent(fileName)
+        try copy(hashFile: hashFile, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
+        
+        // Inform the delegate that a media file has been written
+        delegate?.didWriteMediaFile(fileName: targetFileUrl.path)
+        
+        return targetFileUrl.lastPathComponent
+    }
+    
+    private func fetchReactions(forMessageId messageId: Int,
                                 from db: Database) throws -> [Reaction]? {
         do {  
             if let reactionsRow = try Row.fetchOne(db, sql: """
