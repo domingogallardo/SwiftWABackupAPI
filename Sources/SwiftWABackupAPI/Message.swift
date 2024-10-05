@@ -1,0 +1,52 @@
+//
+//  Message.swift
+//  SwiftWABackupAPI
+//
+//  Created by Domingo Gallardo on 3/10/24.
+//
+
+import Foundation
+import GRDB
+
+struct Message {
+    let id: Int64
+    let chatSessionId: Int64
+    let text: String?
+    let date: Date
+    let isFromMe: Bool
+    let messageType: Int64
+    let groupMemberId: Int64?
+    let mediaItemId: Int64?
+    let groupEventType: Int64?
+    let fromJid: String?
+    let toJid: String?
+    let stanzaId: String?
+    
+    init(row: Row) {
+        self.id = row["Z_PK"] as? Int64 ?? 0
+        self.chatSessionId = row["ZCHATSESSION"] as? Int64 ?? 0
+        self.text = row["ZTEXT"] as? String
+        self.date = convertTimestampToDate(timestamp: row["ZMESSAGEDATE"] as Any)
+        self.isFromMe = (row["ZISFROMME"] as? Int64 ?? 0) == 1
+        self.messageType = row["ZMESSAGETYPE"] as? Int64 ?? -1
+        self.groupMemberId = row["ZGROUPMEMBER"] as? Int64
+        self.mediaItemId = row["ZMEDIAITEM"] as? Int64
+        self.groupEventType = row["ZGROUPEVENTTYPE"] as? Int64
+        self.fromJid = row["ZFROMJID"] as? String
+        self.toJid = row["ZTOJID"] as? String
+        self.stanzaId = row["ZSTANZAID"] as? String
+    }
+    
+    static func fetchMessages(forChatId chatId: Int, from db: Database) throws -> [Message] {
+        let supportedMessageTypes = SupportedMessageType.allValues
+        let placeholders = databaseQuestionMarks(count: supportedMessageTypes.count)
+        
+        let sql = """
+            SELECT * FROM ZWAMESSAGE
+            WHERE ZCHATSESSION = ? AND ZMESSAGETYPE IN (\(placeholders))
+            """
+        let arguments: [DatabaseValueConvertible] = [chatId] + supportedMessageTypes
+        let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments))
+        return rows.map { Message(row: $0) }
+    }
+}
