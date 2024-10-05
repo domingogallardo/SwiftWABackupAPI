@@ -238,18 +238,43 @@ public class WABackup {
     }
 
     public func getChats(from waDatabase: WADatabase) throws -> [ChatInfo] {
-        let dbQueue = chatDatabases[waDatabase]!
+        guard let dbQueue = chatDatabases[waDatabase] else {
+            throw WABackupError.databaseConnectionError(error: DatabaseError(message: "Database not found"))
+        }
         let ownerJid = ownerJidByDatabase[waDatabase] ?? nil
-        
-        // ownerJid is used to identify if there exists some chat of the owners with himself
-        // in that case the chat name is changed to "Me"
-        let chats = try fetchChats(from: dbQueue, ownerJid: ownerJid)
-        
-        return sortChatsByDate(chats)
-    }
 
-    public func getChatMessages(chatId: Int, 
-                                directoryToSaveMedia directory: URL, 
+        let chatInfos = try dbQueue.read { db -> [ChatInfo] in
+            // Fetch all chat sessions using the data model
+            let chatSessions = try ChatSession.fetchAllChatsNew(from: db, ownerJid: ownerJid)
+
+            // Map ChatSession instances to ChatInfo
+            return chatSessions.map { chatSession in
+                // Determine if the chat is a channel
+                let isChannel = (chatSession.sessionType == 5)
+
+                // Set chat name to "Me" if contactJid matches ownerJid
+                var chatName = chatSession.partnerName
+                if let userJid = ownerJid, chatSession.contactJid == userJid {
+                    chatName = "Me"
+                }
+
+                return ChatInfo(
+                    id: Int(chatSession.id),
+                    contactJid: chatSession.contactJid,
+                    name: chatName,
+                    numberMessages: Int(chatSession.messageCounter),
+                    lastMessageDate: chatSession.lastMessageDate,
+                    isArchived: chatSession.isArchived,
+                    isChannel: isChannel
+                )
+            }
+        }
+
+        return sortChatsByDate(chatInfos)
+    }
+    
+    public func getChatMessages(chatId: Int,
+                                directoryToSaveMedia directory: URL,
                                 from waDatabase: WADatabase) throws -> [MessageInfo] {                                    
         let dbQueue = chatDatabases[waDatabase]!
         let chatInfo = try fetchChatInfo(id: chatId, from: dbQueue) 
@@ -261,7 +286,16 @@ public class WABackup {
         return sortMessagesByDate(messages)
     }
 
+    
+    typealias SenderInfo = (senderName: String?, senderPhone: String?)
+    
+    private enum SenderIdentifier {
+        case chatSession(chatId: Int)
+        case groupMember(memberId: Int64)
+    }
+     
     // save all the contacts except the owner's
+    // Por ahora este es el que funciona OK
     public func getContacts(directoryToSaveMedia directory: URL,
                             from waDatabase: WADatabase) throws -> [ContactInfo] {
         let dbQueue = chatDatabases[waDatabase]!
@@ -282,8 +316,107 @@ public class WABackup {
         
         return updatedContacts.sorted { $0.name < $1.name }
     }
+    
+    private func extractContacts(from chats: [ChatInfo],
+                                 using dbQueue: DatabaseQueue,
+                                 excludingPhone: String?) throws -> Set<ContactInfo> {
+        var contactsSet: Set<ContactInfo> = []
+        for chat in chats {
+            let phone = chat.contactJid.extractedPhone
+            if phone != excludingPhone {
+                let contact = ContactInfo(name: chat.name, phone: phone)
+                contactsSet.insert(contact)
+            }
+            if chat.chatType == .group {
+                    let groupContact = try fetchGroupMembersContacts(chatId: chat.id,
+                                                                     from: dbQueue,
+                                                                     excludingPhone: excludingPhone)
+                    contactsSet.formUnion(groupContact)
+            }
+        }
+        return contactsSet
+    }
 
-    public func getUserProfile(directoryToSaveMedia directory: URL, 
+    
+    private func fetchChats(from dbQueue: DatabaseQueue, ownerJid: String?) throws -> [ChatInfo] {
+        do {
+            var chatInfos: [ChatInfo] = []
+            try dbQueue.read { db in
+                // Prepare the list of supported message types excluding Status
+                let supportedTypesExcludingStatus = SupportedMessageType.allCases
+                    .filter { $0 != .status }
+                    .map { $0.rawValue }
+
+                // Build the SQL with dynamic number of placeholders for the IN clause
+                let placeholders = databaseQuestionMarks(count: supportedTypesExcludingStatus.count)
+
+                // Fetch chat sessions that have at least one message of supported types (excluding Status)
+                let chatSessions = try Row.fetchAll(db, sql: """
+                    SELECT cs.Z_PK, cs.ZCONTACTJID, cs.ZPARTNERNAME, cs.ZLASTMESSAGEDATE,
+                           cs.ZARCHIVED, cs.ZSESSIONTYPE, COUNT(m.Z_PK) as messageCount
+                    FROM ZWACHATSESSION cs
+                    JOIN ZWAMESSAGE m ON m.ZCHATSESSION = cs.Z_PK
+                    WHERE cs.ZCONTACTJID NOT LIKE ? AND m.ZMESSAGETYPE IN (\(placeholders))
+                    GROUP BY cs.Z_PK
+                    """, arguments: StatementArguments(["%@status"] + supportedTypesExcludingStatus))
+                print("Número de chats: \(chatSessions.count)")
+                for chatRow in chatSessions {
+                    let chatId = chatRow["Z_PK"] as? Int64 ?? 0
+                    let contactJid = chatRow["ZCONTACTJID"] as? String ?? "Unknown"
+                    var chatName = chatRow["ZPARTNERNAME"] as? String ?? "Unknown"
+                    // Set chat name to "Me" if contactJid matches ownerJid
+                    if let userJid = ownerJid, contactJid == userJid {
+                        chatName = "Me"
+                    }
+                    let lastMessageDate = convertTimestampToDate(
+                        timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
+                    let isArchived = chatRow["ZARCHIVED"] as? Int64 == 1
+                    let sessionType = chatRow["ZSESSIONTYPE"] as? Int64 ?? 0
+                    let isChannel = (sessionType == 5)
+                    let numberChatMessages = chatRow["messageCount"] as? Int64 ?? 0
+
+                    let chatInfo = ChatInfo(
+                        id: Int(chatId),
+                        contactJid: contactJid,
+                        name: chatName,
+                        numberMessages: Int(numberChatMessages),
+                        lastMessageDate: lastMessageDate,
+                        isArchived: isArchived,
+                        isChannel: isChannel
+                    )
+                    chatInfos.append(chatInfo)
+                }
+            }
+            return chatInfos
+        } catch {
+            throw WABackupError.databaseConnectionError(error: error)
+        }
+    }
+    
+    private func fetchSenderInfo(for message: Message, chatType: ChatInfo.ChatType, from db: Database) throws -> SenderInfo? {
+        if message.isFromMe {
+            return nil
+        }
+
+        switch chatType {
+        case .group:
+            if let memberId = message.groupMemberId,
+               let groupMember = try GroupMember.fetchGroupMember(byId: memberId, from: db) {
+                return try obtainSenderInfo(jid: groupMember.memberJid,
+                                            contactNameGroupMember: groupMember.contactName,
+                                            from: db)
+            }
+        case .individual, .channel:
+            let chatSession = try ChatSession.fetchChat(byId: Int(message.chatSessionId), from: db)
+            let senderPhone = chatSession.contactJid.extractedPhone
+            let senderName = chatSession.partnerName
+            return (senderName, senderPhone)
+        }
+        return nil
+    }
+    
+    
+    public func getUserProfile(directoryToSaveMedia directory: URL,
                                from waDatabase: WADatabase) throws -> ContactInfo? {
         let dbQueue = chatDatabases[waDatabase]!
         let iPhoneBackup = iPhoneBackups[waDatabase]!
@@ -358,27 +491,8 @@ public class WABackup {
         }
     }
 
-    private func extractContacts(from chats: [ChatInfo], 
-                                 using dbQueue: DatabaseQueue,
-                                 excludingPhone: String?) throws -> Set<ContactInfo> {
-        var contactsSet: Set<ContactInfo> = []
-        for chat in chats {
-            let phone = chat.contactJid.extractedPhone
-            if phone != excludingPhone {
-                let contact = ContactInfo(name: chat.name, phone: phone)
-                contactsSet.insert(contact)
-            }
-            if chat.chatType == .group {
-                    let groupContact = try fetchGroupMembersContacts(chatId: chat.id, 
-                                                                     from: dbQueue,
-                                                                     excludingPhone: excludingPhone)
-                    contactsSet.formUnion(groupContact)
-            }
-        }
-        return contactsSet
-    }
-
-    private func copyContactMedia(for contact: ContactInfo, 
+    
+    private func copyContactMedia(for contact: ContactInfo,
                                   from iPhoneBackup: IPhoneBackup, 
                                   to directory: URL) throws-> ContactInfo {
         var updatedContact = contact
@@ -515,11 +629,14 @@ public class WABackup {
                 SELECT DISTINCT ZGROUPMEMBER FROM ZWAMESSAGE WHERE ZCHATSESSION = ? 
                 AND ZMESSAGETYPE IN (\(supportedMessageTypes))
                 """, arguments: [chatId])
+                var members = 0;
                 for memberRow in groupMembersRows {
                     if let memberId = memberRow["ZGROUPMEMBER"] as? Int64 {
                         groupMembers.append(memberId)
+                        members += 1
                     }
                 }
+
                 for memberId in groupMembers {
                     let (senderName, senderPhone) = try fetchSenderInfo(.groupMember(memberId: memberId), from: db)
                     if senderPhone != nil && senderPhone != excludingPhone {
@@ -534,60 +651,6 @@ public class WABackup {
         return contactsSet
     }
 
-    private func fetchChats(from dbQueue: DatabaseQueue, ownerJid: String?) throws -> [ChatInfo] {
-        do {
-            var chatInfos: [ChatInfo] = []
-            try dbQueue.read { db in
-                // Prepare the list of supported message types excluding Status
-                let supportedTypesExcludingStatus = SupportedMessageType.allCases
-                    .filter { $0 != .status }
-                    .map { $0.rawValue }
-
-                // Build the SQL with dynamic number of placeholders for the IN clause
-                let placeholders = databaseQuestionMarks(count: supportedTypesExcludingStatus.count)
-
-                // Fetch chat sessions that have at least one message of supported types (excluding Status)
-                let chatSessions = try Row.fetchAll(db, sql: """
-                    SELECT cs.Z_PK, cs.ZCONTACTJID, cs.ZPARTNERNAME, cs.ZLASTMESSAGEDATE,
-                           cs.ZARCHIVED, cs.ZSESSIONTYPE, COUNT(m.Z_PK) as messageCount
-                    FROM ZWACHATSESSION cs
-                    JOIN ZWAMESSAGE m ON m.ZCHATSESSION = cs.Z_PK
-                    WHERE cs.ZCONTACTJID NOT LIKE ? AND m.ZMESSAGETYPE IN (\(placeholders))
-                    GROUP BY cs.Z_PK
-                    """, arguments: StatementArguments(["%@status"] + supportedTypesExcludingStatus))
-
-                for chatRow in chatSessions {
-                    let chatId = chatRow["Z_PK"] as? Int64 ?? 0
-                    let contactJid = chatRow["ZCONTACTJID"] as? String ?? "Unknown"
-                    var chatName = chatRow["ZPARTNERNAME"] as? String ?? "Unknown"
-                    // Set chat name to "Me" if contactJid matches ownerJid
-                    if let userJid = ownerJid, contactJid == userJid {
-                        chatName = "Me"
-                    }
-                    let lastMessageDate = convertTimestampToDate(
-                        timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
-                    let isArchived = chatRow["ZARCHIVED"] as? Int64 == 1
-                    let sessionType = chatRow["ZSESSIONTYPE"] as? Int64 ?? 0
-                    let isChannel = (sessionType == 5)
-                    let numberChatMessages = chatRow["messageCount"] as? Int64 ?? 0
-
-                    let chatInfo = ChatInfo(
-                        id: Int(chatId),
-                        contactJid: contactJid,
-                        name: chatName,
-                        numberMessages: Int(numberChatMessages),
-                        lastMessageDate: lastMessageDate,
-                        isArchived: isArchived,
-                        isChannel: isChannel
-                    )
-                    chatInfos.append(chatInfo)
-                }
-            }
-            return chatInfos
-        } catch {
-            throw WABackupError.databaseConnectionError(error: error)
-        }
-    }
 
     private func databaseQuestionMarks(count: Int) -> String {
         return Array(repeating: "?", count: count).joined(separator: ", ")
@@ -642,156 +705,85 @@ public class WABackup {
                                    directoryToSaveMedia: URL,
                                    iPhoneBackup: IPhoneBackup,
                                    from dbQueue: DatabaseQueue) throws -> [MessageInfo] {
-        var messages: [MessageInfo] = []
+        var messagesInfo: [MessageInfo] = []
 
-        do {
-            try dbQueue.read { db in
-
-                // Prepare the IN clause using the supported message types
-                let supportedMessageTypes = SupportedMessageType.allValues
-                    .map { "\($0)" }
-                    .joined(separator: ", ")
-
-                let chatMessages = try Row.fetchAll(db, sql: """
-                    SELECT Z_PK, ZTEXT, ZMESSAGEDATE,
-                        ZGROUPMEMBER, ZFROMJID, ZMEDIAITEM,
-                        ZISFROMME, ZGROUPEVENTTYPE, ZMESSAGETYPE
-                    FROM ZWAMESSAGE
-                    WHERE ZCHATSESSION = ? AND ZMESSAGETYPE IN (\(supportedMessageTypes))
-                    """, arguments: [chatId])
-
-                for messageRow in chatMessages {
-                    let messageId = messageRow["Z_PK"] as? Int64 ?? 0
-                    var messageText = messageRow["ZTEXT"] as? String
-                    let messageDate = convertTimestampToDate(
-                        timestamp: messageRow["ZMESSAGEDATE"] as Any)
-                    let isFromMe = messageRow["ZISFROMME"] as? Int64 == 1
-                    guard let messageType =
-                        SupportedMessageType(rawValue: messageRow["ZMESSAGETYPE"] as Int64)
-                            else {
-                                // Skip not supported message types
-                                continue
-                    }
-
-                    // Extract ZGROUPEVENTTYPE
-                    let groupEventType = messageRow["ZGROUPEVENTTYPE"] as? Int64 ?? 0
-
-                    // Check if groupEventType is 38 (business chat warning"
-                    if groupEventType == 38 {
-                        messageText = "This is a business chat"
-                    }
-
-                    var messageInfo = MessageInfo(
-                        id: Int(messageId),
-                        chatId: chatId,
-                        message: messageText,
-                        date: messageDate,
-                        isFromMe: isFromMe,
-                        messageType: messageType.description
-                    )
-
-                    if !isFromMe {
-                        switch type {
-                        case .group:
-                            if let groupMemberId = messageRow["ZGROUPMEMBER"] as? Int64 {
-                                let (senderName, senderPhone) = try fetchSenderInfo(.groupMember(memberId: groupMemberId), from: db)
-                                messageInfo.senderName = senderName
-                                messageInfo.senderPhone = senderPhone
-                            }
-                        case .individual, .channel:
-                            let (senderName, senderPhone) = try fetchSenderInfo(.chatSession(chatId: chatId), from: db)
-                            messageInfo.senderName = senderName
-                            messageInfo.senderPhone = senderPhone
-                        }
-                    }
-                    
-                    // if it is a reply update the id of the message that is
-                    // replying to
-
-                    if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
-                        if let replyMessageId = 
-                            try fetchReplyMessageId(mediaItemId: mediaItemId, 
-                                                    from: db) {
-                            messageInfo.replyTo = Int(replyMessageId)
-                        }
-                    }
-
-                    // if it has a media file, extract it, the thumbnail,  
-                    // the caption and the duration
-
-                    if let mediaItemId = messageRow["ZMEDIAITEM"] as? Int64 {
-                        if let mediaFilename = 
-                            try fetchMediaFilename(forMediaItem: mediaItemId, 
-                                                    from: iPhoneBackup, 
-                                                    toDirectory: directoryToSaveMedia, 
-                                                    from: db) {
-                            
-                            switch mediaFilename {
-                                case .fileName(let fileName):
-                                    messageInfo.mediaFilename = fileName
-                                case .error(let error):
-                                    messageInfo.error = error
-                            }
-
-                            // call the delegate function after the media file is written
-                            if let mediaFilename = messageInfo.mediaFilename {
-                                delegate?.didWriteMediaFile(fileName: mediaFilename)
-                            }
-
-                            if let caption = try fetchCaption(mediaItemId: mediaItemId, 
-                                                                from: db) {
-                                messageInfo.caption = caption
-                            }
-
-                            // if it is a video or audio message, extract the duration
-
-                            switch messageType {
-                                case .video, .audio:
-                                    let seconds = try fetchSeconds(mediaItemId: mediaItemId, 
-                                                                        from: db)
-                                    messageInfo.seconds = seconds                           
-                                default:
-                                    break
-                            }
-                        }
-
-                        // if it is a location message, extract the latitude and
-                        // longitude
-
-                        if messageType == .location {
-                            let (latitude, longitude) = 
-                                try fetchLocation(mediaItemId: mediaItemId, 
-                                                    from: db)
-                            messageInfo.latitude = latitude
-                            messageInfo.longitude = longitude
-                        }
-                    }
-
-                    // extract the reactions
-
-                    messageInfo.reactions = try fetchReactions(forMessageId: messageInfo.id, 
-                                                                from: db)
-
-                    // we've done with this message, add it to the list
-
-                    messages.append(messageInfo)
+        try dbQueue.read { db in
+            let messages = try Message.fetchMessages(forChatId: chatId, from: db)
+            for message in messages {
+                guard let messageType = SupportedMessageType(rawValue: message.messageType) else {
+                    continue // Skip unsupported message types
                 }
+                
+                var messageText = message.text
+
+                // **Reintroduce the business chat warning logic**
+                if message.groupEventType == 38 {
+                    messageText = "This is a business chat"
+                }
+                
+                var messageInfo = MessageInfo(
+                    id: Int(message.id),
+                    chatId: Int(message.chatSessionId),
+                    message: messageText,
+                    date: message.date,
+                    isFromMe: message.isFromMe,
+                    messageType: messageType.description
+                )
+
+                // Fetch sender info
+                if let senderInfo = try fetchSenderInfo(for: message, chatType: type, from: db) {
+                    messageInfo.senderName = senderInfo.senderName
+                    messageInfo.senderPhone = senderInfo.senderPhone
+                }
+
+                // Handle replies
+                if let mediaItemId = message.mediaItemId,
+                   let replyMessageId = try fetchReplyMessageId(mediaItemId: mediaItemId, from: db) {
+                    messageInfo.replyTo = Int(replyMessageId)
+                }
+
+                // Handle media
+                if let mediaItemId = message.mediaItemId {
+                    if let mediaResult = try fetchMediaFilename(forMediaItem: mediaItemId,
+                                                                from: iPhoneBackup,
+                                                                toDirectory: directoryToSaveMedia,
+                                                                from: db) {
+                        switch mediaResult {
+                        case .fileName(let fileName):
+                            messageInfo.mediaFilename = fileName
+                        case .error(let error):
+                            messageInfo.error = error
+                        }
+                    }
+
+                    // Fetch caption
+                    if let caption = try fetchCaption(mediaItemId: mediaItemId, from: db) {
+                        messageInfo.caption = caption
+                    }
+
+                    // Fetch duration
+                    if messageType == .video || messageType == .audio {
+                        messageInfo.seconds = try fetchSeconds(mediaItemId: mediaItemId, from: db)
+                    }
+
+                    // Fetch location
+                    if messageType == .location {
+                        let (latitude, longitude) = try fetchLocation(mediaItemId: mediaItemId, from: db)
+                        messageInfo.latitude = latitude
+                        messageInfo.longitude = longitude
+                    }
+                }
+
+                // Fetch reactions
+                messageInfo.reactions = try fetchReactions(forMessageId: Int(message.id), from: db)
+
+                messagesInfo.append(messageInfo)
             }
-            return messages
-        } catch let error as WABackupError {
-            // If the inner function throws WABackupError just rethrow it
-            throw error
-        } catch {
-            throw WABackupError.databaseConnectionError(error: error)
         }
+
+        return messagesInfo
     }
 
-    typealias SenderInfo = (senderName: String?, senderPhone: String?)
-    
-    private enum SenderIdentifier {
-        case chatSession(chatId: Int)
-        case groupMember(memberId: Int64)
-    }
     
     private func fetchSenderInfo(_ identifier: SenderIdentifier, from db: Database) throws -> SenderInfo {
         switch identifier {
