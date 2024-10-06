@@ -31,7 +31,7 @@ struct ChatSession {
         self.sessionType = row["ZSESSIONTYPE"] as? Int64 ?? 0
     }
     
-    static func fetchAllChatsNew(from db: Database, ownerJid: String?) throws -> [ChatSession] {
+    static func fetchAllChats(from db: Database, ownerJid: String?) throws -> [ChatSession] {
         // Prepare the list of supported message types excluding Status
         let supportedTypesExcludingStatus = SupportedMessageType.allCases
             .filter { $0 != .status }
