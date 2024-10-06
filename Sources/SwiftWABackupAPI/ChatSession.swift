@@ -69,4 +69,32 @@ struct ChatSession {
             throw WABackupError.databaseConnectionError(error: DatabaseError(message: "Chat not found"))
         }
     }
+    
+    static func fetchChatSessionName(for contactJid: String, from db: Database) throws -> String? {
+        let sql = """
+            SELECT ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID = ?
+        """
+        let arguments: [DatabaseValueConvertible] = [contactJid]
+        
+        if let name: String = try Row.fetchOne(db, sql: sql, arguments: StatementArguments(arguments))?["ZPARTNERNAME"] {
+            return name
+        }
+        return nil
+    }
+
+    typealias SenderInfo = (senderName: String?, senderPhone: String?)
+    
+    static func fetchSenderInfo(chatId: Int, from db: Database) throws ->  SenderInfo {
+        let sql = """
+            SELECT ZCONTACTJID, ZPARTNERNAME FROM ZWACHATSESSION WHERE Z_PK = ?
+            """
+        let row = try Row.fetchOne(db, sql: sql, arguments: [chatId])
+        
+        if let sessionRow = row {
+            let senderPhone = (sessionRow["ZCONTACTJID"] as? String)?.extractedPhone
+            let senderName = sessionRow["ZPARTNERNAME"] as? String
+            return (senderName, senderPhone)
+        }
+        return (nil, nil)
+    }
 }

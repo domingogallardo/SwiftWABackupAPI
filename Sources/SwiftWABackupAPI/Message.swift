@@ -49,4 +49,17 @@ struct Message {
         let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments))
         return rows.map { Message(row: $0) }
     }
+    
+    static func fetchOwnerProfilePhone(from db: Database) throws -> String? {
+        let sql = """
+            SELECT ZTOJID FROM ZWAMESSAGE
+            WHERE ZMESSAGETYPE IN (6, 10) AND ZTOJID IS NOT NULL
+            LIMIT 1
+        """
+        if let row = try Row.fetchOne(db, sql: sql),
+           let toJid = row["ZTOJID"] as? String {
+            return toJid
+        }
+        return nil
+    }
 }

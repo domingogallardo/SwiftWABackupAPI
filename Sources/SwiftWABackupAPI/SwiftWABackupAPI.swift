@@ -505,24 +505,13 @@ public class WABackup {
                                   contactNameGroupMember: String?,
                                   from db: Database) throws -> SenderInfo {
         let senderPhone = jid.extractedPhone
-        if let senderName = try fetchSenderName(for: jid, from: db) {
+        if let senderName = try ChatSession.fetchChatSessionName(for: jid, from: db) {
             return (senderName, senderPhone)
+        } else if let pushName = try ProfilePushName.fetchProfilePushName(for: jid, from: db) {
+            return ("~" + pushName, senderPhone)
         } else {
             return (contactNameGroupMember, senderPhone)
         }
-    }
-    
-    private func fetchSenderName(for contactJid: String, from db: Database) throws -> String? {
-        if let name: String = try Row.fetchOne(db, sql: """
-            SELECT ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID = ?
-            """, arguments: [contactJid])?["ZPARTNERNAME"] {
-            return name
-        } else if let name: String = try Row.fetchOne(db, sql: """
-            SELECT ZPUSHNAME FROM ZWAPROFILEPUSHNAME WHERE ZJID = ?
-            """, arguments: [contactJid])?["ZPUSHNAME"] {
-            return "~" + name
-        }
-        return nil
     }
     
     private func fetchReplyMessageId(mediaItemId: Int64,
@@ -837,14 +826,7 @@ public class WABackup {
         
         do {
             try dbQueue.read { db in
-                // Fetch one row from ZWAMESSAGE table where ZMESSAGETYPE IN (6, 10)
-                // and ZTOJID is not NULL
-                if let ownerProfileRow = try Row.fetchOne(db, sql: """
-                    SELECT ZTOJID FROM ZWAMESSAGE
-                    WHERE ZMESSAGETYPE IN (6, 10) AND ZTOJID IS NOT NULL
-                    LIMIT 1
-                    """),
-                   let ownerProfilePhone = ownerProfileRow["ZTOJID"] as? String {
+                if let ownerProfilePhone = try Message.fetchOwnerProfilePhone(from: db) {
                     ownerPhone = ownerProfilePhone.extractedPhone
                 } else {
                     throw WABackupError.databaseConnectionError(
@@ -859,54 +841,34 @@ public class WABackup {
 
     private func fetchChats(from dbQueue: DatabaseQueue, ownerJid: String?) throws -> [ChatInfo] {
         do {
-            var chatInfos: [ChatInfo] = []
-            try dbQueue.read { db in
-                // Prepare the list of supported message types excluding Status
-                let supportedTypesExcludingStatus = SupportedMessageType.allCases
-                    .filter { $0 != .status }
-                    .map { $0.rawValue }
-
-                // Build the SQL with dynamic number of placeholders for the IN clause
-                let placeholders = databaseQuestionMarks(count: supportedTypesExcludingStatus.count)
-
-                // Fetch chat sessions that have at least one message of supported types (excluding Status)
-                let chatSessions = try Row.fetchAll(db, sql: """
-                    SELECT cs.Z_PK, cs.ZCONTACTJID, cs.ZPARTNERNAME, cs.ZLASTMESSAGEDATE,
-                           cs.ZARCHIVED, cs.ZSESSIONTYPE, COUNT(m.Z_PK) as messageCount
-                    FROM ZWACHATSESSION cs
-                    JOIN ZWAMESSAGE m ON m.ZCHATSESSION = cs.Z_PK
-                    WHERE cs.ZCONTACTJID NOT LIKE ? AND m.ZMESSAGETYPE IN (\(placeholders))
-                    GROUP BY cs.Z_PK
-                    """, arguments: StatementArguments(["%@status"] + supportedTypesExcludingStatus))
-                print("Número de chats: \(chatSessions.count)")
-                for chatRow in chatSessions {
-                    let chatId = chatRow["Z_PK"] as? Int64 ?? 0
-                    let contactJid = chatRow["ZCONTACTJID"] as? String ?? "Unknown"
-                    var chatName = chatRow["ZPARTNERNAME"] as? String ?? "Unknown"
-                    // Set chat name to "Me" if contactJid matches ownerJid
-                    if let userJid = ownerJid, contactJid == userJid {
-                        chatName = "Me"
-                    }
-                    let lastMessageDate = convertTimestampToDate(
-                        timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
-                    let isArchived = chatRow["ZARCHIVED"] as? Int64 == 1
-                    let sessionType = chatRow["ZSESSIONTYPE"] as? Int64 ?? 0
-                    let isChannel = (sessionType == 5)
-                    let numberChatMessages = chatRow["messageCount"] as? Int64 ?? 0
-
-                    let chatInfo = ChatInfo(
-                        id: Int(chatId),
-                        contactJid: contactJid,
-                        name: chatName,
-                        numberMessages: Int(numberChatMessages),
-                        lastMessageDate: lastMessageDate,
-                        isArchived: isArchived,
-                        isChannel: isChannel
-                    )
-                    chatInfos.append(chatInfo)
-                }
+            // Use the helper method to fetch all chat sessions
+            let chatSessions = try dbQueue.read { db in
+                try ChatSession.fetchAllChats(from: db, ownerJid: ownerJid)
             }
-            return chatInfos
+
+            // Map the fetched ChatSession instances to ChatInfo
+            let chatInfos = chatSessions.map { chatSession -> ChatInfo in
+                // Determine if the chat is a channel
+                let isChannel = (chatSession.sessionType == 5)
+
+                // Set chat name to "Me" if contactJid matches ownerJid
+                var chatName = chatSession.partnerName
+                if let userJid = ownerJid, chatSession.contactJid == userJid {
+                    chatName = "Me"
+                }
+
+                return ChatInfo(
+                    id: Int(chatSession.id),
+                    contactJid: chatSession.contactJid,
+                    name: chatName,
+                    numberMessages: Int(chatSession.messageCounter),
+                    lastMessageDate: chatSession.lastMessageDate,
+                    isArchived: chatSession.isArchived,
+                    isChannel: isChannel
+                )
+            }
+
+            return sortChatsByDate(chatInfos)
         } catch {
             throw WABackupError.databaseConnectionError(error: error)
         }
@@ -969,42 +931,26 @@ public class WABackup {
 
     private enum SenderIdentifier {
         case chatSession(chatId: Int)
-        case groupMember(memberId: Int64)
+        case groupMember(memberId: Int)
     }
     
     // Fetch the contact info of the participants of a gruop chat
     private func fetchGroupMembersContacts(chatId: Int,
                                            from dbQueue: DatabaseQueue,
                                            excludingPhone: String?) throws -> Set<ContactInfo> {
-        var groupMembers: [Int64] = []
         var contactsSet: Set<ContactInfo> = []
         do {
             try dbQueue.read { db in
-                // Fetch the distinct members of the messages in the group chat
-
-                // Prepare the IN clause for the SQL query using the supported message types
-                let supportedMessageTypes = SupportedMessageType.allValues
-                    .map { "\($0)" }
-                    .joined(separator: ", ")
-
-                // Fetch the distinct members of the messages in the group chat of
-                // supported message types
-                let groupMembersRows = try Row.fetchAll(db, sql: """
-                SELECT DISTINCT ZGROUPMEMBER FROM ZWAMESSAGE WHERE ZCHATSESSION = ? 
-                AND ZMESSAGETYPE IN (\(supportedMessageTypes))
-                """, arguments: [chatId])
-                var members = 0;
-                for memberRow in groupMembersRows {
-                    if let memberId = memberRow["ZGROUPMEMBER"] as? Int64 {
-                        groupMembers.append(memberId)
-                        members += 1
-                    }
-                }
-
-                for memberId in groupMembers {
-                    let (senderName, senderPhone) = try fetchSenderInfo(.groupMember(memberId: memberId), from: db)
-                    if senderPhone != nil && senderPhone != excludingPhone {
-                        let contact = ContactInfo(name: senderName ?? "", phone: senderPhone!)
+                // Fetch all distinct group member IDs for the given chat session
+                let groupMemberIds = try GroupMember.fetchGroupMemberIds(forChatId: chatId, from: db)
+                
+                for memberId in groupMemberIds {
+                    // Fetch sender information using the existing fetchSenderInfo method
+                    let (senderName, senderPhone) = try fetchSenderInfo(.groupMember(memberId: Int(memberId)), from: db)
+                    
+                    // Filter out contacts based on the excludingPhone criteria
+                    if let phone = senderPhone, phone != excludingPhone {
+                        let contact = ContactInfo(name: senderName ?? "", phone: phone)
                         contactsSet.insert(contact)
                     }
                 }
@@ -1067,33 +1013,17 @@ public class WABackup {
     private func fetchSenderInfo(_ identifier: SenderIdentifier, from db: Database) throws -> SenderInfo {
         switch identifier {
         case .chatSession(let chatId):
-            return try fetchSenderInfoFromChatSession(chatId: chatId, from: db)
+            return try ChatSession.fetchSenderInfo(chatId: chatId, from: db)
         case .groupMember(let memberId):
-            return try fetchSenderInfoFromGroupMember(memberId: memberId, from: db)
-        }
-    }
-    
-    private func fetchSenderInfoFromChatSession(chatId: Int, from db: Database) throws -> SenderInfo {
-        if let sessionRow = try Row.fetchOne(db, sql: """
-            SELECT ZCONTACTJID, ZPARTNERNAME FROM ZWACHATSESSION WHERE Z_PK = ?
-            """, arguments: [chatId]) {
-            let senderPhone = (sessionRow["ZCONTACTJID"] as? String)?.extractedPhone
-            let senderName = sessionRow["ZPARTNERNAME"] as? String
-            return (senderName, senderPhone)
-        }
-        return (nil, nil)
-    }
-    
-    private func fetchSenderInfoFromGroupMember(memberId: Int64, from db: Database) throws -> SenderInfo {
-        if let memberRow = try Row.fetchOne(db, sql: """
-            SELECT ZMEMBERJID, ZCONTACTNAME FROM ZWAGROUPMEMBER WHERE Z_PK = ?
-            """, arguments: [memberId]),
-           let memberJid = memberRow["ZMEMBERJID"] as? String {
-            return try obtainSenderInfo(jid: memberJid,
-                                        contactNameGroupMember: memberRow["ZCONTACTNAME"] as? String,
+            // Fetch raw sender info from GroupMember
+            guard let rawSenderInfo = try GroupMember.fetchRawSenderInfo(memberId: memberId, from: db) else {
+                return (nil, nil)
+            }
+            // Now call obtainSenderInfo with the raw data
+            return try obtainSenderInfo(jid: rawSenderInfo.memberJid,
+                                        contactNameGroupMember: rawSenderInfo.contactName,
                                         from: db)
         }
-        return (nil, nil)
     }
     
     
