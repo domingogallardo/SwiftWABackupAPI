@@ -16,4 +16,16 @@ struct ProfilePushName {
         self.jid = row["ZJID"] as? String ?? ""
         self.pushName = row["ZPUSHNAME"] as? String ?? ""
     }
+    
+    static func fetchProfilePushName(for contactJid: String, from db: Database) throws -> String? {
+        let sql = """
+            SELECT ZPUSHNAME FROM ZWAPROFILEPUSHNAME WHERE ZJID = ?
+        """
+        let arguments: [DatabaseValueConvertible] = [contactJid]
+
+        if let name: String = try Row.fetchOne(db, sql: sql, arguments: StatementArguments(arguments))?["ZPUSHNAME"] {
+            return name
+        }
+        return nil
+    }
 }
