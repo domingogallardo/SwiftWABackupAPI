@@ -30,34 +30,39 @@ struct ChatSession {
         self.isArchived = (row["ZARCHIVED"] as? Int64 ?? 0) == 1
         self.sessionType = row["ZSESSIONTYPE"] as? Int64 ?? 0
     }
-    
-    static func fetchAllChats(from db: Database, ownerJid: String?) throws -> [ChatSession] {
-        // Prepare the list of supported message types excluding Status
-        let supportedTypesExcludingStatus = SupportedMessageType.allCases
-            .filter { $0 != .status }
+    static func fetchAllChats(from db: Database) throws -> [ChatSession] {
+        let statusType = SupportedMessageType.status.rawValue
+
+        // Prepare the list of supported message types
+        let supportedTypes = SupportedMessageType.allCases
             .map { $0.rawValue }
 
-        // Build the SQL with dynamic number of placeholders for the IN clause
-        let placeholders = databaseQuestionMarks(count: supportedTypesExcludingStatus.count)
+        // Build the placeholders for the IN clause
+        let placeholders = databaseQuestionMarks(count: supportedTypes.count)
 
+        // Obtain all the chats excepts those whose messages are of type `status`
         let sql = """
             SELECT cs.*, COUNT(m.Z_PK) as messageCount
             FROM ZWACHATSESSION cs
             JOIN ZWAMESSAGE m ON m.ZCHATSESSION = cs.Z_PK
-            WHERE cs.ZCONTACTJID NOT LIKE ? AND m.ZMESSAGETYPE IN (\(placeholders))
+            WHERE cs.ZCONTACTJID NOT LIKE ?
+            AND m.ZMESSAGETYPE IN (\(placeholders))
             GROUP BY cs.Z_PK
+            HAVING SUM(CASE WHEN m.ZMESSAGETYPE != ? THEN 1 ELSE 0 END) > 0
             """
 
-        let arguments: [DatabaseValueConvertible] = ["%@status"] + supportedTypesExcludingStatus
+        // Prepare the arguments, including the STATUS type for the HAVING clause
+        var arguments: [DatabaseValueConvertible] = ["%@status"] + supportedTypes
+        arguments.append(statusType)
 
         let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments))
         return rows.map { row in
             var chatSession = ChatSession(row: row)
-            // Update messageCounter with the actual count
+            // Actualizar el contador de mensajes con el conteo real
             chatSession.messageCounter = row["messageCount"] as? Int64 ?? 0
             return chatSession
         }
-     }
+    }
     
     static func fetchChat(byId id: Int, from db: Database) throws -> ChatSession {
         let sql = """

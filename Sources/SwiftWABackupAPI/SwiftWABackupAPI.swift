@@ -299,7 +299,7 @@ public class WABackup {
 
         let chatInfos = try dbQueue.read { db -> [ChatInfo] in
             // Fetch all chat sessions using the data model
-            let chatSessions = try ChatSession.fetchAllChats(from: db, ownerJid: ownerJid)
+            let chatSessions = try ChatSession.fetchAllChats(from: db)
 
             // Map ChatSession instances to ChatInfo
             return chatSessions.map { chatSession in
@@ -843,7 +843,7 @@ public class WABackup {
         do {
             // Use the helper method to fetch all chat sessions
             let chatSessions = try dbQueue.read { db in
-                try ChatSession.fetchAllChats(from: db, ownerJid: ownerJid)
+                try ChatSession.fetchAllChats(from: db)
             }
 
             // Map the fetched ChatSession instances to ChatInfo
