@@ -75,6 +75,7 @@ struct ChatSession {
         }
     }
     
+    
     static func fetchChatSessionName(for contactJid: String, from db: Database) throws -> String? {
         let sql = """
             SELECT ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID = ?

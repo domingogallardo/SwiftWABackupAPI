@@ -62,4 +62,16 @@ struct Message {
         }
         return nil
     }
+
+    static func fetchOwnerJid(from db: Database) throws -> String? {
+        if let ownerProfileRow = try Row.fetchOne(db, sql: """
+           SELECT ZTOJID FROM ZWAMESSAGE
+           WHERE ZMESSAGETYPE IN (6, 10) AND ZTOJID IS NOT NULL
+           LIMIT 1
+           """),
+           let ownerProfileJid = ownerProfileRow["ZTOJID"] as? String {
+            return ownerProfileJid
+        }
+        return nil
+    }
 }

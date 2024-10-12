@@ -213,7 +213,10 @@ public class WABackup {
             iPhoneBackups[uniqueIdentifier] = iPhoneBackup
 
             // Attempt to fetch the owner JID; if not found, set to nil
-            let ownerJid = try? fetchOwnerJid(from: chatStorageDb)
+            // Use the helper method to fetch the owner JID
+            let ownerJid = try chatStorageDb.read { db in
+                try Message.fetchOwnerJid(from: db)
+            }
             ownerJidByDatabase[uniqueIdentifier] = ownerJid
             return uniqueIdentifier
         } catch let error as WABackupError {
@@ -264,24 +267,7 @@ public class WABackup {
         }
     }
 
-    
-    private func fetchOwnerJid(from dbQueue: DatabaseQueue) throws -> String? {
-        var ownerJid: String?
-
-        try dbQueue.read { db in
-            if let ownerProfileRow = try Row.fetchOne(db, sql: """
-                SELECT ZTOJID FROM ZWAMESSAGE
-                WHERE ZMESSAGETYPE IN (6, 10) AND ZTOJID IS NOT NULL
-                LIMIT 1
-                """),
-               let ownerProfileJid = ownerProfileRow["ZTOJID"] as? String {
-                ownerJid = ownerProfileJid
-            }
-            // Else, ownerJid remains nil
-        }
-        return ownerJid
-    }
-    
+        
     //------------------------------------
     // connectChatStorageDb ENDS
     //------------------------------------
@@ -340,8 +326,8 @@ public class WABackup {
     //------------------------------------
 
     public func getChatMessages(chatId: Int,
-                                directoryToSaveMedia directory: URL,
-                                from waDatabase: WADatabase) throws -> [MessageInfo] {                                    
+                                directoryToSaveMedia directory: URL?,
+                                from waDatabase: WADatabase) throws -> [MessageInfo] {
         let dbQueue = chatDatabases[waDatabase]!
         let chatInfo = try fetchChatInfo(id: chatId, from: dbQueue) 
         let iPhoneBackup = iPhoneBackups[waDatabase]!
@@ -395,7 +381,7 @@ public class WABackup {
     
     private func fetchChatMessages(chatId: Int,
                                    type: ChatInfo.ChatType,
-                                   directoryToSaveMedia: URL,
+                                   directoryToSaveMedia: URL?,
                                    iPhoneBackup: IPhoneBackup,
                                    from dbQueue: DatabaseQueue) throws -> [MessageInfo] {
         var messagesInfo: [MessageInfo] = []
@@ -436,10 +422,11 @@ public class WABackup {
                 }
 
                 // Handle media
-                if let mediaItemId = message.mediaItemId {
+                if let mediaItemId = message.mediaItemId,
+                   let directory = directoryToSaveMedia {
                     if let mediaResult = try fetchMediaFilename(forMediaItem: mediaItemId,
                                                                 from: iPhoneBackup,
-                                                                toDirectory: directoryToSaveMedia,
+                                                                toDirectory: directory,
                                                                 from: db) {
                         switch mediaResult {
                         case .fileName(let fileName):
