@@ -556,22 +556,24 @@ public class WABackup {
                                     toDirectory directoryURL: URL,
                                     from db: Database) throws -> MediaFilename? {
         do {
-            if let mediaItemRow = try Row.fetchOne(db, sql: """
-            SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM WHERE Z_PK = ?
-            """, arguments: [mediaItemId]),
-            let mediaLocalPath = mediaItemRow["ZMEDIALOCALPATH"] as? String {
+            // Fetch the MediaItem using the new method
+            if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
+               let mediaLocalPath = mediaItem.localPath {
 
-                guard let hashFile = iPhoneBackup.fetchWAFileHash(
-                    endsWith: mediaLocalPath) else {
+                guard let hashFile = iPhoneBackup.fetchWAFileHash(endsWith: mediaLocalPath) else {
                     return MediaFilename.error("Media file not found: \(mediaLocalPath)")
                 }
+
                 let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
-                let mediaFileName = try copyMediaFile(hashFile: hashFile, fileName: fileName, to: directoryURL, from: iPhoneBackup)
+                let mediaFileName = try copyMediaFile(hashFile: hashFile,
+                                                      fileName: fileName,
+                                                      to: directoryURL,
+                                                      from: iPhoneBackup)
                 return MediaFilename.fileName(mediaFileName)
             }
             return nil
         } catch let error as WABackupError {
-            // Error thrown by the copy function
+            // Error thrown by the copy function or MediaItem.fetchMediaItem
             throw error
         } catch {
             // Other errors
