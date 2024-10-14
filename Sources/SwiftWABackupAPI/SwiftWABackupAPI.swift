@@ -642,20 +642,13 @@ public class WABackup {
         }
     }
     
-    private func fetchReactions(forMessageId messageId: Int,
-                                from db: Database) throws -> [Reaction]? {
-        do {
-            if let reactionsRow = try Row.fetchOne(db, sql: """
-                SELECT ZRECEIPTINFO FROM ZWAMESSAGEINFO WHERE ZMESSAGE = ?
-                """, arguments: [messageId]) {
-                if let reactionsData = reactionsRow["ZRECEIPTINFO"] as? Data {
-                    return extractReactions(from: reactionsData)
-                }
-            }
-            return nil
-        } catch {
-            throw WABackupError.databaseConnectionError(error: error)
+    private func fetchReactions(forMessageId messageId: Int, from db: Database) throws -> [Reaction]? {
+        // Fetch the MessageInfoTable using the new method
+        if let messageInfo = try MessageInfoTable.fetchMessageInfo(byMessageId: messageId, from: db),
+           let reactionsData = messageInfo.receiptInfo {
+            return extractReactions(from: reactionsData)
         }
+        return nil
     }
     
     // Extracts the reactions of a message from a byte array by scanning for emojis
