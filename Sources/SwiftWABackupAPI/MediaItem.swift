@@ -26,4 +26,18 @@ struct MediaItem {
         self.latitude = row["ZLATITUDE"] as? Double
         self.longitude = row["ZLONGITUDE"] as? Double
     }
+    
+    static func fetchMediaItem(byId id: Int64, from db: Database) throws -> MediaItem? {
+        let sql = """
+            SELECT * FROM ZWAMEDIAITEM WHERE Z_PK = ?
+            """
+        do {
+            if let row = try Row.fetchOne(db, sql: sql, arguments: [id]) {
+                return MediaItem(row: row)
+            }
+            return nil
+        } catch {
+            throw WABackupError.databaseConnectionError(error: error)
+        }
+    }
 }
