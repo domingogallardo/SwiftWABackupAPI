@@ -13,6 +13,15 @@ struct GroupMember {
     let memberJid: String
     let contactName: String?
     
+    // Define the expected columns for the ZWAGROUPMEMBER table
+    static let expectedColumns: Set<String> = ["Z_PK", "ZMEMBERJID", "ZCONTACTNAME"]
+
+    // Method to check the schema of the ZWAGROUPMEMBER table
+    static func checkSchema(in db: Database) throws {
+        let tableName = "ZWAGROUPMEMBER"
+        try checkTableSchema(tableName: tableName, expectedColumns: expectedColumns, in: db)
+    }
+    
     init(row: Row) {
         self.id = row["Z_PK"] as? Int64 ?? 0
         self.memberJid = row["ZMEMBERJID"] as? String ?? ""

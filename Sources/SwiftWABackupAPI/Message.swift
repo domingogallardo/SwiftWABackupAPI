@@ -22,6 +22,20 @@ struct Message {
     let toJid: String?
     let stanzaId: String?
     
+    // Define the expected columns for the ZWAMESSAGE table
+    static let expectedColumns: Set<String> = [
+        "Z_PK", "ZTOJID", "ZMESSAGETYPE", "ZGROUPMEMBER",
+        "ZCHATSESSION", "ZTEXT", "ZMESSAGEDATE",
+        "ZFROMJID", "ZMEDIAITEM", "ZISFROMME",
+        "ZGROUPEVENTTYPE", "ZSTANZAID"
+    ]
+
+    // Method to check the schema of the ZWAMESSAGE table
+    static func checkSchema(in db: Database) throws {
+        let tableName = "ZWAMESSAGE"
+        try checkTableSchema(tableName: tableName, expectedColumns: expectedColumns, in: db)
+    }
+    
     init(row: Row) {
         self.id = row["Z_PK"] as? Int64 ?? 0
         self.chatSessionId = row["ZCHATSESSION"] as? Int64 ?? 0
@@ -36,7 +50,7 @@ struct Message {
         self.toJid = row["ZTOJID"] as? String
         self.stanzaId = row["ZSTANZAID"] as? String
     }
-    
+
     static func fetchMessages(forChatId chatId: Int, from db: Database) throws -> [Message] {
         let supportedMessageTypes = SupportedMessageType.allValues
         let placeholders = databaseQuestionMarks(count: supportedMessageTypes.count)

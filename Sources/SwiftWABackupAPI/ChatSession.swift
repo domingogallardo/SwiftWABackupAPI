@@ -21,6 +21,18 @@ struct ChatSession {
             return contactJid.hasSuffix("@g.us")
     }
     
+    // Define the expected columns for the ZWACHATSESSION table
+    static let expectedColumns: Set<String> = [
+        "Z_PK", "ZCONTACTJID", "ZPARTNERNAME",
+        "ZLASTMESSAGEDATE", "ZMESSAGECOUNTER", "ZSESSIONTYPE", "ZARCHIVED"
+    ]
+
+    // Method to check the schema of the ZWACHATSESSION table
+    static func checkSchema(in db: Database) throws {
+        let tableName = "ZWACHATSESSION"
+        try checkTableSchema(tableName: tableName, expectedColumns: expectedColumns, in: db)
+    }
+    
     init(row: Row) {
         self.id = row["Z_PK"] as? Int64 ?? 0
         self.contactJid = row["ZCONTACTJID"] as? String ?? ""

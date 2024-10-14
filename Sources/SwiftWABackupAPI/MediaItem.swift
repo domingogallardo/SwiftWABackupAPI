@@ -17,6 +17,15 @@ struct MediaItem {
     let latitude: Double?
     let longitude: Double?
     
+    // Define the expected columns for the ZWAMEDIAITEM table
+    static let expectedColumns: Set<String> = ["Z_PK", "ZMETADATA", "ZTITLE", "ZMEDIALOCALPATH", "ZMOVIEDURATION", "ZLATITUDE", "ZLONGITUDE"]
+
+    // Method to check the schema of the ZWAMEDIAITEM table
+    static func checkSchema(in db: Database) throws {
+        let tableName = "ZWAMEDIAITEM"
+        try checkTableSchema(tableName: tableName, expectedColumns: expectedColumns, in: db)
+    }
+    
     init(row: Row) {
         self.id = row["Z_PK"] as? Int64 ?? 0
         self.localPath = row["ZMEDIALOCALPATH"] as? String
