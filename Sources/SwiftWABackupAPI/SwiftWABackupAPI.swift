@@ -228,39 +228,15 @@ public class WABackup {
     }
     
     private func checkSchema(of dbQueue: DatabaseQueue) throws {
-        // Define the expected tables and their respective fields
-        let expectedSchema: [String: Set<String>] = [
-            "ZWAMESSAGE": ["Z_PK", "ZTOJID", "ZMESSAGETYPE", "ZGROUPMEMBER",
-                           "ZCHATSESSION", "ZTEXT", "ZMESSAGEDATE",
-                           "ZFROMJID", "ZMEDIAITEM", "ZISFROMME",
-                           "ZGROUPEVENTTYPE", "ZSTANZAID"],
-            "ZWACHATSESSION": ["Z_PK", "ZCONTACTJID", "ZPARTNERNAME",
-                               "ZLASTMESSAGEDATE", "ZMESSAGECOUNTER", "ZSESSIONTYPE", "ZARCHIVED"],
-            "ZWAGROUPMEMBER": ["Z_PK", "ZMEMBERJID", "ZCONTACTNAME"],
-            "ZWAPROFILEPUSHNAME": ["ZPUSHNAME", "ZJID"],
-            "ZWAMEDIAITEM": ["Z_PK", "ZMETADATA", "ZTITLE", "ZMEDIALOCALPATH"],
-            "ZWAMESSAGEINFO": ["ZRECEIPTINFO", "ZMESSAGE"]
-        ]
-
         do {
             try dbQueue.read { db in
-                for (table, expectedFields) in expectedSchema {
-                    // Check if table exists
-                    if try db.tableExists(table) {
-                        // Fetch columns of the table
-                        let columns = try db.columns(in: table)
-                        let columnNames = Set(columns.map { $0.name.uppercased() })
-                        
-                        // Check if all expected fields exist in the table
-                        if !expectedFields.isSubset(of: columnNames) {
-                            print("Table \(table) does not have all expected fields")
-                            return
-                        }
-                    } else {
-                        throw WABackupError.databaseHasUnsupportedSchema(
-                            error: DatabaseError(message: "Table \(table) does not exist"))
-                    }
-                }
+                // Call the checkSchema method of each model
+                try Message.checkSchema(in: db)
+                try ChatSession.checkSchema(in: db)
+                try GroupMember.checkSchema(in: db)
+                try ProfilePushName.checkSchema(in: db)
+                try MediaItem.checkSchema(in: db)
+                try MessageInfoTable.checkSchema(in: db)
             }
         } catch {
             throw WABackupError.databaseHasUnsupportedSchema(error: error)

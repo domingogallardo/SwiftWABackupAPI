@@ -12,6 +12,15 @@ struct ProfilePushName {
     let jid: String
     let pushName: String
     
+    // Define the expected columns for the ZWAPROFILEPUSHNAME table
+    static let expectedColumns: Set<String> = ["ZPUSHNAME", "ZJID"]
+
+    // Method to check the schema of the ZWAPROFILEPUSHNAME table
+    static func checkSchema(in db: Database) throws {
+        let tableName = "ZWAPROFILEPUSHNAME"
+        try checkTableSchema(tableName: tableName, expectedColumns: expectedColumns, in: db)
+    }
+    
     init(row: Row) {
         self.jid = row["ZJID"] as? String ?? ""
         self.pushName = row["ZPUSHNAME"] as? String ?? ""
