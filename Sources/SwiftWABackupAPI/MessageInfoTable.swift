@@ -16,4 +16,18 @@ struct MessageInfoTable {
         self.messageId = row["ZMESSAGE"] as? Int64 ?? 0
         self.receiptInfo = row["ZRECEIPTINFO"] as? Data
     }
+    
+    static func fetchMessageInfo(byMessageId messageId: Int, from db: Database) throws -> MessageInfoTable? {
+        let sql = """
+            SELECT * FROM ZWAMESSAGEINFO WHERE ZMESSAGE = ?
+            """
+        do {
+            if let row = try Row.fetchOne(db, sql: sql, arguments: [messageId]) {
+                return MessageInfoTable(row: row)
+            }
+            return nil
+        } catch {
+            throw WABackupError.databaseConnectionError(error: error)
+        }
+    }
 }
