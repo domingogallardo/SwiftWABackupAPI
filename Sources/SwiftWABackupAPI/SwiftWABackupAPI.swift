@@ -601,13 +601,13 @@ public class WABackup {
     
     private func fetchCaption(mediaItemId: Int64, from db: Database) throws -> String? {
         do {
-            let mediaItemRow = try Row.fetchOne(db, sql: """
-                SELECT ZTITLE FROM ZWAMEDIAITEM WHERE Z_PK = ?
-                """, arguments: [mediaItemId])
-            if let caption = mediaItemRow?["ZTITLE"] as? String, !caption.isEmpty {
+            if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
+               let caption = mediaItem.title, !caption.isEmpty {
                 return caption
             }
             return nil
+        } catch let error as WABackupError {
+            throw error
         } catch {
             throw WABackupError.databaseConnectionError(error: error)
         }
@@ -615,13 +615,13 @@ public class WABackup {
     
     private func fetchSeconds(mediaItemId: Int64, from db: Database) throws -> Int {
         do {
-            let mediaItemRow = try Row.fetchOne(db, sql: """
-                SELECT ZMOVIEDURATION FROM ZWAMEDIAITEM WHERE Z_PK = ?
-                """, arguments: [mediaItemId])
-            if let seconds = mediaItemRow?["ZMOVIEDURATION"] as? Int64 {
+            if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
+               let seconds = mediaItem.movieDuration {
                 return Int(seconds)
             }
             return 0
+        } catch let error as WABackupError {
+            throw error
         } catch {
             throw WABackupError.databaseConnectionError(error: error)
         }
@@ -629,17 +629,19 @@ public class WABackup {
 
     private func fetchLocation(mediaItemId: Int64, from db: Database) throws -> (Double, Double) {
         do {
-            let mediaItemRow = try Row.fetchOne(db, sql: """
-                SELECT ZLATITUDE, ZLONGITUDE FROM ZWAMEDIAITEM WHERE Z_PK = ?
-                """, arguments: [mediaItemId])
-            let latitude = mediaItemRow?["ZLATITUDE"] as? Double ?? 0
-            let longitude = mediaItemRow?["ZLONGITUDE"] as? Double ?? 0
-            return (latitude, longitude)
+            if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db) {
+                let latitude = mediaItem.latitude ?? 0.0
+                let longitude = mediaItem.longitude ?? 0.0
+                return (latitude, longitude)
+            }
+            return (0.0, 0.0)
+        } catch let error as WABackupError {
+            throw error
         } catch {
             throw WABackupError.databaseConnectionError(error: error)
         }
     }
-
+    
     private func fetchReactions(forMessageId messageId: Int,
                                 from db: Database) throws -> [Reaction]? {
         do {
