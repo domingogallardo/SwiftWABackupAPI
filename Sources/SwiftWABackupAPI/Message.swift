@@ -74,4 +74,19 @@ struct Message {
         }
         return nil
     }
+
+    static func fetchMessageId(byStanzaId stanzaId: String, from db: Database) throws -> Int64? {
+        let sql = """
+            SELECT Z_PK FROM ZWAMESSAGE WHERE ZSTANZAID = ?
+            """
+        do {
+            if let row = try Row.fetchOne(db, sql: sql, arguments: [stanzaId]) {
+                return row["Z_PK"] as? Int64
+            }
+            return nil
+        } catch {
+            throw WABackupError.databaseConnectionError(error: error)
+        }
+    }
+    
 }

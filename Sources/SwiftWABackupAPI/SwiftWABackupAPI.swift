@@ -543,14 +543,7 @@ public class WABackup {
     }
 
     private func fetchOriginalMessageId(stanzaId: String, from db: Database) throws -> Int64? {
-        do {
-            let messageRow = try Row.fetchOne(db, sql: """
-                SELECT Z_PK FROM ZWAMESSAGE WHERE ZSTANZAID = ?
-                """, arguments: [stanzaId])
-            return messageRow?["Z_PK"] as? Int64
-        } catch {
-            throw WABackupError.databaseConnectionError(error: error)
-        }
+        return try Message.fetchMessageId(byStanzaId: stanzaId, from: db)
     }
         
     enum MediaFilename {
