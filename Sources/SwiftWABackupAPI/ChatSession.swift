@@ -30,6 +30,7 @@ struct ChatSession {
         self.isArchived = (row["ZARCHIVED"] as? Int64 ?? 0) == 1
         self.sessionType = row["ZSESSIONTYPE"] as? Int64 ?? 0
     }
+    
     static func fetchAllChats(from db: Database) throws -> [ChatSession] {
         let statusType = SupportedMessageType.status.rawValue
 

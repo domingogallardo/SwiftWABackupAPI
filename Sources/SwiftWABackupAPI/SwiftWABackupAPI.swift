@@ -346,36 +346,19 @@ public class WABackup {
     
     private func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) throws -> ChatInfo {
         return try dbQueue.read { db in
-            if let chatRow = try Row.fetchOne(db, sql: """
-                    SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME,
-                    ZMESSAGECOUNTER, ZLASTMESSAGEDATE, ZARCHIVED, ZSESSIONTYPE
-                    FROM ZWACHATSESSION
-                    WHERE Z_PK = ?
-                    """, arguments: [id]) {
-
-                let chatId = chatRow["Z_PK"] as? Int ?? 0
-                let name = chatRow["ZPARTNERNAME"] as? String ?? ""
-                let contactJid = chatRow["ZCONTACTJID"] as? String ?? ""
-                let numberMessages = chatRow["ZMESSAGECOUNTER"] as? Int ?? 0
-                let lastMessageDate = convertTimestampToDate(
-                    timestamp: chatRow["ZLASTMESSAGEDATE"] as Any)
-                let isArchived = chatRow["ZARCHIVED"] as? Int64 == 1
-                let sessionType = chatRow["ZSESSIONTYPE"] as? Int64 ?? 0
-                let isChannel = (sessionType == 5)
-
-                return ChatInfo(
-                    id: chatId,
-                    contactJid: contactJid,
-                    name: name,
-                    numberMessages: numberMessages,
-                    lastMessageDate: lastMessageDate,
-                    isArchived: isArchived,
-                    isChannel: isChannel
-                )
-            } else {
-                throw WABackupError.databaseConnectionError(
-                    error: DatabaseError(message: "Chat not found"))
-            }
+            let chatSession = try ChatSession.fetchChat(byId: id, from: db)
+            
+            let isChannel = (chatSession.sessionType == 5)
+            let chatInfo = ChatInfo(
+                id: Int(chatSession.id),
+                contactJid: chatSession.contactJid,
+                name: chatSession.partnerName,
+                numberMessages: Int(chatSession.messageCounter),
+                lastMessageDate: chatSession.lastMessageDate,
+                isArchived: chatSession.isArchived,
+                isChannel: isChannel
+            )
+            return chatInfo
         }
     }
     
