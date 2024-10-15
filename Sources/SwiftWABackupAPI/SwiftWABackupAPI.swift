@@ -10,11 +10,45 @@ import GRDB
 
 public typealias WADatabase = UUID
 
-public enum WABackupError: Error {
-    case directoryAccessError(error: Error)
+public enum WABackupError: Error, LocalizedError {
+    case directoryAccessError(underlyingError: Error)
     case noChatStorageFile
-    case databaseConnectionError(error: Error)
-    case databaseHasUnsupportedSchema(error: Error)
+    case databaseConnectionError(underlyingError: Error)
+    case databaseUnsupportedSchema(reason: String)
+    case invalidBackup(url: URL, reason: String)
+    case fileCopyError(source: URL, destination: URL, underlyingError: Error)
+    case mediaNotFound(path: String)
+    case messageNotFound(id: Int64)
+    case chatNotFound(id: Int)
+    case ownerProfileNotFound
+    case unexpectedError(reason: String)
+    
+    public var errorDescription: String? {
+        switch self {
+        case .directoryAccessError(let error):
+            return "Failed to access directory: \(error.localizedDescription)"
+        case .noChatStorageFile:
+            return "ChatStorage.sqlite file not found in the backup."
+        case .databaseConnectionError(let error):
+            return "Failed to connect to the database: \(error.localizedDescription)"
+        case .databaseUnsupportedSchema(let reason):
+            return "Database has an unsupported schema: \(reason)"
+        case .invalidBackup(let url, let reason):
+            return "Invalid backup at \(url.path): \(reason)"
+        case .fileCopyError(let source, let destination, let error):
+            return "Failed to copy file from \(source.path) to \(destination.path): \(error.localizedDescription)"
+        case .mediaNotFound(let path):
+            return "Media file not found at path: \(path)"
+        case .messageNotFound(let id):
+            return "Message with ID \(id) not found."
+        case .chatNotFound(let id):
+            return "Chat with ID \(id) not found."
+        case .ownerProfileNotFound:
+            return "Owner profile not found in the database."
+        case .unexpectedError(let reason):
+            return "An unexpected error occurred: \(reason)"
+        }
+    }
 }
 
 
@@ -181,7 +215,7 @@ public class WABackup {
         do {
             return try phoneBackup.getBackups()
         } catch {
-            throw WABackupError.directoryAccessError(error: error)
+            throw WABackupError.directoryAccessError(underlyingError: error)
         }
     }
 
@@ -223,7 +257,7 @@ public class WABackup {
             // If the inner function throws WABackupError just rethrow it
             throw error
         } catch {
-            throw WABackupError.databaseConnectionError(error: error)
+            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
     }
     
@@ -239,7 +273,7 @@ public class WABackup {
                 try MessageInfoTable.checkSchema(in: db)
             }
         } catch {
-            throw WABackupError.databaseHasUnsupportedSchema(error: error)
+            throw WABackupError.databaseUnsupportedSchema(reason: "Incorrect WA Database Schema")
         }
     }
 
@@ -255,7 +289,7 @@ public class WABackup {
 
     public func getChats(from waDatabase: WADatabase) throws -> [ChatInfo] {
         guard let dbQueue = chatDatabases[waDatabase] else {
-            throw WABackupError.databaseConnectionError(error: DatabaseError(message: "Database not found"))
+            throw WABackupError.databaseConnectionError(underlyingError: DatabaseError(message: "Database not found"))
         }
         let ownerJid = ownerJidByDatabase[waDatabase] ?? nil
 
@@ -502,7 +536,7 @@ public class WABackup {
             throw error
         } catch {
             // Other errors
-            throw WABackupError.databaseConnectionError(error: error)
+            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
     }
     
@@ -536,7 +570,7 @@ public class WABackup {
         } catch let error as WABackupError {
             throw error
         } catch {
-            throw WABackupError.databaseConnectionError(error: error)
+            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
     }
     
@@ -550,7 +584,7 @@ public class WABackup {
         } catch let error as WABackupError {
             throw error
         } catch {
-            throw WABackupError.databaseConnectionError(error: error)
+            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
     }
 
@@ -565,7 +599,7 @@ public class WABackup {
         } catch let error as WABackupError {
             throw error
         } catch {
-            throw WABackupError.databaseConnectionError(error: error)
+            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
     }
     
@@ -717,12 +751,12 @@ public class WABackup {
                     ownerPhone = ownerProfilePhone.extractedPhone
                 } else {
                     throw WABackupError.databaseConnectionError(
-                        error: DatabaseError(message: "Owner profile not found"))
+                        underlyingError: DatabaseError(message: "Owner profile not found"))
                 }
             }
             return ContactInfo(name: "Me", phone: ownerPhone)
         } catch {
-            throw WABackupError.databaseConnectionError(error: error)
+            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
     }
 
@@ -757,7 +791,7 @@ public class WABackup {
 
             return sortChatsByDate(chatInfos)
         } catch {
-            throw WABackupError.databaseConnectionError(error: error)
+            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
     }
     
@@ -843,7 +877,7 @@ public class WABackup {
                 }
             }
         } catch {
-            throw WABackupError.databaseConnectionError(error: error)
+            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
         return contactsSet
     }
