@@ -381,11 +381,10 @@ public class WABackup {
                 }
 
                 // Handle media
-                if let mediaItemId = message.mediaItemId,
-                   let directory = directoryToSaveMedia {
+                if let mediaItemId = message.mediaItemId {
                     if let mediaResult = try fetchMediaFilename(forMediaItem: mediaItemId,
                                                                 from: iPhoneBackup,
-                                                                toDirectory: directory,
+                                                                toDirectory: directoryToSaveMedia,
                                                                 from: db) {
                         switch mediaResult {
                         case .fileName(let fileName):
@@ -529,7 +528,7 @@ public class WABackup {
 
     private func fetchMediaFilename(forMediaItem mediaItemId: Int64,
                                     from iPhoneBackup: IPhoneBackup,
-                                    toDirectory directoryURL: URL,
+                                    toDirectory directoryURL: URL?,
                                     from db: Database) throws -> MediaFilename? {
         do {
             // Fetch the MediaItem using the new method
@@ -557,21 +556,23 @@ public class WABackup {
         }
     }
     
-    private func copyMediaFile(hashFile: String, fileName: String, to directoryURL: URL, from iPhoneBackup: IPhoneBackup) throws -> String {
-        let targetFileUrl = directoryURL.appendingPathComponent(fileName)
-        try copy(hashFile: hashFile, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
-        
+    private func copyMediaFile(hashFile: String, fileName: String, to directoryURL: URL?, from iPhoneBackup: IPhoneBackup) throws -> String {
+        if let directoryURL = directoryURL {
+            let targetFileUrl = directoryURL.appendingPathComponent(fileName)
+            try copy(hashFile: hashFile, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
+        }
         // Inform the delegate that a media file has been written
-        delegate?.didWriteMediaFile(fileName: targetFileUrl.path)
-        
-        return targetFileUrl.lastPathComponent
+        delegate?.didWriteMediaFile(fileName: fileName)
+        return fileName
     }
     
-    private func copy(hashFile: String, toTargetFileUrl url: URL, from iPhoneBackup: IPhoneBackup) throws {
-        let sourceFileUrl = iPhoneBackup.getUrl(fileHash: hashFile)
-        let fileManager = FileManager.default
-        if !fileManager.fileExists(atPath: url.path) {
-            try fileManager.copyItem(at: sourceFileUrl, to: url)
+    private func copy(hashFile: String, toTargetFileUrl url: URL?, from iPhoneBackup: IPhoneBackup) throws {
+        if let url = url {
+            let sourceFileUrl = iPhoneBackup.getUrl(fileHash: hashFile)
+            let fileManager = FileManager.default
+            if !fileManager.fileExists(atPath: url.path) {
+                try fileManager.copyItem(at: sourceFileUrl, to: url)
+            }
         }
     }
     
@@ -736,7 +737,7 @@ public class WABackup {
 
     // save all the contacts except the owner's
     // Por ahora este es el que funciona OK
-    public func getContacts(directoryToSaveMedia directory: URL,
+    public func getContacts(directoryToSaveMedia directory: URL?,
                             from waDatabase: WADatabase) throws -> [ContactInfo] {
         let dbQueue = chatDatabases[waDatabase]!
         let iPhoneBackup = iPhoneBackups[waDatabase]!
@@ -832,7 +833,7 @@ public class WABackup {
 
     private func copyContactMedia(for contact: ContactInfo,
                                   from iPhoneBackup: IPhoneBackup,
-                                  to directory: URL) throws-> ContactInfo {
+                                  to directory: URL?) throws-> ContactInfo {
         var updatedContact = contact
         let contactPhotoFilename = "Media/Profile/\(contact.phone)"
         let filesNamesAndHashes =
@@ -844,13 +845,13 @@ public class WABackup {
                                           fileExtension: "jpg",
                                           files: filesNamesAndHashes) {
             let targetFilename = contact.phone + ".jpg"
-            let targetFileUrl = directory.appendingPathComponent(targetFilename)
+            let targetFileUrl = directory?.appendingPathComponent(targetFilename)
             try copy(hashFile: latestFile.fileHash,
                         toTargetFileUrl: targetFileUrl,
                         from: iPhoneBackup)
 
             // Inform the delegate that a media file has been written
-            delegate?.didWriteMediaFile(fileName: targetFileUrl.path)
+            delegate?.didWriteMediaFile(fileName: targetFilename)
 
             updatedContact.photoFilename = targetFilename
         }
