@@ -42,13 +42,12 @@ public struct BackupManager {
                     .contentsOfDirectory(at: backupUrl, 
                                          includingPropertiesForKeys: nil)
             for url in directoryContents {
-                if let backup = getBackup(at: url) {
-                    switch backup {
+                let backup = getBackup(at: url)
+                switch backup {
                     case .valid(let backup):
                         validBackups.append(backup)
                     case .invalid(let url):
                         invalidBackups.append(url)
-                    }
                 }
             }
             return (validBackups: validBackups, invalidBackups: invalidBackups)
@@ -62,18 +61,18 @@ public struct BackupManager {
         case invalid(URL)
     }
 
-    private func getBackup(at url: URL) -> BackupResult? {
+    private func getBackup(at url: URL) -> BackupResult {
         let fileManager = FileManager.default
 
         guard isDirectory(at: url) else {
-            return nil
+            return .invalid(url)
         }
 
         let expectedFiles = ["Info.plist", "Manifest.db", "Status.plist"]
         for file in expectedFiles {
             let filePath = url.appendingPathComponent(file).path
             if !fileManager.fileExists(atPath: filePath) {
-                return nil
+                return .invalid(url)
             }
         }
 
