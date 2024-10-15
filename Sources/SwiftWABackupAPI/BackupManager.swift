@@ -158,10 +158,11 @@ public struct IPhoneBackup {
 
         do {
             return try manifestDb.read { db in
-                let row = try Row.fetchOne(db, sql: """
+                let sql = """
                 SELECT fileID FROM Files WHERE relativePath LIKE ? 
                 AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'
-                """, arguments: ["%"+relativePath])
+                """
+                let row = try Row.fetchOne(db, sql: sql, arguments: ["%"+relativePath])
                 return row?["fileID"]
             }          
         } catch {
@@ -183,10 +184,11 @@ public struct IPhoneBackup {
         var fileDetails: [FilenameAndHash] = []
         do {
             try manifestDb.read { db in
-                let rows = try Row.fetchAll(db, sql: """
+                let sql = """
                 SELECT fileID, relativePath FROM Files WHERE relativePath LIKE ? 
                 AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'
-                """, arguments: ["%" + relativePath + "%"])
+                """
+                let rows = try Row.fetchAll(db, sql: sql, arguments: ["%" + relativePath + "%"])
                 for row in rows {
                     if let fileHash = row["fileID"] as? String, 
                        let filename = row["relativePath"] as? String {
