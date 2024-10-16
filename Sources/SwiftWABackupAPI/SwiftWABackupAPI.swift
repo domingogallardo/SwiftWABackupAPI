@@ -193,6 +193,16 @@ public protocol WABackupDelegate: AnyObject {
     func didWriteMediaFile(fileName: String)
 }
 
+extension DatabaseQueue {
+    func performRead<T>(_ block: (Database) throws -> T) throws -> T {
+        do {
+            return try self.read(block)
+        } catch {
+            throw WABackupError.databaseConnectionError(underlyingError: error)
+        }
+    }
+}
+
 public class WABackup {
     var phoneBackup = BackupManager()
     public weak var delegate: WABackupDelegate?
@@ -228,46 +238,41 @@ public class WABackup {
     // more than one ChatStorage.sqlite file at the same time.
     public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) throws -> WADatabase {
         // Intentar obtener el hash del archivo ChatStorage.sqlite
-        let chatStorageHash: String
-        do {
-            chatStorageHash = try iPhoneBackup.fetchWAFileHash(endsWith: "ChatStorage.sqlite")
-        } catch {
-            // Si hay un error al obtener el hash, lanzar un error específico
+        guard let chatStorageHash = try? iPhoneBackup.fetchWAFileHash(endsWith: "ChatStorage.sqlite") else {
             throw WABackupError.noChatStorageFile
         }
 
         let chatStorageUrl = iPhoneBackup.getUrl(fileHash: chatStorageHash)
 
         // Connect to the ChatStorage.sqlite file
-        
+        let chatStorageDb: DatabaseQueue
         do {
-            let chatStorageDb = try DatabaseQueue(path: chatStorageUrl.path)
+            chatStorageDb = try DatabaseQueue(path: chatStorageUrl.path)
             // Check the schema of the ChatStorage.sqlite file
             try checkSchema(of: chatStorageDb)
-            // Generate a unique identifier for this database connection
-            let uniqueIdentifier = WADatabase()
-            // Store the connected DatabaseQueue and iPhoneBackup for future use
-            chatDatabases[uniqueIdentifier] = chatStorageDb
-            iPhoneBackups[uniqueIdentifier] = iPhoneBackup
-
-            // Attempt to fetch the owner JID; if not found, set to nil
-            // Use the helper method to fetch the owner JID
-            let ownerJid = try chatStorageDb.read { db in
-                try Message.fetchOwnerJid(from: db)
-            }
-            ownerJidByDatabase[uniqueIdentifier] = ownerJid
-            return uniqueIdentifier
-        } catch let error as WABackupError {
-            // If the inner function throws WABackupError just rethrow it
-            throw error
         } catch {
             throw WABackupError.databaseConnectionError(underlyingError: error)
         }
+
+        // Generate a unique identifier for this database connection
+        let uniqueIdentifier = WADatabase()
+        
+        // Store the connected DatabaseQueue and iPhoneBackup for future use
+        chatDatabases[uniqueIdentifier] = chatStorageDb
+        iPhoneBackups[uniqueIdentifier] = iPhoneBackup
+
+        // Attempt to fetch the owner JID using performRead
+        let ownerJid = try? chatStorageDb.performRead { db in
+            try Message.fetchOwnerJid(from: db)
+        }
+        ownerJidByDatabase[uniqueIdentifier] = ownerJid
+        
+        return uniqueIdentifier
     }
     
     private func checkSchema(of dbQueue: DatabaseQueue) throws {
         do {
-            try dbQueue.read { db in
+            try dbQueue.performRead { db in
                 // Call the checkSchema method of each model
                 try Message.checkSchema(in: db)
                 try ChatSession.checkSchema(in: db)
@@ -297,7 +302,7 @@ public class WABackup {
         }
         let ownerJid = ownerJidByDatabase[waDatabase] ?? nil
 
-        let chatInfos = try dbQueue.read { db -> [ChatInfo] in
+        let chatInfos = try dbQueue.performRead { db -> [ChatInfo] in
             // Fetch all chat sessions using the data model
             let chatSessions = try ChatSession.fetchAllChats(from: db)
 
@@ -359,7 +364,7 @@ public class WABackup {
     
     
     private func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) throws -> ChatInfo {
-        return try dbQueue.read { db in
+        return try dbQueue.performRead { db in
             let chatSession = try ChatSession.fetchChat(byId: id, from: db)
             
             let isChannel = (chatSession.sessionType == 5)
@@ -383,7 +388,7 @@ public class WABackup {
                                    from dbQueue: DatabaseQueue) throws -> [MessageInfo] {
         var messagesInfo: [MessageInfo] = []
 
-        try dbQueue.read { db in
+        try dbQueue.performRead { db in
             let messages = try Message.fetchMessages(forChatId: chatId, from: db)
             for message in messages {
                 guard let messageType = SupportedMessageType(rawValue: message.messageType) else {
@@ -756,25 +761,22 @@ public class WABackup {
     private func fetchOwnerProfile(from dbQueue: DatabaseQueue) throws -> ContactInfo {
         var ownerPhone = ""
         
-        do {
-            try dbQueue.read { db in
-                if let ownerProfilePhone = try Message.fetchOwnerProfilePhone(from: db) {
-                    ownerPhone = ownerProfilePhone.extractedPhone
-                } else {
-                    throw WABackupError.databaseConnectionError(
-                        underlyingError: DatabaseError(message: "Owner profile not found"))
-                }
+        try dbQueue.performRead { db in
+            if let ownerProfilePhone = try Message.fetchOwnerProfilePhone(from: db) {
+                ownerPhone = ownerProfilePhone.extractedPhone
+            } else {
+                throw WABackupError.databaseConnectionError(
+                    underlyingError: DatabaseError(message: "Owner profile not found"))
             }
-            return ContactInfo(name: "Me", phone: ownerPhone)
-        } catch {
-            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
+        
+        return ContactInfo(name: "Me", phone: ownerPhone)
     }
 
     private func fetchChats(from dbQueue: DatabaseQueue, ownerJid: String?) throws -> [ChatInfo] {
         do {
             // Use the helper method to fetch all chat sessions
-            let chatSessions = try dbQueue.read { db in
+            let chatSessions = try dbQueue.performRead { db in
                 try ChatSession.fetchAllChats(from: db)
             }
 
@@ -801,8 +803,6 @@ public class WABackup {
             }
 
             return sortChatsByDate(chatInfos)
-        } catch {
-            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
     }
     
@@ -870,7 +870,7 @@ public class WABackup {
     private func fetchGroupMembersContacts(chatId: Int, from dbQueue: DatabaseQueue, excludingPhone: String?) throws -> Set<ContactInfo> {
         var contactsSet: Set<ContactInfo> = []
         do {
-            try dbQueue.read { db in
+            try dbQueue.performRead { db in
                 let groupMemberIds = try GroupMember.fetchGroupMemberIds(forChatId: chatId, from: db)
                 for memberId in groupMemberIds {
                     do {
@@ -886,8 +886,6 @@ public class WABackup {
                 }
             }
             return contactsSet
-        } catch {
-            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
     }
 
