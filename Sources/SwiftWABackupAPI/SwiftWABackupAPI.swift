@@ -553,14 +553,21 @@ public class WABackup {
         delegate?.didWriteMediaFile(fileName: fileName)
         return fileName
     }
-    
+        
     private func copy(hashFile: String, toTargetFileUrl url: URL?, from iPhoneBackup: IPhoneBackup) throws {
-        if let url = url {
-            let sourceFileUrl = iPhoneBackup.getUrl(fileHash: hashFile)
-            let fileManager = FileManager.default
-            if !fileManager.fileExists(atPath: url.path) {
+        guard let url = url else {
+            throw WABackupError.unexpectedError(reason: "Directory URL is nil.")
+        }
+        let sourceFileUrl = iPhoneBackup.getUrl(fileHash: hashFile)
+        let fileManager = FileManager.default
+        if !fileManager.fileExists(atPath: url.path) {
+            do {
                 try fileManager.copyItem(at: sourceFileUrl, to: url)
+            } catch {
+                throw WABackupError.fileCopyError(source: sourceFileUrl, destination: url, underlyingError: error)
             }
+        } else {
+            throw WABackupError.unexpectedError(reason: "File \(url.path) already exists")
         }
     }
     
