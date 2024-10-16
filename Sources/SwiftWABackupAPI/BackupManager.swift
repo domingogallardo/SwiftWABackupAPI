@@ -38,14 +38,19 @@ public struct BackupManager {
         var validBackups: [IPhoneBackup] = []
         var invalidBackups: [URL] = []
         do {
-            let directoryContents = try FileManager.default.contentsOfDirectory(at: backupUrl, includingPropertiesForKeys: nil)
+            let directoryContents = try FileManager.default.contentsOfDirectory(at: backupUrl, includingPropertiesForKeys: [.isDirectoryKey])
             for url in directoryContents {
                 do {
-                    let backup = try getBackup(at: url)
-                    validBackups.append(backup)
+                    // Verificar si es un directorio
+                    let resourceValues = try url.resourceValues(forKeys: [.isDirectoryKey])
+                    if resourceValues.isDirectory == true {
+                        // Solo intentar obtener el backup si es un directorio
+                        let backup = try getBackup(at: url)
+                        validBackups.append(backup)
+                    }
                 } catch {
                     invalidBackups.append(url)
-                    // Optionally log the error
+                    // Opcionalmente registrar el error
                     print("Invalid backup at \(url.path): \(error.localizedDescription)")
                 }
             }

@@ -554,20 +554,20 @@ public class WABackup {
         return fileName
     }
         
+    // If url is nil do nothing, it's not an error
     private func copy(hashFile: String, toTargetFileUrl url: URL?, from iPhoneBackup: IPhoneBackup) throws {
         guard let url = url else {
-            throw WABackupError.unexpectedError(reason: "Directory URL is nil.")
+            return
         }
         let sourceFileUrl = iPhoneBackup.getUrl(fileHash: hashFile)
         let fileManager = FileManager.default
+        // If the file already exists do nothing, it's not an error
         if !fileManager.fileExists(atPath: url.path) {
             do {
                 try fileManager.copyItem(at: sourceFileUrl, to: url)
             } catch {
                 throw WABackupError.fileCopyError(source: sourceFileUrl, destination: url, underlyingError: error)
             }
-        } else {
-            throw WABackupError.unexpectedError(reason: "File \(url.path) already exists")
         }
     }
     
@@ -867,30 +867,28 @@ public class WABackup {
     }
     
     // Fetch the contact info of the participants of a gruop chat
-    private func fetchGroupMembersContacts(chatId: Int,
-                                           from dbQueue: DatabaseQueue,
-                                           excludingPhone: String?) throws -> Set<ContactInfo> {
+    private func fetchGroupMembersContacts(chatId: Int, from dbQueue: DatabaseQueue, excludingPhone: String?) throws -> Set<ContactInfo> {
         var contactsSet: Set<ContactInfo> = []
         do {
             try dbQueue.read { db in
-                // Fetch all distinct group member IDs for the given chat session
                 let groupMemberIds = try GroupMember.fetchGroupMemberIds(forChatId: chatId, from: db)
-                
                 for memberId in groupMemberIds {
-                    // Fetch sender information using the existing fetchSenderInfo method
-                    let (senderName, senderPhone) = try fetchSenderInfo(.groupMember(memberId: Int(memberId)), from: db)
-                    
-                    // Filter out contacts based on the excludingPhone criteria
-                    if let phone = senderPhone, phone != excludingPhone {
-                        let contact = ContactInfo(name: senderName ?? "", phone: phone)
-                        contactsSet.insert(contact)
+                    do {
+                        let (senderName, senderPhone) = try fetchSenderInfo(.groupMember(memberId: Int(memberId)), from: db)
+                        if let phone = senderPhone, phone != excludingPhone {
+                            let contact = ContactInfo(name: senderName ?? "", phone: phone)
+                            contactsSet.insert(contact)
+                        }
+                    } catch {
+                        // Handle or log the error, or rethrow
+                        print("Failed to fetch sender info for member ID \(memberId): \(error.localizedDescription)")
                     }
                 }
             }
+            return contactsSet
         } catch {
             throw WABackupError.databaseConnectionError(underlyingError: error)
         }
-        return contactsSet
     }
 
     // Obtain the latest files for the given filename and file extension
