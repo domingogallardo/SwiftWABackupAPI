@@ -545,11 +545,11 @@ public class WABackup {
         }
     }
     
-    private func fetchGroupMemberInfo(memberId: Int64, from db: Database) throws -> SenderInfo {
+    private func fetchGroupMemberInfo(memberId: Int64, from db: Database) throws -> SenderInfo? {
         if let groupMember = try GroupMember.fetchGroupMember(byId: memberId, from: db) {
             return try obtainSenderInfo(jid: groupMember.memberJid, contactNameGroupMember: groupMember.contactName, from: db)
         }
-        return (nil, nil)
+        return nil
     }
 
     private func fetchIndividualChatSenderInfo(chatSessionId: Int64, from db: Database) throws -> SenderInfo {
@@ -763,79 +763,54 @@ public class WABackup {
     //------------------------------------
 
     // save all the contacts except the owner's
-    // Por ahora este es el que funciona OK
-    public func getContacts(directoryToSaveMedia directory: URL?,
-                            from waDatabase: WADatabase) throws -> [ContactInfo] {
+    public func getContacts(directoryToSaveMedia directory: URL?, from waDatabase: WADatabase) throws -> [ContactInfo] {
         let dbQueue = chatDatabases[waDatabase]!
         let iPhoneBackup = iPhoneBackups[waDatabase]!
-
-        // exclude the owner's contact
-        let ownerProfile: ContactInfo? = try fetchOwnerProfile(from: dbQueue)
-        let ownerPhone = ownerProfile?.phone
-
-        let chats = try fetchChats(from: dbQueue, ownerJid: nil)
-        let contactsSet = try extractContacts(from: chats, using: dbQueue, excludingPhone: ownerPhone)
-
-        var updatedContacts: [ContactInfo] = []
-        for contact in contactsSet {
-            let updatedContact = try copyContactMedia(for: contact, from: iPhoneBackup, to: directory)
-            updatedContacts.append(updatedContact)
+        let updatedContacts = try dbQueue.performRead { db in
+            let ownerProfile = try fetchOwnerProfile(from: db)
+            let chats = try fetchAllChats(from: db)
+            let contactsSet = try extractContacts(from: chats,
+                                                  excludingPhone: ownerProfile.phone,
+                                                  from: db)
+            var updatedContacts: [ContactInfo] = []
+            for contact in contactsSet {
+                let updatedContact = try copyContactMedia(for: contact, from: iPhoneBackup, to: directory)
+                updatedContacts.append(updatedContact)
+            }
+            return updatedContacts.sorted { $0.name < $1.name }
         }
-        
-        return updatedContacts.sorted { $0.name < $1.name }
+        return updatedContacts
     }
     
-    private func fetchOwnerProfile(from dbQueue: DatabaseQueue) throws -> ContactInfo {
+    private func fetchOwnerProfile(from db: Database) throws -> ContactInfo {
         var ownerPhone = ""
-        
-        try dbQueue.performRead { db in
-            if let ownerProfilePhone = try Message.fetchOwnerProfilePhone(from: db) {
-                ownerPhone = ownerProfilePhone.extractedPhone
-            } else {
-                throw WABackupError.databaseConnectionError(
-                    underlyingError: DatabaseError(message: "Owner profile not found"))
-            }
+        if let ownerProfilePhone = try Message.fetchOwnerProfilePhone(from: db) {
+            ownerPhone = ownerProfilePhone.extractedPhone
+            return ContactInfo(name: "Me", phone: ownerPhone)
+        } else {
+            throw WABackupError.ownerProfileNotFound
         }
-        
-        return ContactInfo(name: "Me", phone: ownerPhone)
     }
-
-    private func fetchChats(from dbQueue: DatabaseQueue, ownerJid: String?) throws -> [ChatInfo] {
-        do {
-            // Use the helper method to fetch all chat sessions
-            let chatSessions = try dbQueue.performRead { db in
-                try ChatSession.fetchAllChats(from: db)
-            }
-
-            // Map the fetched ChatSession instances to ChatInfo
-            let chatInfos = chatSessions.map { chatSession -> ChatInfo in
-                // Determine if the chat is a channel
-                let isChannel = (chatSession.sessionType == 5)
-
-                // Set chat name to "Me" if contactJid matches ownerJid
-                var chatName = chatSession.partnerName
-                if let userJid = ownerJid, chatSession.contactJid == userJid {
-                    chatName = "Me"
-                }
-
-                return ChatInfo(
-                    id: Int(chatSession.id),
-                    contactJid: chatSession.contactJid,
-                    name: chatName,
-                    numberMessages: Int(chatSession.messageCounter),
-                    lastMessageDate: chatSession.lastMessageDate,
-                    isArchived: chatSession.isArchived,
-                    isChannel: isChannel
-                )
-            }
-
-            return sortChatsByDate(chatInfos)
+    
+    private func fetchAllChats(from db: Database) throws -> [ChatInfo] {
+        let chatSessions = try ChatSession.fetchAllChats(from: db)
+        return chatSessions.map { chatSession in
+            let isChannel = (chatSession.sessionType == 5)
+            return ChatInfo(
+                id: Int(chatSession.id),
+                contactJid: chatSession.contactJid,
+                name: chatSession.partnerName,
+                numberMessages: Int(chatSession.messageCounter),
+                lastMessageDate: chatSession.lastMessageDate,
+                isArchived: chatSession.isArchived,
+                isChannel: isChannel
+            )
         }
     }
     
     private func extractContacts(from chats: [ChatInfo],
-                                 using dbQueue: DatabaseQueue,
-                                 excludingPhone: String?) throws -> Set<ContactInfo> {
+                                 excludingPhone: String?,
+                                 from db: Database) throws -> Set<ContactInfo> {
         var contactsSet: Set<ContactInfo> = []
         for chat in chats {
             let phone = chat.contactJid.extractedPhone
@@ -844,78 +819,51 @@ public class WABackup {
                 contactsSet.insert(contact)
             }
             if chat.chatType == .group {
-                    let groupContact = try fetchGroupMembersContacts(chatId: chat.id,
-                                                                     from: dbQueue,
-                                                                     excludingPhone: excludingPhone)
-                    contactsSet.formUnion(groupContact)
+                let groupContacts = try fetchGroupMembersContacts(chatId: chat.id,
+                                                                  excludingPhone: excludingPhone,
+                                                                  from: db)
+                contactsSet.formUnion(groupContacts)
             }
         }
         return contactsSet
     }
-
-    private func copyContactMedia(for contact: ContactInfo,
-                                  from iPhoneBackup: IPhoneBackup,
-                                  to directory: URL?) throws-> ContactInfo {
+    
+    private func fetchGroupMembersContacts(chatId: Int,
+                                           excludingPhone: String?,
+                                           from db: Database) throws -> Set<ContactInfo> {
+        var contactsSet: Set<ContactInfo> = []
+        let groupMemberIds = try GroupMember.fetchGroupMemberIds(forChatId: chatId, from: db)
+        for memberId in groupMemberIds {
+            if let senderInfo = try fetchGroupMemberInfo(memberId: memberId, from: db),
+               let phone = senderInfo.senderPhone, phone != excludingPhone {
+                let contact = ContactInfo(name: senderInfo.senderName ?? "", phone: phone)
+                contactsSet.insert(contact)
+            }
+        }
+        return contactsSet
+    }
+    
+    private func copyContactMedia(for contact: ContactInfo, from iPhoneBackup: IPhoneBackup, to directory: URL?) throws -> ContactInfo {
         var updatedContact = contact
         let contactPhotoFilename = "Media/Profile/\(contact.phone)"
-        let filesNamesAndHashes =
-            iPhoneBackup.fetchWAFileDetails(contains: contactPhotoFilename)
+        let filesNamesAndHashes = iPhoneBackup.fetchWAFileDetails(contains: contactPhotoFilename)
         
-        // Copy the latest contact photo
-
-        if let latestFile = getLatestFile(for: contactPhotoFilename,
-                                          fileExtension: "jpg",
-                                          files: filesNamesAndHashes) {
+        if let latestFile = getLatestFile(for: contactPhotoFilename, fileExtension: "jpg", files: filesNamesAndHashes) {
             let targetFilename = contact.phone + ".jpg"
             let targetFileUrl = directory?.appendingPathComponent(targetFilename)
-            try copy(hashFile: latestFile.fileHash,
-                        toTargetFileUrl: targetFileUrl,
-                        from: iPhoneBackup)
-
-            // Inform the delegate that a media file has been written
+            try copy(hashFile: latestFile.fileHash, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
             delegate?.didWriteMediaFile(fileName: targetFilename)
-
             updatedContact.photoFilename = targetFilename
         }
-
-        // Copy the latest contact thumbnail
-        if let latestFile = getLatestFile(for: contactPhotoFilename,
-                                          fileExtension: "jpg",
-                                          files: filesNamesAndHashes) {
-            let targetFilename = contact.phone + ".jpg"
-            updatedContact.photoFilename = try copyMediaFile(hashFile: latestFile.fileHash, fileName: targetFilename, to: directory, from: iPhoneBackup)
-        }
+        
         return updatedContact
     }
-
+    
     private enum SenderIdentifier {
         case chatSession(chatId: Int)
         case groupMember(memberId: Int)
     }
     
-    // Fetch the contact info of the participants of a gruop chat
-    private func fetchGroupMembersContacts(chatId: Int, from dbQueue: DatabaseQueue, excludingPhone: String?) throws -> Set<ContactInfo> {
-        var contactsSet: Set<ContactInfo> = []
-        do {
-            try dbQueue.performRead { db in
-                let groupMemberIds = try GroupMember.fetchGroupMemberIds(forChatId: chatId, from: db)
-                for memberId in groupMemberIds {
-                    do {
-                        let (senderName, senderPhone) = try fetchSenderInfo(.groupMember(memberId: Int(memberId)), from: db)
-                        if let phone = senderPhone, phone != excludingPhone {
-                            let contact = ContactInfo(name: senderName ?? "", phone: phone)
-                            contactsSet.insert(contact)
-                        }
-                    } catch {
-                        // Handle or log the error, or rethrow
-                        print("Failed to fetch sender info for member ID \(memberId): \(error.localizedDescription)")
-                    }
-                }
-            }
-            return contactsSet
-        }
-    }
-
     // Obtain the latest files for the given filename and file extension
     //     prefixFilename: the prefix of the file (the phone number),
     //                     e.g. 1234567890 or 1234567890-202302323 for a group chat
@@ -996,8 +944,10 @@ public class WABackup {
                                from waDatabase: WADatabase) throws -> ContactInfo? {
         let dbQueue = chatDatabases[waDatabase]!
         let iPhoneBackup = iPhoneBackups[waDatabase]!
-        
-        var ownerProfile = try fetchOwnerProfile(from: dbQueue)
+
+        var ownerProfile = try dbQueue.performRead { db in
+            try fetchOwnerProfile(from: db)
+        }
         let ownerPhotoTargetUrl = directory.appendingPathComponent("Photo.jpg")
         let ownerThumbnailTargetUrl = directory.appendingPathComponent("Photo.thumb")
 
