@@ -31,86 +31,67 @@ public struct BackupManager {
     // The function needs permission to access 
     // ~/Library/Application Support/MobileSync/Backup/
     // Go to System Preferences -> Security & Privacy -> Full Disk Access
+
     public func getBackups() throws -> BackupFetchResult {
         let expandedBackupPath = NSString(string: backupPath).expandingTildeInPath
         let backupUrl = URL(fileURLWithPath: expandedBackupPath)
         var validBackups: [IPhoneBackup] = []
         var invalidBackups: [URL] = []
         do {
-            let directoryContents = 
-                try FileManager.default
-                    .contentsOfDirectory(at: backupUrl, 
-                                         includingPropertiesForKeys: nil)
+            let directoryContents = try FileManager.default.contentsOfDirectory(at: backupUrl, includingPropertiesForKeys: nil)
             for url in directoryContents {
-                let backup = getBackup(at: url)
-                switch backup {
-                    case .valid(let backup):
-                        validBackups.append(backup)
-                    case .invalid(let url):
-                        invalidBackups.append(url)
+                do {
+                    let backup = try getBackup(at: url)
+                    validBackups.append(backup)
+                } catch {
+                    invalidBackups.append(url)
+                    // Optionally log the error
+                    print("Invalid backup at \(url.path): \(error.localizedDescription)")
                 }
             }
             return (validBackups: validBackups, invalidBackups: invalidBackups)
         } catch {
-            throw BackupManagerError.directoryAccessError(error: error)
+            throw WABackupError.directoryAccessError(underlyingError: error)
         }
     }
 
-    private enum BackupResult {
-        case valid(IPhoneBackup)
-        case invalid(URL)
-    }
-
-    private func getBackup(at url: URL) -> BackupResult {
+    private func getBackup(at url: URL) throws -> IPhoneBackup {
         let fileManager = FileManager.default
 
         guard isDirectory(at: url) else {
-            return .invalid(url)
+            throw WABackupError.invalidBackup(url: url, reason: "Path is not a directory.")
         }
 
         let expectedFiles = ["Info.plist", "Manifest.db", "Status.plist"]
         for file in expectedFiles {
             let filePath = url.appendingPathComponent(file).path
             if !fileManager.fileExists(atPath: filePath) {
-                return .invalid(url)
+                throw WABackupError.invalidBackup(url: url, reason: "\(file) is missing.")
             }
         }
 
         do {
-            let statusPlistData = 
-                try Data(
-                    contentsOf: url
-                        .appendingPathComponent("Status.plist"))
-            let plistObj = 
-                try PropertyListSerialization
-                    .propertyList(from: statusPlistData, 
-                                  options: [], 
-                                  format: nil)
+            let statusPlistData = try Data(contentsOf: url.appendingPathComponent("Status.plist"))
+            let plistObj = try PropertyListSerialization.propertyList(from: statusPlistData, options: [], format: nil)
+            
+            guard let plistDict = plistObj as? [String: Any],
+                  let date = plistDict["Date"] as? Date else {
+                throw WABackupError.invalidBackup(url: url, reason: "Status.plist is malformed.")
+            }
 
-                // Attempt to cast plistObj to a dictionary
-                guard let plistDict = plistObj as? [String: Any],
-                    let date = plistDict["Date"] as? Date else {
-                    return .invalid(url)
-                }
+            let iPhoneBackup = IPhoneBackup(url: url, creationDate: date)
+            
+            // Check if the backup contains the WhatsApp database
+            do {
+                _ = try iPhoneBackup.fetchWAFileHash(endsWith: "ChatStorage.sqlite")
+            } catch {
+                throw WABackupError.invalidBackup(url: url, reason: "WhatsApp database not found.")
+            }
 
-                let iPhoneBackup = IPhoneBackup(url: url, creationDate: date)
-
-                // Check if the backup contains the WhatsApp database
-                guard let chatStorageHash = iPhoneBackup.fetchWAFileHash(endsWith: "ChatStorage.sqlite") else {
-                    return .invalid(url)
-                }
-
-                let chatStorageUrl = iPhoneBackup.getUrl(fileHash: chatStorageHash)
-
-                // Attempt to create a DatabaseQueue with the given path
-                guard let _ = try? DatabaseQueue(path: chatStorageUrl.path) else {
-                    return .invalid(url)
-                }
-
-                return .valid(iPhoneBackup)
+            return iPhoneBackup
 
         } catch {
-            return .invalid(url)
+            throw WABackupError.directoryAccessError(underlyingError: error)
         }
     }
 
@@ -150,24 +131,25 @@ public struct IPhoneBackup {
 
     // Returns the file hash of the file with a relative path in the 
     // WhatsApp backup inside the iPhone backup.
-    public func fetchWAFileHash(endsWith relativePath: String) -> String? {
-
+    public func fetchWAFileHash(endsWith relativePath: String) throws -> String {
         guard let manifestDb = connectToManifestDB() else {
-            return nil
+            throw WABackupError.databaseConnectionError(underlyingError: DatabaseError(message: "Unable to connect to Manifest.db"))
         }
 
         do {
             return try manifestDb.read { db in
-                let sql = """
+                let row = try Row.fetchOne(db, sql: """
                 SELECT fileID FROM Files WHERE relativePath LIKE ? 
                 AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'
-                """
-                let row = try Row.fetchOne(db, sql: sql, arguments: ["%"+relativePath])
-                return row?["fileID"]
-            }          
+                """, arguments: ["%"+relativePath])
+                if let fileID: String = row?["fileID"] {
+                    return fileID
+                } else {
+                    throw WABackupError.mediaNotFound(path: relativePath)
+                }
+            }
         } catch {
-            print("Cannot execute query: \(error)")
-            return nil
+            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
     }
 

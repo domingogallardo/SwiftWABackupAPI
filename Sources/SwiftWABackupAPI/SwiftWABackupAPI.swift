@@ -227,8 +227,12 @@ public class WABackup {
     // associates it with the backup identifier. The API can be connected to
     // more than one ChatStorage.sqlite file at the same time.
     public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) throws -> WADatabase {
-        guard let chatStorageHash = iPhoneBackup.fetchWAFileHash(
-                                            endsWith: "ChatStorage.sqlite") else {
+        // Intentar obtener el hash del archivo ChatStorage.sqlite
+        let chatStorageHash: String
+        do {
+            chatStorageHash = try iPhoneBackup.fetchWAFileHash(endsWith: "ChatStorage.sqlite")
+        } catch {
+            // Si hay un error al obtener el hash, lanzar un error específico
             throw WABackupError.noChatStorageFile
         }
 
@@ -519,7 +523,7 @@ public class WABackup {
             if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
                let mediaLocalPath = mediaItem.localPath {
 
-                guard let hashFile = iPhoneBackup.fetchWAFileHash(endsWith: mediaLocalPath) else {
+                guard let hashFile = try? iPhoneBackup.fetchWAFileHash(endsWith: mediaLocalPath) else {
                     return MediaFilename.error("Media file not found: \(mediaLocalPath)")
                 }
 
@@ -966,31 +970,31 @@ public class WABackup {
         var ownerProfile = try fetchOwnerProfile(from: dbQueue)
         let ownerPhotoTargetUrl = directory.appendingPathComponent("Photo.jpg")
         let ownerThumbnailTargetUrl = directory.appendingPathComponent("Photo.thumb")
-        if let ownerPhotoHash = iPhoneBackup.fetchWAFileHash(
-            endsWith: "Media/Profile/Photo.jpg") {
-            try copy(hashFile: ownerPhotoHash, 
-                        toTargetFileUrl: ownerPhotoTargetUrl, 
-                        from: iPhoneBackup)
 
-            // Inform the delegate that a media file has been written
-            delegate?.didWriteMediaFile(fileName: ownerPhotoTargetUrl.path)
+        // Intentar obtener y copiar la foto de perfil
+        let ownerPhotoHash = try iPhoneBackup.fetchWAFileHash(endsWith: "Media/Profile/Photo.jpg")
+        try copy(hashFile: ownerPhotoHash,
+                 toTargetFileUrl: ownerPhotoTargetUrl,
+                 from: iPhoneBackup)
 
-            ownerProfile.photoFilename = "Photo.jpg"
-        }
-        if let ownerThumbnailHash = iPhoneBackup.fetchWAFileHash(
-            endsWith: "Media/Profile/Photo.thumb") {
-            try copy(hashFile: ownerThumbnailHash, 
-                        toTargetFileUrl: ownerThumbnailTargetUrl, 
-                        from: iPhoneBackup)
+        // Informar al delegado que un archivo de medios ha sido escrito
+        delegate?.didWriteMediaFile(fileName: ownerPhotoTargetUrl.path)
+        ownerProfile.photoFilename = "Photo.jpg"
 
-            // Inform the delegate that a media file has been written
-            delegate?.didWriteMediaFile(fileName: ownerThumbnailTargetUrl.path)
+        // Intentar obtener y copiar la miniatura de perfil
+        let ownerThumbnailHash = try iPhoneBackup.fetchWAFileHash(endsWith: "Media/Profile/Photo.thumb")
+        try copy(hashFile: ownerThumbnailHash,
+                 toTargetFileUrl: ownerThumbnailTargetUrl,
+                 from: iPhoneBackup)
 
-            ownerProfile.thumbnailFilename = "Photo.thumb"
-        }
+        // Informar al delegado que un archivo de medios ha sido escrito
+        delegate?.didWriteMediaFile(fileName: ownerThumbnailTargetUrl.path)
+        ownerProfile.thumbnailFilename = "Photo.thumb"
+        
         return ownerProfile
-    } 
-
+    }
+    
+    
     private func databaseQuestionMarks(count: Int) -> String {
         return Array(repeating: "?", count: count).joined(separator: ", ")
     }
