@@ -206,19 +206,19 @@ extension DatabaseQueue {
 public class WABackup {
     var phoneBackup = BackupManager()
     public weak var delegate: WABackupDelegate?
-
+    
     // We allow to connect to more than one ChatStorage.sqlite file at the same time
     // The key is the backup identifier
     private var chatDatabases: [WADatabase: DatabaseQueue] = [:]
     private var iPhoneBackups: [WADatabase: IPhoneBackup] = [:]
     private var ownerJidByDatabase: [WADatabase: String?] = [:]
-
+    
     // Modified initializer to accept a custom backup path
     public init(backupPath: String = "~/Library/Application Support/MobileSync/Backup/") {
         self.phoneBackup = BackupManager(backupPath: backupPath)
     }
     
-    // The function needs permission to access 
+    // The function needs permission to access
     // ~/Library/Application Support/MobileSync/Backup/
     // Go to System Preferences -> Security & Privacy -> Full Disk Access
     public func getBackups() throws -> BackupFetchResult {
@@ -228,11 +228,7 @@ public class WABackup {
             throw WABackupError.directoryAccessError(underlyingError: error)
         }
     }
-
-    //------------------------------------
-    // connectChatStorageDb BEGINS
-    //------------------------------------
-
+    
     // Obtains the URL of the ChatStorage.sqlite file in a backup and
     // associates it with the backup identifier. The API can be connected to
     // more than one ChatStorage.sqlite file at the same time.
@@ -241,9 +237,9 @@ public class WABackup {
         guard let chatStorageHash = try? iPhoneBackup.fetchWAFileHash(endsWith: "ChatStorage.sqlite") else {
             throw WABackupError.noChatStorageFile
         }
-
+        
         let chatStorageUrl = iPhoneBackup.getUrl(fileHash: chatStorageHash)
-
+        
         // Connect to the ChatStorage.sqlite file
         let chatStorageDb: DatabaseQueue
         do {
@@ -253,14 +249,14 @@ public class WABackup {
         } catch {
             throw WABackupError.databaseConnectionError(underlyingError: error)
         }
-
+        
         // Generate a unique identifier for this database connection
         let uniqueIdentifier = WADatabase()
         
         // Store the connected DatabaseQueue and iPhoneBackup for future use
         chatDatabases[uniqueIdentifier] = chatStorageDb
         iPhoneBackups[uniqueIdentifier] = iPhoneBackup
-
+        
         // Attempt to fetch the owner JID using performRead
         let ownerJid = try? chatStorageDb.performRead { db in
             try Message.fetchOwnerJid(from: db)
@@ -285,38 +281,32 @@ public class WABackup {
             throw WABackupError.databaseUnsupportedSchema(reason: "Incorrect WA Database Schema")
         }
     }
+}
 
-        
-    //------------------------------------
-    // connectChatStorageDb ENDS
-    //------------------------------------
+// Chat-Related methods
 
-
-    //------------------------------------
-    // getChats BEGINS
-    //------------------------------------
-
+extension WABackup {
     public func getChats(from waDatabase: WADatabase) throws -> [ChatInfo] {
         guard let dbQueue = chatDatabases[waDatabase] else {
             throw WABackupError.databaseConnectionError(underlyingError: DatabaseError(message: "Database not found"))
         }
         let ownerJid = ownerJidByDatabase[waDatabase] ?? nil
-
+        
         let chatInfos = try dbQueue.performRead { db -> [ChatInfo] in
             // Fetch all chat sessions using the data model
             let chatSessions = try ChatSession.fetchAllChats(from: db)
-
+            
             // Map ChatSession instances to ChatInfo
             return chatSessions.map { chatSession in
                 // Determine if the chat is a channel
                 let isChannel = (chatSession.sessionType == 5)
-
+                
                 // Set chat name to "Me" if contactJid matches ownerJid
                 var chatName = chatSession.partnerName
                 if let userJid = ownerJid, chatSession.contactJid == userJid {
                     chatName = "Me"
                 }
-
+                
                 return ChatInfo(
                     id: Int(chatSession.id),
                     contactJid: chatSession.contactJid,
@@ -328,22 +318,18 @@ public class WABackup {
                 )
             }
         }
-
+        
         return sortChatsByDate(chatInfos)
     }
     
     private func sortChatsByDate(_ chats: [ChatInfo]) -> [ChatInfo] {
         return chats.sorted { $0.lastMessageDate > $1.lastMessageDate }
     }
-    
-    //------------------------------------
-    // getChats ENDS
-    //------------------------------------
+}
 
-    //------------------------------------
-    // getChatMessages BEGINS
-    //------------------------------------
+// Message-Related methods
 
+extension WABackup {
     public func getChatMessages(chatId: Int, directoryToSaveMedia directory: URL?, from waDatabase: WADatabase) throws -> [MessageInfo] {
         let dbQueue = chatDatabases[waDatabase]!
         let chatInfo = try fetchChatInfo(id: chatId, from: dbQueue)
@@ -357,7 +343,7 @@ public class WABackup {
         
         return sortMessagesByDate(messagesInfo)
     }
-
+    
     private func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) throws -> ChatInfo {
         return try dbQueue.performRead { db in
             let chatSession = try ChatSession.fetchChat(byId: id, from: db)
@@ -375,7 +361,7 @@ public class WABackup {
             return chatInfo
         }
     }
-
+    
     private func fetchMessagesFromDatabase(chatId: Int, from dbQueue: DatabaseQueue) throws -> [Message] {
         return try dbQueue.performRead { db in
             return try Message.fetchMessages(forChatId: chatId, from: db)
@@ -452,7 +438,7 @@ public class WABackup {
         
         return messageInfo
     }
-
+    
     typealias SenderInfo = (senderName: String?, senderPhone: String?)
     
     private func fetchSenderInfo(for message: Message, chatType: ChatInfo.ChatType, from db: Database) throws -> SenderInfo? {
@@ -523,11 +509,11 @@ public class WABackup {
             // Fetch the MediaItem using the new method
             if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
                let mediaLocalPath = mediaItem.localPath {
-
+                
                 guard let hashFile = try? iPhoneBackup.fetchWAFileHash(endsWith: mediaLocalPath) else {
                     return MediaFilename.error("Media file not found: \(mediaLocalPath)")
                 }
-
+                
                 let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
                 let mediaFileName = try copyMediaFile(hashFile: hashFile,
                                                       fileName: fileName,
@@ -551,7 +537,7 @@ public class WABackup {
         }
         return nil
     }
-
+    
     private func fetchIndividualChatSenderInfo(chatSessionId: Int64, from db: Database) throws -> SenderInfo {
         let chatSession = try ChatSession.fetchChat(byId: Int(chatSessionId), from: db)
         let senderPhone = chatSession.contactJid.extractedPhone
@@ -583,7 +569,7 @@ public class WABackup {
         var reactions: [Reaction] = []
         let dataArray = [UInt8](data)
         var i = 0
-
+        
         while i < dataArray.count {
             // Before the emoji there is a byte with the length of the emoji
             let emojiLength = Int(dataArray[i])
@@ -596,12 +582,12 @@ public class WABackup {
                     // Check if the bytes are a single emoji
                     if let emojiStr = String(bytes: emojiData, encoding: .utf8),
                        isSingleEmoji(emojiStr) {
-                           let senderPhone = extractPhoneNumber(from: dataArray,
-                                                                endIndex: i-2)
-                           reactions.append(
-                               Reaction(emoji: emojiStr,
-                                        senderPhone: senderPhone ?? "Me"))
-                           i = emojiEndIndex - 1
+                        let senderPhone = extractPhoneNumber(from: dataArray,
+                                                             endIndex: i-2)
+                        reactions.append(
+                            Reaction(emoji: emojiStr,
+                                     senderPhone: senderPhone ?? "Me"))
+                        i = emojiEndIndex - 1
                     }
                 }
             } else {
@@ -610,7 +596,7 @@ public class WABackup {
         }
         return reactions.isEmpty ? nil : reactions
     }
-
+    
     // Checks if a string is a single emoji.
     // The emoji can be a single character or a sequence of characters (e.g. 👨‍👩‍👧‍👦)
     private func isSingleEmoji(_ string: String) -> Bool {
@@ -624,10 +610,10 @@ public class WABackup {
             // The character has no scalars
             return false
         }
-
+        
         return firstScalar.properties.isEmoji &&
-            (firstScalar.properties.isEmojiPresentation
-                || scalars.contains { $0.properties.isEmojiPresentation })
+        (firstScalar.properties.isEmojiPresentation
+         || scalars.contains { $0.properties.isEmojiPresentation })
     }
     
     private func fetchCaption(mediaItemId: Int64, from db: Database) throws -> String? {
@@ -704,12 +690,12 @@ public class WABackup {
             suffixEndIndex -= 1
             endIndex -= 1
         }
-
+        
         // The senderSuffix was not fully found
         if suffixEndIndex >= 0 {
             return nil
         }
-
+        
         // Extract the phone number
         var phoneNumberData: [UInt8] = []
         while endIndex >= 0 {
@@ -720,22 +706,22 @@ public class WABackup {
             phoneNumberData.append(char)
             endIndex -= 1
         }
-
+        
         // The phone number was not found
         if phoneNumberData.isEmpty {
             return nil
         }
-
+        
         // Convert the phone number data to a string
         let phoneNumber = String(bytes: phoneNumberData.reversed(), encoding: .utf8)
         return phoneNumber
     }
-
+    
     
     private func sortMessagesByDate(_ messages: [MessageInfo]) -> [MessageInfo] {
         return messages.sorted { $0.date > $1.date }
     }
-        
+    
     // If url is nil do nothing, it's not an error
     private func copy(hashFile: String, toTargetFileUrl url: URL?, from iPhoneBackup: IPhoneBackup) throws {
         guard let url = url else {
@@ -752,16 +738,11 @@ public class WABackup {
             }
         }
     }
-    
-    //------------------------------------
-    // getChatMessages ENDS
-    //------------------------------------
+}
 
-    
-    //------------------------------------
-    // getContacts BEGINS
-    //------------------------------------
+// Contact-Related methods
 
+extension WABackup {
     // save all the contacts except the owner's
     public func getContacts(directoryToSaveMedia directory: URL?, from waDatabase: WADatabase) throws -> [ContactInfo] {
         let dbQueue = chatDatabases[waDatabase]!
@@ -876,15 +857,15 @@ public class WABackup {
     private func getLatestFile(for prefixFilename: String,
                                fileExtension: String,
                                files namesAndHashes: [FilenameAndHash])
-                               -> (FilenameAndHash)? {
-
+    -> (FilenameAndHash)? {
+        
         guard !namesAndHashes.isEmpty else {
             return nil
         }
-
+        
         var latestFile: FilenameAndHash?  = nil
         var latestTimeSuffix = 0
-
+        
         for nameAndHash in namesAndHashes {
             if let timeSuffix = extractTimeSuffix(from: prefixFilename,
                                                   fileExtension: fileExtension,
@@ -911,7 +892,7 @@ public class WABackup {
         }
         return nil
     }
-
+    
     
     private func fetchSenderInfo(_ identifier: SenderIdentifier, from db: Database) throws -> SenderInfo {
         switch identifier {
@@ -928,18 +909,11 @@ public class WABackup {
                                         from: db)
         }
     }
-    
-    
-    //------------------------------------
-    // getContacts ENDS
-    //------------------------------------
+}
 
-    
-    //------------------------------------
-    // getUserProfile BEGINS
-    //------------------------------------
+// UserProfile-Related methods
 
-    
+extension WABackup {
     public func getUserProfile(directoryToSaveMedia directory: URL,
                                from waDatabase: WADatabase) throws -> ContactInfo? {
         let dbQueue = chatDatabases[waDatabase]!
@@ -973,25 +947,6 @@ public class WABackup {
         
         return ownerProfile
     }
-    
-    
-    private func databaseQuestionMarks(count: Int) -> String {
-        return Array(repeating: "?", count: count).joined(separator: ", ")
-    }
-
-    private func convertTimestampToDate(timestamp: Any) -> Date {
-        if let timestamp = timestamp as? Double {
-            return Date(timeIntervalSinceReferenceDate: timestamp)
-        } else if let timestamp = timestamp as? Int64 {
-            return Date(timeIntervalSinceReferenceDate: Double(timestamp))
-        }
-        return Date(timeIntervalSinceReferenceDate: 0)
-    }
-
-    //------------------------------------
-    // getUserProfile BEGINS
-    //------------------------------------
-
 }
 
 
