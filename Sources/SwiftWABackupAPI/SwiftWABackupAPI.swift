@@ -749,7 +749,7 @@ extension WABackup {
         let iPhoneBackup = iPhoneBackups[waDatabase]!
 
         // Perform database reads within a single performRead closure
-        let (ownerProfile, contactsSet) = try dbQueue.performRead { db -> (ContactInfo, Set<ContactInfo>) in
+        let (_, contactsSet) = try dbQueue.performRead { db -> (ContactInfo, Set<ContactInfo>) in
             let ownerProfile = try fetchOwnerProfile(from: db)
             let contactsSet = try extractContacts(from: chats,
                                                   excludingPhone: ownerProfile.phone,
