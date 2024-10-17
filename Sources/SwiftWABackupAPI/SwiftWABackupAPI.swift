@@ -744,23 +744,25 @@ extension WABackup {
 
 extension WABackup {
     // save all the contacts except the owner's
-    public func getContacts(directoryToSaveMedia directory: URL?, from waDatabase: WADatabase) throws -> [ContactInfo] {
+    public func getContacts(chats: [ChatInfo], directoryToSaveMedia directory: URL?, from waDatabase: WADatabase) throws -> [ContactInfo] {
         let dbQueue = chatDatabases[waDatabase]!
         let iPhoneBackup = iPhoneBackups[waDatabase]!
-        let updatedContacts = try dbQueue.performRead { db in
+
+        // Perform database reads within a single performRead closure
+        let (ownerProfile, contactsSet) = try dbQueue.performRead { db -> (ContactInfo, Set<ContactInfo>) in
             let ownerProfile = try fetchOwnerProfile(from: db)
-            let chats = try fetchAllChats(from: db)
             let contactsSet = try extractContacts(from: chats,
                                                   excludingPhone: ownerProfile.phone,
                                                   from: db)
-            var updatedContacts: [ContactInfo] = []
-            for contact in contactsSet {
-                let updatedContact = try copyContactMedia(for: contact, from: iPhoneBackup, to: directory)
-                updatedContacts.append(updatedContact)
-            }
-            return updatedContacts.sorted { $0.name < $1.name }
+            return (ownerProfile, contactsSet)
         }
-        return updatedContacts
+
+        var updatedContacts: [ContactInfo] = []
+        for contact in contactsSet {
+            let updatedContact = try copyContactMedia(for: contact, from: iPhoneBackup, to: directory)
+            updatedContacts.append(updatedContact)
+        }
+        return updatedContacts.sorted { $0.name < $1.name }
     }
     
     private func fetchOwnerProfile(from db: Database) throws -> ContactInfo {
