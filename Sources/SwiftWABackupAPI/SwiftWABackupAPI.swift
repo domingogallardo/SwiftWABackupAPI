@@ -10,11 +10,45 @@ import GRDB
 
 public typealias WADatabase = UUID
 
-public enum WABackupError: Error {
-    case directoryAccessError(error: Error)
+public enum WABackupError: Error, LocalizedError {
+    case directoryAccessError(underlyingError: Error)
     case noChatStorageFile
-    case databaseConnectionError(error: Error)
-    case databaseHasUnsupportedSchema(error: Error)
+    case databaseConnectionError(underlyingError: Error)
+    case databaseUnsupportedSchema(reason: String)
+    case invalidBackup(url: URL, reason: String)
+    case fileCopyError(source: URL, destination: URL, underlyingError: Error)
+    case mediaNotFound(path: String)
+    case messageNotFound(id: Int64)
+    case chatNotFound(id: Int)
+    case ownerProfileNotFound
+    case unexpectedError(reason: String)
+    
+    public var errorDescription: String? {
+        switch self {
+        case .directoryAccessError(let error):
+            return "Failed to access directory: \(error.localizedDescription)"
+        case .noChatStorageFile:
+            return "ChatStorage.sqlite file not found in the backup."
+        case .databaseConnectionError(let error):
+            return "Failed to connect to the database: \(error.localizedDescription)"
+        case .databaseUnsupportedSchema(let reason):
+            return "Database has an unsupported schema: \(reason)"
+        case .invalidBackup(let url, let reason):
+            return "Invalid backup at \(url.path): \(reason)"
+        case .fileCopyError(let source, let destination, let error):
+            return "Failed to copy file from \(source.path) to \(destination.path): \(error.localizedDescription)"
+        case .mediaNotFound(let path):
+            return "Media file not found at path: \(path)"
+        case .messageNotFound(let id):
+            return "Message with ID \(id) not found."
+        case .chatNotFound(let id):
+            return "Chat with ID \(id) not found."
+        case .ownerProfileNotFound:
+            return "Owner profile not found in the database."
+        case .unexpectedError(let reason):
+            return "An unexpected error occurred: \(reason)"
+        }
+    }
 }
 
 
@@ -159,77 +193,82 @@ public protocol WABackupDelegate: AnyObject {
     func didWriteMediaFile(fileName: String)
 }
 
+extension DatabaseQueue {
+    func performRead<T>(_ block: (Database) throws -> T) throws -> T {
+        do {
+            return try self.read(block)
+        } catch {
+            throw WABackupError.databaseConnectionError(underlyingError: error)
+        }
+    }
+}
+
 public class WABackup {
     var phoneBackup = BackupManager()
     public weak var delegate: WABackupDelegate?
-
+    
     // We allow to connect to more than one ChatStorage.sqlite file at the same time
     // The key is the backup identifier
     private var chatDatabases: [WADatabase: DatabaseQueue] = [:]
     private var iPhoneBackups: [WADatabase: IPhoneBackup] = [:]
     private var ownerJidByDatabase: [WADatabase: String?] = [:]
-
+    
     // Modified initializer to accept a custom backup path
     public init(backupPath: String = "~/Library/Application Support/MobileSync/Backup/") {
         self.phoneBackup = BackupManager(backupPath: backupPath)
     }
     
-    // The function needs permission to access 
+    // The function needs permission to access
     // ~/Library/Application Support/MobileSync/Backup/
     // Go to System Preferences -> Security & Privacy -> Full Disk Access
     public func getBackups() throws -> BackupFetchResult {
         do {
             return try phoneBackup.getBackups()
         } catch {
-            throw WABackupError.directoryAccessError(error: error)
+            throw WABackupError.directoryAccessError(underlyingError: error)
         }
     }
-
-    //------------------------------------
-    // connectChatStorageDb BEGINS
-    //------------------------------------
-
+    
     // Obtains the URL of the ChatStorage.sqlite file in a backup and
     // associates it with the backup identifier. The API can be connected to
     // more than one ChatStorage.sqlite file at the same time.
     public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) throws -> WADatabase {
-        guard let chatStorageHash = iPhoneBackup.fetchWAFileHash(
-                                            endsWith: "ChatStorage.sqlite") else {
+        // Intentar obtener el hash del archivo ChatStorage.sqlite
+        guard let chatStorageHash = try? iPhoneBackup.fetchWAFileHash(endsWith: "ChatStorage.sqlite") else {
             throw WABackupError.noChatStorageFile
         }
-
-        let chatStorageUrl = iPhoneBackup.getUrl(fileHash: chatStorageHash)
-
-        // Connect to the ChatStorage.sqlite file
         
+        let chatStorageUrl = iPhoneBackup.getUrl(fileHash: chatStorageHash)
+        
+        // Connect to the ChatStorage.sqlite file
+        let chatStorageDb: DatabaseQueue
         do {
-            let chatStorageDb = try DatabaseQueue(path: chatStorageUrl.path)
+            chatStorageDb = try DatabaseQueue(path: chatStorageUrl.path)
             // Check the schema of the ChatStorage.sqlite file
             try checkSchema(of: chatStorageDb)
-            // Generate a unique identifier for this database connection
-            let uniqueIdentifier = WADatabase()
-            // Store the connected DatabaseQueue and iPhoneBackup for future use
-            chatDatabases[uniqueIdentifier] = chatStorageDb
-            iPhoneBackups[uniqueIdentifier] = iPhoneBackup
-
-            // Attempt to fetch the owner JID; if not found, set to nil
-            // Use the helper method to fetch the owner JID
-            let ownerJid = try chatStorageDb.read { db in
-                try Message.fetchOwnerJid(from: db)
-            }
-            ownerJidByDatabase[uniqueIdentifier] = ownerJid
-            return uniqueIdentifier
-        } catch let error as WABackupError {
-            // If the inner function throws WABackupError just rethrow it
-            throw error
         } catch {
-            throw WABackupError.databaseConnectionError(error: error)
+            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
+        
+        // Generate a unique identifier for this database connection
+        let uniqueIdentifier = WADatabase()
+        
+        // Store the connected DatabaseQueue and iPhoneBackup for future use
+        chatDatabases[uniqueIdentifier] = chatStorageDb
+        iPhoneBackups[uniqueIdentifier] = iPhoneBackup
+        
+        // Attempt to fetch the owner JID using performRead
+        let ownerJid = try? chatStorageDb.performRead { db in
+            try Message.fetchOwnerJid(from: db)
+        }
+        ownerJidByDatabase[uniqueIdentifier] = ownerJid
+        
+        return uniqueIdentifier
     }
     
     private func checkSchema(of dbQueue: DatabaseQueue) throws {
         do {
-            try dbQueue.read { db in
+            try dbQueue.performRead { db in
                 // Call the checkSchema method of each model
                 try Message.checkSchema(in: db)
                 try ChatSession.checkSchema(in: db)
@@ -239,41 +278,35 @@ public class WABackup {
                 try MessageInfoTable.checkSchema(in: db)
             }
         } catch {
-            throw WABackupError.databaseHasUnsupportedSchema(error: error)
+            throw WABackupError.databaseUnsupportedSchema(reason: "Incorrect WA Database Schema")
         }
     }
+}
 
-        
-    //------------------------------------
-    // connectChatStorageDb ENDS
-    //------------------------------------
+// Chat-Related methods
 
-
-    //------------------------------------
-    // getChats BEGINS
-    //------------------------------------
-
+extension WABackup {
     public func getChats(from waDatabase: WADatabase) throws -> [ChatInfo] {
         guard let dbQueue = chatDatabases[waDatabase] else {
-            throw WABackupError.databaseConnectionError(error: DatabaseError(message: "Database not found"))
+            throw WABackupError.databaseConnectionError(underlyingError: DatabaseError(message: "Database not found"))
         }
         let ownerJid = ownerJidByDatabase[waDatabase] ?? nil
-
-        let chatInfos = try dbQueue.read { db -> [ChatInfo] in
+        
+        let chatInfos = try dbQueue.performRead { db -> [ChatInfo] in
             // Fetch all chat sessions using the data model
             let chatSessions = try ChatSession.fetchAllChats(from: db)
-
+            
             // Map ChatSession instances to ChatInfo
             return chatSessions.map { chatSession in
                 // Determine if the chat is a channel
                 let isChannel = (chatSession.sessionType == 5)
-
+                
                 // Set chat name to "Me" if contactJid matches ownerJid
                 var chatName = chatSession.partnerName
                 if let userJid = ownerJid, chatSession.contactJid == userJid {
                     chatName = "Me"
                 }
-
+                
                 return ChatInfo(
                     id: Int(chatSession.id),
                     contactJid: chatSession.contactJid,
@@ -285,43 +318,34 @@ public class WABackup {
                 )
             }
         }
-
+        
         return sortChatsByDate(chatInfos)
     }
     
     private func sortChatsByDate(_ chats: [ChatInfo]) -> [ChatInfo] {
         return chats.sorted { $0.lastMessageDate > $1.lastMessageDate }
     }
-    
-    //------------------------------------
-    // getChats ENDS
-    //------------------------------------
+}
 
-    //------------------------------------
-    // getChatMessages BEGINS
-    //------------------------------------
+// Message-Related methods
 
-    public func getChatMessages(chatId: Int,
-                                directoryToSaveMedia directory: URL?,
-                                from waDatabase: WADatabase) throws -> [MessageInfo] {
+extension WABackup {
+    public func getChatMessages(chatId: Int, directoryToSaveMedia directory: URL?, from waDatabase: WADatabase) throws -> [MessageInfo] {
         let dbQueue = chatDatabases[waDatabase]!
-        let chatInfo = try fetchChatInfo(id: chatId, from: dbQueue) 
+        let chatInfo = try fetchChatInfo(id: chatId, from: dbQueue)
         let iPhoneBackup = iPhoneBackups[waDatabase]!
-
-        let messages = try fetchChatMessages(chatId: chatId, type: chatInfo.chatType, 
-                                         directoryToSaveMedia: directory, 
-                                         iPhoneBackup: iPhoneBackup, from: dbQueue)
-        return sortMessagesByDate(messages)
+        
+        // Fetch messages from the database
+        let messages = try fetchMessagesFromDatabase(chatId: chatId, from: dbQueue)
+        
+        // Process messages
+        let messagesInfo = try processMessages(messages, chatType: chatInfo.chatType, directoryToSaveMedia: directory, iPhoneBackup: iPhoneBackup, from: dbQueue)
+        
+        return sortMessagesByDate(messagesInfo)
     }
-
-    
-    private func sortMessagesByDate(_ messages: [MessageInfo]) -> [MessageInfo] {
-        return messages.sorted { $0.date > $1.date }
-    }
-    
     
     private func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) throws -> ChatInfo {
-        return try dbQueue.read { db in
+        return try dbQueue.performRead { db in
             let chatSession = try ChatSession.fetchChat(byId: id, from: db)
             
             let isChannel = (chatSession.sessionType == 5)
@@ -338,88 +362,81 @@ public class WABackup {
         }
     }
     
-    private func fetchChatMessages(chatId: Int,
-                                   type: ChatInfo.ChatType,
-                                   directoryToSaveMedia: URL?,
-                                   iPhoneBackup: IPhoneBackup,
-                                   from dbQueue: DatabaseQueue) throws -> [MessageInfo] {
+    private func fetchMessagesFromDatabase(chatId: Int, from dbQueue: DatabaseQueue) throws -> [Message] {
+        return try dbQueue.performRead { db in
+            return try Message.fetchMessages(forChatId: chatId, from: db)
+        }
+    }
+    
+    private func processMessages(
+        _ messages: [Message],
+        chatType: ChatInfo.ChatType,
+        directoryToSaveMedia: URL?,
+        iPhoneBackup: IPhoneBackup,
+        from dbQueue: DatabaseQueue
+    ) throws -> [MessageInfo] {
         var messagesInfo: [MessageInfo] = []
-
         try dbQueue.read { db in
-            let messages = try Message.fetchMessages(forChatId: chatId, from: db)
             for message in messages {
-                guard let messageType = SupportedMessageType(rawValue: message.messageType) else {
-                    continue // Skip unsupported message types
-                }
-                
-                var messageText = message.text
-
-                // **Reintroduce the business chat warning logic**
-                if message.groupEventType == 38 {
-                    messageText = "This is a business chat"
-                }
-                
-                var messageInfo = MessageInfo(
-                    id: Int(message.id),
-                    chatId: Int(message.chatSessionId),
-                    message: messageText,
-                    date: message.date,
-                    isFromMe: message.isFromMe,
-                    messageType: messageType.description
+                let messageInfo = try processSingleMessage(
+                    message,
+                    chatType: chatType,
+                    directoryToSaveMedia: directoryToSaveMedia,
+                    iPhoneBackup: iPhoneBackup,
+                    from: db
                 )
-
-                // Fetch sender info
-                if let senderInfo = try fetchSenderInfo(for: message, chatType: type, from: db) {
-                    messageInfo.senderName = senderInfo.senderName
-                    messageInfo.senderPhone = senderInfo.senderPhone
-                }
-
-                // Handle replies
-                if let mediaItemId = message.mediaItemId,
-                   let replyMessageId = try fetchReplyMessageId(mediaItemId: mediaItemId, from: db) {
-                    messageInfo.replyTo = Int(replyMessageId)
-                }
-
-                // Handle media
-                if let mediaItemId = message.mediaItemId {
-                    if let mediaResult = try fetchMediaFilename(forMediaItem: mediaItemId,
-                                                                from: iPhoneBackup,
-                                                                toDirectory: directoryToSaveMedia,
-                                                                from: db) {
-                        switch mediaResult {
-                        case .fileName(let fileName):
-                            messageInfo.mediaFilename = fileName
-                        case .error(let error):
-                            messageInfo.error = error
-                        }
-                    }
-
-                    // Fetch caption
-                    if let caption = try fetchCaption(mediaItemId: mediaItemId, from: db) {
-                        messageInfo.caption = caption
-                    }
-
-                    // Fetch duration
-                    if messageType == .video || messageType == .audio {
-                        messageInfo.seconds = try fetchSeconds(mediaItemId: mediaItemId, from: db)
-                    }
-
-                    // Fetch location
-                    if messageType == .location {
-                        let (latitude, longitude) = try fetchLocation(mediaItemId: mediaItemId, from: db)
-                        messageInfo.latitude = latitude
-                        messageInfo.longitude = longitude
-                    }
-                }
-
-                // Fetch reactions
-                messageInfo.reactions = try fetchReactions(forMessageId: Int(message.id), from: db)
-
                 messagesInfo.append(messageInfo)
             }
         }
-
         return messagesInfo
+    }
+    
+    private func processSingleMessage(_ message: Message, chatType: ChatInfo.ChatType, directoryToSaveMedia: URL?, iPhoneBackup: IPhoneBackup, from db: Database) throws -> MessageInfo {
+        guard let messageType = SupportedMessageType(rawValue: message.messageType) else {
+            throw WABackupError.unexpectedError(reason: "Unsupported message type")
+        }
+        
+        var messageText = message.text
+        
+        // Handle group event types if necessary
+        if message.groupEventType == 38 {
+            messageText = "This is a business chat"
+        }
+        
+        var messageInfo = MessageInfo(
+            id: Int(message.id),
+            chatId: Int(message.chatSessionId),
+            message: messageText,
+            date: message.date,
+            isFromMe: message.isFromMe,
+            messageType: messageType.description
+        )
+        
+        // Fetch sender info
+        if let senderInfo = try fetchSenderInfo(for: message, chatType: chatType, from: db) {
+            messageInfo.senderName = senderInfo.senderName
+            messageInfo.senderPhone = senderInfo.senderPhone
+        }
+        
+        // Handle replies
+        if let replyMessageId = try fetchReplyMessageId(for: message, from: db) {
+            messageInfo.replyTo = Int(replyMessageId)
+        }
+        
+        // Handle media
+        if let mediaInfo = try handleMedia(for: message, directoryToSaveMedia: directoryToSaveMedia, iPhoneBackup: iPhoneBackup, from: db) {
+            messageInfo.mediaFilename = mediaInfo.mediaFilename
+            messageInfo.caption = mediaInfo.caption
+            messageInfo.seconds = mediaInfo.seconds
+            messageInfo.latitude = mediaInfo.latitude
+            messageInfo.longitude = mediaInfo.longitude
+            messageInfo.error = mediaInfo.error
+        }
+        
+        // Fetch reactions
+        messageInfo.reactions = try fetchReactions(forMessageId: Int(message.id), from: db)
+        
+        return messageInfo
     }
     
     typealias SenderInfo = (senderName: String?, senderPhone: String?)
@@ -428,54 +445,62 @@ public class WABackup {
         if message.isFromMe {
             return nil
         }
-
+        
         switch chatType {
         case .group:
-            if let memberId = message.groupMemberId,
-               let groupMember = try GroupMember.fetchGroupMember(byId: memberId, from: db) {
-                return try obtainSenderInfo(jid: groupMember.memberJid,
-                                            contactNameGroupMember: groupMember.contactName,
-                                            from: db)
+            if let memberId = message.groupMemberId {
+                return try fetchGroupMemberInfo(memberId: memberId, from: db)
             }
         case .individual, .channel:
-            let chatSession = try ChatSession.fetchChat(byId: Int(message.chatSessionId), from: db)
-            let senderPhone = chatSession.contactJid.extractedPhone
-            let senderName = chatSession.partnerName
-            return (senderName, senderPhone)
+            return try fetchIndividualChatSenderInfo(chatSessionId: message.chatSessionId, from: db)
         }
         return nil
     }
     
-    private func obtainSenderInfo(jid: String,
-                                  contactNameGroupMember: String?,
-                                  from db: Database) throws -> SenderInfo {
-        let senderPhone = jid.extractedPhone
-        if let senderName = try ChatSession.fetchChatSessionName(for: jid, from: db) {
-            return (senderName, senderPhone)
-        } else if let pushName = try ProfilePushName.fetchProfilePushName(for: jid, from: db) {
-            return ("~" + pushName, senderPhone)
-        } else {
-            return (contactNameGroupMember, senderPhone)
-        }
-    }
-    
-    private func fetchReplyMessageId(mediaItemId: Int64, from db: Database) throws -> Int64? {
-        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
+    private func fetchReplyMessageId(for message: Message, from db: Database) throws -> Int64? {
+        if let mediaItemId = message.mediaItemId,
+           let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
            let stanzaId = mediaItem.extractReplyStanzaId() {
             return try Message.fetchMessageId(byStanzaId: stanzaId, from: db)
         }
         return nil
     }
-
-    private func fetchOriginalMessageId(stanzaId: String, from db: Database) throws -> Int64? {
-        return try Message.fetchMessageId(byStanzaId: stanzaId, from: db)
-    }
+    
+    private func handleMedia(for message: Message, directoryToSaveMedia: URL?, iPhoneBackup: IPhoneBackup, from db: Database) throws -> (mediaFilename: String?, caption: String?, seconds: Int?, latitude: Double?, longitude: Double?, error: String?)? {
+        guard let mediaItemId = message.mediaItemId else { return nil }
         
-    enum MediaFilename {
-        case fileName(String)
-        case error(String)
+        var mediaFilename: String?
+        var caption: String?
+        var seconds: Int?
+        var latitude: Double?
+        var longitude: Double?
+        var error: String?
+        
+        if let mediaResult = try fetchMediaFilename(forMediaItem: mediaItemId, from: iPhoneBackup, toDirectory: directoryToSaveMedia, from: db) {
+            switch mediaResult {
+            case .fileName(let fileName):
+                mediaFilename = fileName
+            case .error(let errMsg):
+                error = errMsg
+            }
+        }
+        
+        // Fetch caption
+        caption = try fetchCaption(mediaItemId: mediaItemId, from: db)
+        
+        // Fetch duration
+        if let messageType = SupportedMessageType(rawValue: message.messageType), messageType == .video || messageType == .audio {
+            seconds = try fetchDuration(mediaItemId: mediaItemId, from: db)
+        }
+        
+        // Fetch location
+        if let messageType = SupportedMessageType(rawValue: message.messageType), messageType == .location {
+            (latitude, longitude) = try fetchLocation(mediaItemId: mediaItemId, from: db)
+        }
+        
+        return (mediaFilename, caption, seconds, latitude, longitude, error)
     }
-
+    
     private func fetchMediaFilename(forMediaItem mediaItemId: Int64,
                                     from iPhoneBackup: IPhoneBackup,
                                     toDirectory directoryURL: URL?,
@@ -484,11 +509,11 @@ public class WABackup {
             // Fetch the MediaItem using the new method
             if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
                let mediaLocalPath = mediaItem.localPath {
-
-                guard let hashFile = iPhoneBackup.fetchWAFileHash(endsWith: mediaLocalPath) else {
+                
+                guard let hashFile = try? iPhoneBackup.fetchWAFileHash(endsWith: mediaLocalPath) else {
                     return MediaFilename.error("Media file not found: \(mediaLocalPath)")
                 }
-
+                
                 let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
                 let mediaFileName = try copyMediaFile(hashFile: hashFile,
                                                       fileName: fileName,
@@ -502,71 +527,30 @@ public class WABackup {
             throw error
         } catch {
             // Other errors
-            throw WABackupError.databaseConnectionError(error: error)
+            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
     }
     
-    private func copyMediaFile(hashFile: String, fileName: String, to directoryURL: URL?, from iPhoneBackup: IPhoneBackup) throws -> String {
-        if let directoryURL = directoryURL {
-            let targetFileUrl = directoryURL.appendingPathComponent(fileName)
-            try copy(hashFile: hashFile, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
+    private func fetchGroupMemberInfo(memberId: Int64, from db: Database) throws -> SenderInfo? {
+        if let groupMember = try GroupMember.fetchGroupMember(byId: memberId, from: db) {
+            return try obtainSenderInfo(jid: groupMember.memberJid, contactNameGroupMember: groupMember.contactName, from: db)
         }
-        // Inform the delegate that a media file has been written
-        delegate?.didWriteMediaFile(fileName: fileName)
-        return fileName
+        return nil
     }
     
-    private func copy(hashFile: String, toTargetFileUrl url: URL?, from iPhoneBackup: IPhoneBackup) throws {
-        if let url = url {
-            let sourceFileUrl = iPhoneBackup.getUrl(fileHash: hashFile)
-            let fileManager = FileManager.default
-            if !fileManager.fileExists(atPath: url.path) {
-                try fileManager.copyItem(at: sourceFileUrl, to: url)
-            }
-        }
+    private func fetchIndividualChatSenderInfo(chatSessionId: Int64, from db: Database) throws -> SenderInfo {
+        let chatSession = try ChatSession.fetchChat(byId: Int(chatSessionId), from: db)
+        let senderPhone = chatSession.contactJid.extractedPhone
+        let senderName = chatSession.partnerName
+        return (senderName, senderPhone)
     }
     
-    private func fetchCaption(mediaItemId: Int64, from db: Database) throws -> String? {
-        do {
-            if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
-               let caption = mediaItem.title, !caption.isEmpty {
-                return caption
-            }
-            return nil
-        } catch let error as WABackupError {
-            throw error
-        } catch {
-            throw WABackupError.databaseConnectionError(error: error)
+    private func fetchDuration(mediaItemId: Int64, from db: Database) throws -> Int? {
+        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
+           let duration = mediaItem.movieDuration {
+            return Int(duration)
         }
-    }
-    
-    private func fetchSeconds(mediaItemId: Int64, from db: Database) throws -> Int {
-        do {
-            if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
-               let seconds = mediaItem.movieDuration {
-                return Int(seconds)
-            }
-            return 0
-        } catch let error as WABackupError {
-            throw error
-        } catch {
-            throw WABackupError.databaseConnectionError(error: error)
-        }
-    }
-
-    private func fetchLocation(mediaItemId: Int64, from db: Database) throws -> (Double, Double) {
-        do {
-            if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db) {
-                let latitude = mediaItem.latitude ?? 0.0
-                let longitude = mediaItem.longitude ?? 0.0
-                return (latitude, longitude)
-            }
-            return (0.0, 0.0)
-        } catch let error as WABackupError {
-            throw error
-        } catch {
-            throw WABackupError.databaseConnectionError(error: error)
-        }
+        return nil
     }
     
     private func fetchReactions(forMessageId messageId: Int, from db: Database) throws -> [Reaction]? {
@@ -585,7 +569,7 @@ public class WABackup {
         var reactions: [Reaction] = []
         let dataArray = [UInt8](data)
         var i = 0
-
+        
         while i < dataArray.count {
             // Before the emoji there is a byte with the length of the emoji
             let emojiLength = Int(dataArray[i])
@@ -598,12 +582,12 @@ public class WABackup {
                     // Check if the bytes are a single emoji
                     if let emojiStr = String(bytes: emojiData, encoding: .utf8),
                        isSingleEmoji(emojiStr) {
-                           let senderPhone = extractPhoneNumber(from: dataArray,
-                                                                endIndex: i-2)
-                           reactions.append(
-                               Reaction(emoji: emojiStr,
-                                        senderPhone: senderPhone ?? "Me"))
-                           i = emojiEndIndex - 1
+                        let senderPhone = extractPhoneNumber(from: dataArray,
+                                                             endIndex: i-2)
+                        reactions.append(
+                            Reaction(emoji: emojiStr,
+                                     senderPhone: senderPhone ?? "Me"))
+                        i = emojiEndIndex - 1
                     }
                 }
             } else {
@@ -612,7 +596,7 @@ public class WABackup {
         }
         return reactions.isEmpty ? nil : reactions
     }
-
+    
     // Checks if a string is a single emoji.
     // The emoji can be a single character or a sequence of characters (e.g. 👨‍👩‍👧‍👦)
     private func isSingleEmoji(_ string: String) -> Bool {
@@ -626,12 +610,69 @@ public class WABackup {
             // The character has no scalars
             return false
         }
-
+        
         return firstScalar.properties.isEmoji &&
-            (firstScalar.properties.isEmojiPresentation
-                || scalars.contains { $0.properties.isEmojiPresentation })
+        (firstScalar.properties.isEmojiPresentation
+         || scalars.contains { $0.properties.isEmojiPresentation })
     }
-
+    
+    private func fetchCaption(mediaItemId: Int64, from db: Database) throws -> String? {
+        do {
+            if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
+               let caption = mediaItem.title, !caption.isEmpty {
+                return caption
+            }
+            return nil
+        } catch let error as WABackupError {
+            throw error
+        } catch {
+            throw WABackupError.databaseConnectionError(underlyingError: error)
+        }
+    }
+    
+    private func fetchLocation(mediaItemId: Int64, from db: Database) throws -> (Double, Double) {
+        do {
+            if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db) {
+                let latitude = mediaItem.latitude ?? 0.0
+                let longitude = mediaItem.longitude ?? 0.0
+                return (latitude, longitude)
+            }
+            return (0.0, 0.0)
+        } catch let error as WABackupError {
+            throw error
+        } catch {
+            throw WABackupError.databaseConnectionError(underlyingError: error)
+        }
+    }
+    
+    enum MediaFilename {
+        case fileName(String)
+        case error(String)
+    }
+    
+    private func copyMediaFile(hashFile: String, fileName: String, to directoryURL: URL?, from iPhoneBackup: IPhoneBackup) throws -> String {
+        if let directoryURL = directoryURL {
+            let targetFileUrl = directoryURL.appendingPathComponent(fileName)
+            try copy(hashFile: hashFile, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
+        }
+        // Inform the delegate that a media file has been written
+        delegate?.didWriteMediaFile(fileName: fileName)
+        return fileName
+    }
+    
+    private func obtainSenderInfo(jid: String,
+                                  contactNameGroupMember: String?,
+                                  from db: Database) throws -> SenderInfo {
+        let senderPhone = jid.extractedPhone
+        if let senderName = try ChatSession.fetchChatSessionName(for: jid, from: db) {
+            return (senderName, senderPhone)
+        } else if let pushName = try ProfilePushName.fetchProfilePushName(for: jid, from: db) {
+            return ("~" + pushName, senderPhone)
+        } else {
+            return (contactNameGroupMember, senderPhone)
+        }
+    }
+    
     // Extracts the phone number from a byte array of the
     // form: phone-number@s.whatsapp.net
     // The endIndex is the index of the last byte of the phone number
@@ -649,12 +690,12 @@ public class WABackup {
             suffixEndIndex -= 1
             endIndex -= 1
         }
-
+        
         // The senderSuffix was not fully found
         if suffixEndIndex >= 0 {
             return nil
         }
-
+        
         // Extract the phone number
         var phoneNumberData: [UInt8] = []
         while endIndex >= 0 {
@@ -665,105 +706,92 @@ public class WABackup {
             phoneNumberData.append(char)
             endIndex -= 1
         }
-
+        
         // The phone number was not found
         if phoneNumberData.isEmpty {
             return nil
         }
-
+        
         // Convert the phone number data to a string
         let phoneNumber = String(bytes: phoneNumberData.reversed(), encoding: .utf8)
         return phoneNumber
     }
-
-    //------------------------------------
-    // getChatMessages ENDS
-    //------------------------------------
-
     
-    //------------------------------------
-    // getContacts BEGINS
-    //------------------------------------
+    
+    private func sortMessagesByDate(_ messages: [MessageInfo]) -> [MessageInfo] {
+        return messages.sorted { $0.date > $1.date }
+    }
+    
+    // If url is nil do nothing, it's not an error
+    private func copy(hashFile: String, toTargetFileUrl url: URL?, from iPhoneBackup: IPhoneBackup) throws {
+        guard let url = url else {
+            return
+        }
+        let sourceFileUrl = iPhoneBackup.getUrl(fileHash: hashFile)
+        let fileManager = FileManager.default
+        // If the file already exists do nothing, it's not an error
+        if !fileManager.fileExists(atPath: url.path) {
+            do {
+                try fileManager.copyItem(at: sourceFileUrl, to: url)
+            } catch {
+                throw WABackupError.fileCopyError(source: sourceFileUrl, destination: url, underlyingError: error)
+            }
+        }
+    }
+}
 
+// Contact-Related methods
+
+extension WABackup {
     // save all the contacts except the owner's
-    // Por ahora este es el que funciona OK
-    public func getContacts(directoryToSaveMedia directory: URL?,
-                            from waDatabase: WADatabase) throws -> [ContactInfo] {
+    public func getContacts(directoryToSaveMedia directory: URL?, from waDatabase: WADatabase) throws -> [ContactInfo] {
         let dbQueue = chatDatabases[waDatabase]!
         let iPhoneBackup = iPhoneBackups[waDatabase]!
-
-        // exclude the owner's contact
-        let ownerProfile: ContactInfo? = try fetchOwnerProfile(from: dbQueue)
-        let ownerPhone = ownerProfile?.phone
-
-        let chats = try fetchChats(from: dbQueue, ownerJid: nil)
-        let contactsSet = try extractContacts(from: chats, using: dbQueue, excludingPhone: ownerPhone)
-
-        var updatedContacts: [ContactInfo] = []
-        for contact in contactsSet {
-            let updatedContact = try copyContactMedia(for: contact, from: iPhoneBackup, to: directory)
-            updatedContacts.append(updatedContact)
+        let updatedContacts = try dbQueue.performRead { db in
+            let ownerProfile = try fetchOwnerProfile(from: db)
+            let chats = try fetchAllChats(from: db)
+            let contactsSet = try extractContacts(from: chats,
+                                                  excludingPhone: ownerProfile.phone,
+                                                  from: db)
+            var updatedContacts: [ContactInfo] = []
+            for contact in contactsSet {
+                let updatedContact = try copyContactMedia(for: contact, from: iPhoneBackup, to: directory)
+                updatedContacts.append(updatedContact)
+            }
+            return updatedContacts.sorted { $0.name < $1.name }
         }
-        
-        return updatedContacts.sorted { $0.name < $1.name }
+        return updatedContacts
     }
     
-    private func fetchOwnerProfile(from dbQueue: DatabaseQueue) throws -> ContactInfo {
+    private func fetchOwnerProfile(from db: Database) throws -> ContactInfo {
         var ownerPhone = ""
-        
-        do {
-            try dbQueue.read { db in
-                if let ownerProfilePhone = try Message.fetchOwnerProfilePhone(from: db) {
-                    ownerPhone = ownerProfilePhone.extractedPhone
-                } else {
-                    throw WABackupError.databaseConnectionError(
-                        error: DatabaseError(message: "Owner profile not found"))
-                }
-            }
+        if let ownerProfilePhone = try Message.fetchOwnerProfilePhone(from: db) {
+            ownerPhone = ownerProfilePhone.extractedPhone
             return ContactInfo(name: "Me", phone: ownerPhone)
-        } catch {
-            throw WABackupError.databaseConnectionError(error: error)
+        } else {
+            throw WABackupError.ownerProfileNotFound
         }
     }
-
-    private func fetchChats(from dbQueue: DatabaseQueue, ownerJid: String?) throws -> [ChatInfo] {
-        do {
-            // Use the helper method to fetch all chat sessions
-            let chatSessions = try dbQueue.read { db in
-                try ChatSession.fetchAllChats(from: db)
-            }
-
-            // Map the fetched ChatSession instances to ChatInfo
-            let chatInfos = chatSessions.map { chatSession -> ChatInfo in
-                // Determine if the chat is a channel
-                let isChannel = (chatSession.sessionType == 5)
-
-                // Set chat name to "Me" if contactJid matches ownerJid
-                var chatName = chatSession.partnerName
-                if let userJid = ownerJid, chatSession.contactJid == userJid {
-                    chatName = "Me"
-                }
-
-                return ChatInfo(
-                    id: Int(chatSession.id),
-                    contactJid: chatSession.contactJid,
-                    name: chatName,
-                    numberMessages: Int(chatSession.messageCounter),
-                    lastMessageDate: chatSession.lastMessageDate,
-                    isArchived: chatSession.isArchived,
-                    isChannel: isChannel
-                )
-            }
-
-            return sortChatsByDate(chatInfos)
-        } catch {
-            throw WABackupError.databaseConnectionError(error: error)
+    
+    private func fetchAllChats(from db: Database) throws -> [ChatInfo] {
+        let chatSessions = try ChatSession.fetchAllChats(from: db)
+        return chatSessions.map { chatSession in
+            let isChannel = (chatSession.sessionType == 5)
+            return ChatInfo(
+                id: Int(chatSession.id),
+                contactJid: chatSession.contactJid,
+                name: chatSession.partnerName,
+                numberMessages: Int(chatSession.messageCounter),
+                lastMessageDate: chatSession.lastMessageDate,
+                isArchived: chatSession.isArchived,
+                isChannel: isChannel
+            )
         }
     }
     
     private func extractContacts(from chats: [ChatInfo],
-                                 using dbQueue: DatabaseQueue,
-                                 excludingPhone: String?) throws -> Set<ContactInfo> {
+                                 excludingPhone: String?,
+                                 from db: Database) throws -> Set<ContactInfo> {
         var contactsSet: Set<ContactInfo> = []
         for chat in chats {
             let phone = chat.contactJid.extractedPhone
@@ -772,82 +800,51 @@ public class WABackup {
                 contactsSet.insert(contact)
             }
             if chat.chatType == .group {
-                    let groupContact = try fetchGroupMembersContacts(chatId: chat.id,
-                                                                     from: dbQueue,
-                                                                     excludingPhone: excludingPhone)
-                    contactsSet.formUnion(groupContact)
+                let groupContacts = try fetchGroupMembersContacts(chatId: chat.id,
+                                                                  excludingPhone: excludingPhone,
+                                                                  from: db)
+                contactsSet.formUnion(groupContacts)
             }
         }
         return contactsSet
     }
-
-    private func copyContactMedia(for contact: ContactInfo,
-                                  from iPhoneBackup: IPhoneBackup,
-                                  to directory: URL?) throws-> ContactInfo {
+    
+    private func fetchGroupMembersContacts(chatId: Int,
+                                           excludingPhone: String?,
+                                           from db: Database) throws -> Set<ContactInfo> {
+        var contactsSet: Set<ContactInfo> = []
+        let groupMemberIds = try GroupMember.fetchGroupMemberIds(forChatId: chatId, from: db)
+        for memberId in groupMemberIds {
+            if let senderInfo = try fetchGroupMemberInfo(memberId: memberId, from: db),
+               let phone = senderInfo.senderPhone, phone != excludingPhone {
+                let contact = ContactInfo(name: senderInfo.senderName ?? "", phone: phone)
+                contactsSet.insert(contact)
+            }
+        }
+        return contactsSet
+    }
+    
+    private func copyContactMedia(for contact: ContactInfo, from iPhoneBackup: IPhoneBackup, to directory: URL?) throws -> ContactInfo {
         var updatedContact = contact
         let contactPhotoFilename = "Media/Profile/\(contact.phone)"
-        let filesNamesAndHashes =
-            iPhoneBackup.fetchWAFileDetails(contains: contactPhotoFilename)
+        let filesNamesAndHashes = iPhoneBackup.fetchWAFileDetails(contains: contactPhotoFilename)
         
-        // Copy the latest contact photo
-
-        if let latestFile = getLatestFile(for: contactPhotoFilename,
-                                          fileExtension: "jpg",
-                                          files: filesNamesAndHashes) {
+        if let latestFile = getLatestFile(for: contactPhotoFilename, fileExtension: "jpg", files: filesNamesAndHashes) {
             let targetFilename = contact.phone + ".jpg"
             let targetFileUrl = directory?.appendingPathComponent(targetFilename)
-            try copy(hashFile: latestFile.fileHash,
-                        toTargetFileUrl: targetFileUrl,
-                        from: iPhoneBackup)
-
-            // Inform the delegate that a media file has been written
+            try copy(hashFile: latestFile.fileHash, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
             delegate?.didWriteMediaFile(fileName: targetFilename)
-
             updatedContact.photoFilename = targetFilename
         }
-
-        // Copy the latest contact thumbnail
-        if let latestFile = getLatestFile(for: contactPhotoFilename,
-                                          fileExtension: "jpg",
-                                          files: filesNamesAndHashes) {
-            let targetFilename = contact.phone + ".jpg"
-            updatedContact.photoFilename = try copyMediaFile(hashFile: latestFile.fileHash, fileName: targetFilename, to: directory, from: iPhoneBackup)
-        }
+        
         return updatedContact
     }
-
+    
     private enum SenderIdentifier {
         case chatSession(chatId: Int)
         case groupMember(memberId: Int)
     }
     
-    // Fetch the contact info of the participants of a gruop chat
-    private func fetchGroupMembersContacts(chatId: Int,
-                                           from dbQueue: DatabaseQueue,
-                                           excludingPhone: String?) throws -> Set<ContactInfo> {
-        var contactsSet: Set<ContactInfo> = []
-        do {
-            try dbQueue.read { db in
-                // Fetch all distinct group member IDs for the given chat session
-                let groupMemberIds = try GroupMember.fetchGroupMemberIds(forChatId: chatId, from: db)
-                
-                for memberId in groupMemberIds {
-                    // Fetch sender information using the existing fetchSenderInfo method
-                    let (senderName, senderPhone) = try fetchSenderInfo(.groupMember(memberId: Int(memberId)), from: db)
-                    
-                    // Filter out contacts based on the excludingPhone criteria
-                    if let phone = senderPhone, phone != excludingPhone {
-                        let contact = ContactInfo(name: senderName ?? "", phone: phone)
-                        contactsSet.insert(contact)
-                    }
-                }
-            }
-        } catch {
-            throw WABackupError.databaseConnectionError(error: error)
-        }
-        return contactsSet
-    }
-
     // Obtain the latest files for the given filename and file extension
     //     prefixFilename: the prefix of the file (the phone number),
     //                     e.g. 1234567890 or 1234567890-202302323 for a group chat
@@ -860,15 +857,15 @@ public class WABackup {
     private func getLatestFile(for prefixFilename: String,
                                fileExtension: String,
                                files namesAndHashes: [FilenameAndHash])
-                               -> (FilenameAndHash)? {
-
+    -> (FilenameAndHash)? {
+        
         guard !namesAndHashes.isEmpty else {
             return nil
         }
-
+        
         var latestFile: FilenameAndHash?  = nil
         var latestTimeSuffix = 0
-
+        
         for nameAndHash in namesAndHashes {
             if let timeSuffix = extractTimeSuffix(from: prefixFilename,
                                                   fileExtension: fileExtension,
@@ -895,7 +892,7 @@ public class WABackup {
         }
         return nil
     }
-
+    
     
     private func fetchSenderInfo(_ identifier: SenderIdentifier, from db: Database) throws -> SenderInfo {
         switch identifier {
@@ -912,68 +909,44 @@ public class WABackup {
                                         from: db)
         }
     }
-    
-    
-    //------------------------------------
-    // getContacts ENDS
-    //------------------------------------
+}
 
-    
-    //------------------------------------
-    // getUserProfile BEGINS
-    //------------------------------------
+// UserProfile-Related methods
 
-    
+extension WABackup {
     public func getUserProfile(directoryToSaveMedia directory: URL,
                                from waDatabase: WADatabase) throws -> ContactInfo? {
         let dbQueue = chatDatabases[waDatabase]!
         let iPhoneBackup = iPhoneBackups[waDatabase]!
-        
-        var ownerProfile = try fetchOwnerProfile(from: dbQueue)
+
+        var ownerProfile = try dbQueue.performRead { db in
+            try fetchOwnerProfile(from: db)
+        }
         let ownerPhotoTargetUrl = directory.appendingPathComponent("Photo.jpg")
         let ownerThumbnailTargetUrl = directory.appendingPathComponent("Photo.thumb")
-        if let ownerPhotoHash = iPhoneBackup.fetchWAFileHash(
-            endsWith: "Media/Profile/Photo.jpg") {
-            try copy(hashFile: ownerPhotoHash, 
-                        toTargetFileUrl: ownerPhotoTargetUrl, 
-                        from: iPhoneBackup)
 
-            // Inform the delegate that a media file has been written
-            delegate?.didWriteMediaFile(fileName: ownerPhotoTargetUrl.path)
+        // Intentar obtener y copiar la foto de perfil
+        let ownerPhotoHash = try iPhoneBackup.fetchWAFileHash(endsWith: "Media/Profile/Photo.jpg")
+        try copy(hashFile: ownerPhotoHash,
+                 toTargetFileUrl: ownerPhotoTargetUrl,
+                 from: iPhoneBackup)
 
-            ownerProfile.photoFilename = "Photo.jpg"
-        }
-        if let ownerThumbnailHash = iPhoneBackup.fetchWAFileHash(
-            endsWith: "Media/Profile/Photo.thumb") {
-            try copy(hashFile: ownerThumbnailHash, 
-                        toTargetFileUrl: ownerThumbnailTargetUrl, 
-                        from: iPhoneBackup)
+        // Informar al delegado que un archivo de medios ha sido escrito
+        delegate?.didWriteMediaFile(fileName: ownerPhotoTargetUrl.path)
+        ownerProfile.photoFilename = "Photo.jpg"
 
-            // Inform the delegate that a media file has been written
-            delegate?.didWriteMediaFile(fileName: ownerThumbnailTargetUrl.path)
+        // Intentar obtener y copiar la miniatura de perfil
+        let ownerThumbnailHash = try iPhoneBackup.fetchWAFileHash(endsWith: "Media/Profile/Photo.thumb")
+        try copy(hashFile: ownerThumbnailHash,
+                 toTargetFileUrl: ownerThumbnailTargetUrl,
+                 from: iPhoneBackup)
 
-            ownerProfile.thumbnailFilename = "Photo.thumb"
-        }
+        // Informar al delegado que un archivo de medios ha sido escrito
+        delegate?.didWriteMediaFile(fileName: ownerThumbnailTargetUrl.path)
+        ownerProfile.thumbnailFilename = "Photo.thumb"
+        
         return ownerProfile
-    } 
-
-    private func databaseQuestionMarks(count: Int) -> String {
-        return Array(repeating: "?", count: count).joined(separator: ", ")
     }
-
-    private func convertTimestampToDate(timestamp: Any) -> Date {
-        if let timestamp = timestamp as? Double {
-            return Date(timeIntervalSinceReferenceDate: timestamp)
-        } else if let timestamp = timestamp as? Int64 {
-            return Date(timeIntervalSinceReferenceDate: Double(timestamp))
-        }
-        return Date(timeIntervalSinceReferenceDate: 0)
-    }
-
-    //------------------------------------
-    // getUserProfile BEGINS
-    //------------------------------------
-
 }
 
 

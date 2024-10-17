@@ -36,7 +36,7 @@ struct MessageInfoTable {
             }
             return nil
         } catch {
-            throw WABackupError.databaseConnectionError(error: error)
+            throw WABackupError.databaseConnectionError(underlyingError: error)
         }
     }
 }

@@ -84,7 +84,7 @@ struct ChatSession {
         if let row = try Row.fetchOne(db, sql: sql, arguments: [id]) {
             return ChatSession(row: row)
         } else {
-            throw WABackupError.databaseConnectionError(error: DatabaseError(message: "Chat not found"))
+            throw WABackupError.databaseConnectionError(underlyingError: DatabaseError(message: "Chat not found"))
         }
     }
     
