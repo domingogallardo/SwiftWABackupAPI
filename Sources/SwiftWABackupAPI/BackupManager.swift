@@ -50,8 +50,6 @@ public struct BackupManager {
                     }
                 } catch {
                     invalidBackups.append(url)
-                    // Opcionalmente registrar el error
-                    print("Invalid backup at \(url.path): \(error.localizedDescription)")
                 }
             }
             return (validBackups: validBackups, invalidBackups: invalidBackups)
