@@ -58,11 +58,10 @@ public enum WABackupError: Error, LocalizedError {
 
 /// Represents information about a WhatsApp chat.
 public struct ChatInfo: CustomStringConvertible, Encodable {
-    /// The type of chat (group, individual, or channel).
+    /// The type of chat (group or individual)
     public enum ChatType: String, Codable {
         case group
         case individual
-        case channel
     }
 
     public let id: Int
@@ -75,21 +74,15 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
     
     /// Initializes a new `ChatInfo` instance.
     init(id: Int, contactJid: String, name: String,
-         numberMessages: Int, lastMessageDate: Date, isArchived: Bool,
-         isChannel: Bool = false) {
+         numberMessages: Int, lastMessageDate: Date, isArchived: Bool) {
         self.id = id
         self.contactJid = contactJid
         self.name = name
         self.numberMessages = numberMessages
         self.lastMessageDate = lastMessageDate
         self.isArchived = isArchived
-        // Determines the chat type based on the JID suffix or if it's a channel.
-        if isChannel {
-            self.chatType = .channel
-        } else {
-            self.chatType = contactJid.hasSuffix("@g.us") ? .group : .individual
+        self.chatType = contactJid.hasSuffix("@g.us") ? .group : .individual
         }
-    }
 
     public var description: String {
         // Provides a human-readable description of the chat.
@@ -318,29 +311,29 @@ extension WABackup {
             // Fetch all chat sessions using the data model.
             let chatSessions = try ChatSession.fetchAllChats(from: db)
             
-            // Map `ChatSession` instances to `ChatInfo`.
-            return chatSessions.map { chatSession in
-                // Determine if the chat is a channel.
-                let isChannel = (chatSession.sessionType == 5)
-                
+            // Filter out channel chats (sessionType == 5)
+            return chatSessions.compactMap { chatSession in
+                guard chatSession.sessionType != 5 else {
+                    return nil
+                }
+
                 // Set chat name to "Me" if contactJid matches ownerJid.
                 var chatName = chatSession.partnerName
                 if let userJid = ownerJid, chatSession.contactJid == userJid {
                     chatName = "Me"
                 }
-                
+
                 return ChatInfo(
                     id: Int(chatSession.id),
                     contactJid: chatSession.contactJid,
                     name: chatName,
                     numberMessages: Int(chatSession.messageCounter),
                     lastMessageDate: chatSession.lastMessageDate,
-                    isArchived: chatSession.isArchived,
-                    isChannel: isChannel
+                    isArchived: chatSession.isArchived
                 )
             }
         }
-        
+
         return sortChatsByDate(chatInfos)
     }
     
@@ -360,22 +353,89 @@ extension WABackup {
     ///   - waDatabase: The database identifier.
     /// - Returns: An array of `MessageInfo` objects.
     /// - Throws: An error if messages cannot be fetched or processed.
-    public func getChatMessages(chatId: Int, directoryToSaveMedia directory: URL?, from waDatabase: WADatabase) throws -> [MessageInfo] {
-        guard let dbQueue = chatDatabases[waDatabase] else {
-            throw WABackupError.databaseConnectionError(underlyingError: DatabaseError(message: "Database not found"))
+    public func getChatMessages(chatId: Int, directoryToSaveMedia directory: URL?, from waDatabase: WADatabase) throws -> ([MessageInfo], [ContactInfo])  {
+
+        // 1. Verify database and backup
+        guard let dbQueue = chatDatabases[waDatabase],
+              let iPhoneBackup = iPhoneBackups[waDatabase] else {
+            throw WABackupError.databaseConnectionError(
+                underlyingError: DatabaseError(message: "Database or backup not found")
+            )
         }
+        
+        // 2. Fetch ChatInfo and messages
         let chatInfo = try fetchChatInfo(id: chatId, from: dbQueue)
-        guard let iPhoneBackup = iPhoneBackups[waDatabase] else {
-            throw WABackupError.invalidBackup(url: URL(fileURLWithPath: ""), reason: "Backup not found")
-        }
-        
-        // Fetch messages from the database.
         let messages = try fetchMessagesFromDatabase(chatId: chatId, from: dbQueue)
+        let processedMessages = try processMessages(
+            messages,
+            chatType: chatInfo.chatType,
+            directoryToSaveMedia: directory,
+            iPhoneBackup: iPhoneBackup,
+            from: dbQueue
+        )
         
-        // Process messages.
-        let messagesInfo = try processMessages(messages, chatType: chatInfo.chatType, directoryToSaveMedia: directory, iPhoneBackup: iPhoneBackup, from: dbQueue)
+        // 3. Build the array of contacts
+        var contacts: [ContactInfo] = []
         
-        return sortMessagesByDate(messagesInfo)
+        // 3.1 Add the user (owner) as the first contact
+        let ownerPhone: String
+        if let ownerJid = ownerJidByDatabase[waDatabase] ?? nil {
+            ownerPhone = ownerJid.extractedPhone
+        } else {
+            ownerPhone = "" // or throw an error if needed
+        }
+        var ownerContact = ContactInfo(name: "Me", phone: ownerPhone)
+        // Copy photo if directory is provided
+        if let directory = directory {
+            ownerContact = try copyContactMedia(for: ownerContact,
+                                                from: iPhoneBackup,
+                                                to: directory)
+        }
+        contacts.append(ownerContact)
+
+        // 3.2 Add other participants depending on chat type
+        try dbQueue.read { db in
+            switch chatInfo.chatType {
+            case .individual:
+                // For individual chat
+                let otherPhone = chatInfo.contactJid.extractedPhone
+                if otherPhone != ownerPhone {
+                    var otherContact = ContactInfo(name: chatInfo.name, phone: otherPhone)
+                    if let directory = directory {
+                        otherContact = try copyContactMedia(for: otherContact,
+                                                            from: iPhoneBackup,
+                                                            to: directory)
+                    }
+                    contacts.append(otherContact)
+                }
+
+            case .group:
+                // For group chat: collect all members except owner
+                let memberIds = try GroupMember.fetchGroupMemberIds(forChatId: chatId, from: db)
+                for memberId in memberIds {
+                    if let senderInfo = try fetchGroupMemberInfo(memberId: memberId, from: db),
+                       let phone = senderInfo.senderPhone {
+                        if phone != ownerPhone {
+                            var contact = ContactInfo(
+                                name: senderInfo.senderName ?? "",
+                                phone: phone
+                            )
+                            if let directory = directory {
+                                contact = try copyContactMedia(
+                                    for: contact,
+                                    from: iPhoneBackup,
+                                    to: directory
+                                )
+                            }
+                            contacts.append(contact)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Return the tuple ([MessageInfo], [ContactInfo])
+        return (processedMessages, contacts)
     }
     
     /// Fetches chat information by ID.
@@ -383,16 +443,13 @@ extension WABackup {
         return try dbQueue.performRead { db in
             let chatSession = try ChatSession.fetchChat(byId: id, from: db)
             
-            let isChannel = (chatSession.sessionType == 5)
             return ChatInfo(
                 id: Int(chatSession.id),
                 contactJid: chatSession.contactJid,
                 name: chatSession.partnerName,
                 numberMessages: Int(chatSession.messageCounter),
                 lastMessageDate: chatSession.lastMessageDate,
-                isArchived: chatSession.isArchived,
-                isChannel: isChannel
-            )
+                isArchived: chatSession.isArchived)
         }
     }
     
@@ -490,7 +547,7 @@ extension WABackup {
             if let memberId = message.groupMemberId {
                 return try fetchGroupMemberInfo(memberId: memberId, from: db)
             }
-        case .individual, .channel:
+        case .individual:
             return try fetchIndividualChatSenderInfo(chatSessionId: message.chatSessionId, from: db)
         }
         return nil
