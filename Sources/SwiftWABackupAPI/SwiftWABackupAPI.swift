@@ -910,15 +910,17 @@ extension WABackup {
         let contactPhotoFilename = "Media/Profile/\(contact.phone)"
         let filesNamesAndHashes = iPhoneBackup.fetchWAFileDetails(contains: contactPhotoFilename)
         
-        // Get the latest profile photo file.
-        if let latestFile = getLatestFile(for: contactPhotoFilename, fileExtension: "jpg", files: filesNamesAndHashes) {
-            let targetFilename = contact.phone + ".jpg"
+        // Primero intenta jpg, si no existe intenta thumb
+        let latestFile = getLatestFile(for: contactPhotoFilename, fileExtension: "jpg", files: filesNamesAndHashes)
+        ?? getLatestFile(for: contactPhotoFilename, fileExtension: "thumb", files: filesNamesAndHashes)
+        
+        if let latestFile = latestFile {
+            let targetFilename = contact.phone + (latestFile.filename.hasSuffix(".jpg") ? ".jpg" : ".thumb")
             let targetFileUrl = directory?.appendingPathComponent(targetFilename)
             try copy(hashFile: latestFile.fileHash, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
             delegate?.didWriteMediaFile(fileName: targetFilename)
             updatedContact.photoFilename = targetFilename
         }
-        
         return updatedContact
     }
     
