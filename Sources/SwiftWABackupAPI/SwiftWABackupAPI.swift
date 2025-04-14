@@ -753,16 +753,25 @@ public class WABackup {
                                         to directory: URL,
                                         from backup: IPhoneBackup) throws -> String? {
         let basePath: String
-        if contactJid.hasSuffix("@s.whatsapp.net") || contactJid.hasSuffix("@c.us") {
+
+        if contactJid.hasSuffix("@s.whatsapp.net") {
+            // Chats individuales: usar solo el número
             basePath = "Media/Profile/\(contactJid.extractedPhone)"
+        } else if contactJid.hasSuffix("@g.us") {
+            // Grupos: usar solo el ID sin sufijo
+            let groupId = contactJid.components(separatedBy: "@").first ?? contactJid
+            basePath = "Media/Profile/\(groupId)"
         } else {
-            basePath = "Media/Profile/\(contactJid)"
+            // No reconocido (no usamos esta rama para buscar imagen)
+            print("⚠️  ContactJid '\(contactJid)' has unsupported format. No image will be retrieved.")
+            return nil
         }
 
         let files = backup.fetchWAFileDetails(contains: basePath)
-
         guard let latest = getLatestFile(for: basePath, fileExtension: "jpg", files: files)
             ?? getLatestFile(for: basePath, fileExtension: "thumb", files: files) else {
+            let type = contactJid.hasSuffix("@g.us") ? "Group" : "Individual"
+            print("📭 No image found for \(type) chat [ID: \(chatId), JID: \(contactJid)]")
             return nil
         }
 
@@ -771,8 +780,8 @@ public class WABackup {
         let destinationURL = directory.appendingPathComponent(filename)
 
         try copy(hashFile: latest.fileHash, toTargetFileUrl: destinationURL, from: backup)
-
         delegate?.didWriteMediaFile(fileName: filename)
+
         return filename
     }
     
