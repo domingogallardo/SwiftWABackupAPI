@@ -218,10 +218,9 @@ public class WABackup {
     var phoneBackup = BackupManager()
     public weak var delegate: WABackupDelegate?
     
-    // Stores connected databases and associated backups.
-    private var chatDatabases: [WADatabase: DatabaseQueue] = [:]
-    private var iPhoneBackups: [WADatabase: IPhoneBackup] = [:]
-    private var ownerJidByDatabase: [WADatabase: String?] = [:]
+    private var chatDatabase: DatabaseQueue?
+    private var iPhoneBackup: IPhoneBackup?
+    private var ownerJid: String?
     
     /// Initializes the backup manager with an optional custom backup path.
     public init(backupPath: String = "~/Library/Application Support/MobileSync/Backup/") {
@@ -239,40 +238,17 @@ public class WABackup {
     }
     
     /// Connects to the ChatStorage.sqlite database from an iPhone backup.
-    /// - Returns: A unique identifier for the connected database.
     /// - Throws: An error if the ChatStorage.sqlite file is not found or the database cannot be connected.
-    public func connectChatStorageDb(from iPhoneBackup: IPhoneBackup) throws -> WADatabase {
-        // Try to obtain the hash of the ChatStorage.sqlite file.
-        guard let chatStorageHash = try? iPhoneBackup.fetchWAFileHash(endsWith: "ChatStorage.sqlite") else {
-            throw WABackupError.noChatStorageFile
-        }
-        
-        let chatStorageUrl = iPhoneBackup.getUrl(fileHash: chatStorageHash)
-        
-        // Connect to the ChatStorage.sqlite database.
-        let chatStorageDb: DatabaseQueue
-        do {
-            chatStorageDb = try DatabaseQueue(path: chatStorageUrl.path)
-            // Validate the database schema.
-            try checkSchema(of: chatStorageDb)
-        } catch {
-            throw WABackupError.databaseConnectionError(underlyingError: error)
-        }
-        
-        // Generate a unique identifier for this database connection.
-        let uniqueIdentifier = WADatabase()
-        
-        // Store the connected database and associated backup.
-        chatDatabases[uniqueIdentifier] = chatStorageDb
-        iPhoneBackups[uniqueIdentifier] = iPhoneBackup
-        
-        // Attempt to fetch the owner's JID.
-        let ownerJid = try? chatStorageDb.performRead { db in
-            try Message.fetchOwnerJid(from: db)
-        }
-        ownerJidByDatabase[uniqueIdentifier] = ownerJid
-        
-        return uniqueIdentifier
+    public func connectChatStorageDb(from backup: IPhoneBackup) throws {
+        let chatStorageHash = try backup.fetchWAFileHash(endsWith: "ChatStorage.sqlite")
+        let chatStorageUrl = backup.getUrl(fileHash: chatStorageHash)
+        let dbQueue = try DatabaseQueue(path: chatStorageUrl.path)
+
+        try checkSchema(of: dbQueue)
+
+        self.chatDatabase = dbQueue
+        self.iPhoneBackup = backup
+        self.ownerJid = try dbQueue.performRead { try Message.fetchOwnerJid(from: $0) }
     }
     
     /// Validates the schema of the WhatsApp database.
@@ -298,26 +274,23 @@ public class WABackup {
 
 extension WABackup {
     /// Retrieves all chats from the connected WhatsApp database.
-    /// - Parameter waDatabase: The database identifier.
     /// - Returns: An array of `ChatInfo` objects.
     /// - Throws: An error if the database is not connected.
-    public func getChats(from waDatabase: WADatabase) throws -> [ChatInfo] {
-        guard let dbQueue = chatDatabases[waDatabase] else {
-            throw WABackupError.databaseConnectionError(underlyingError: DatabaseError(message: "Database not found"))
+    public func getChats() throws -> [ChatInfo] {
+        guard let dbQueue = chatDatabase else {
+            throw WABackupError.databaseConnectionError(
+                underlyingError: DatabaseError(message: "Database not connected")
+            )
         }
-        let ownerJid = ownerJidByDatabase[waDatabase] ?? nil
 
         let chatInfos = try dbQueue.performRead { db -> [ChatInfo] in
-            // Fetch all chat sessions using the data model.
             let chatSessions = try ChatSession.fetchAllChats(from: db)
-            
-            // Filter out channel chats (sessionType == 5)
+
             return chatSessions.compactMap { chatSession in
                 guard chatSession.sessionType != 5 else {
                     return nil
                 }
 
-                // Set chat name to "Me" if contactJid matches ownerJid.
                 var chatName = chatSession.partnerName
                 if let userJid = ownerJid, chatSession.contactJid == userJid {
                     chatName = "Me"
@@ -350,20 +323,18 @@ extension WABackup {
     /// - Parameters:
     ///   - chatId: The chat identifier.
     ///   - directory: Optional directory to save media files.
-    ///   - waDatabase: The database identifier.
     /// - Returns: An array of `MessageInfo` objects.
     /// - Throws: An error if messages cannot be fetched or processed.
-    public func getChatMessages(chatId: Int, directoryToSaveMedia directory: URL?, from waDatabase: WADatabase) throws -> ([MessageInfo], [ContactInfo])  {
-
-        // 1. Verify database and backup
-        guard let dbQueue = chatDatabases[waDatabase],
-              let iPhoneBackup = iPhoneBackups[waDatabase] else {
+    public func getChatMessages(chatId: Int, directoryToSaveMedia directory: URL?) throws -> ([MessageInfo], [ContactInfo]) {
+        // 1. Verificar base de datos y backup
+        guard let dbQueue = chatDatabase,
+              let iPhoneBackup = iPhoneBackup else {
             throw WABackupError.databaseConnectionError(
                 underlyingError: DatabaseError(message: "Database or backup not found")
             )
         }
-        
-        // 2. Fetch ChatInfo and messages
+
+        // 2. Obtener chatInfo y mensajes
         let chatInfo = try fetchChatInfo(id: chatId, from: dbQueue)
         let messages = try fetchMessagesFromDatabase(chatId: chatId, from: dbQueue)
         let processedMessages = try processMessages(
@@ -373,68 +344,52 @@ extension WABackup {
             iPhoneBackup: iPhoneBackup,
             from: dbQueue
         )
-        
-        // 3. Build the array of contacts
+
+        // 3. Crear el array de contactos
         var contacts: [ContactInfo] = []
-        
-        // 3.1 Add the user (owner) as the first contact
+
+        // 3.1 Añadir el usuario (owner)
         let ownerPhone: String
-        if let ownerJid = ownerJidByDatabase[waDatabase] ?? nil {
-            ownerPhone = ownerJid.extractedPhone
+        if let userJid = ownerJid {
+            ownerPhone = userJid.extractedPhone
         } else {
-            ownerPhone = "" // or throw an error if needed
+            ownerPhone = "" // o lanzar error si se prefiere
         }
         var ownerContact = ContactInfo(name: "Me", phone: ownerPhone)
-        // Copy photo if directory is provided
         if let directory = directory {
-            ownerContact = try copyContactMedia(for: ownerContact,
-                                                from: iPhoneBackup,
-                                                to: directory)
+            ownerContact = try copyContactMedia(for: ownerContact, from: iPhoneBackup, to: directory)
         }
         contacts.append(ownerContact)
 
-        // 3.2 Add other participants depending on chat type
+        // 3.2 Añadir otros participantes
         try dbQueue.read { db in
             switch chatInfo.chatType {
             case .individual:
-                // For individual chat
                 let otherPhone = chatInfo.contactJid.extractedPhone
                 if otherPhone != ownerPhone {
                     var otherContact = ContactInfo(name: chatInfo.name, phone: otherPhone)
                     if let directory = directory {
-                        otherContact = try copyContactMedia(for: otherContact,
-                                                            from: iPhoneBackup,
-                                                            to: directory)
+                        otherContact = try copyContactMedia(for: otherContact, from: iPhoneBackup, to: directory)
                     }
                     contacts.append(otherContact)
                 }
 
             case .group:
-                // For group chat: collect all members except owner
                 let memberIds = try GroupMember.fetchGroupMemberIds(forChatId: chatId, from: db)
                 for memberId in memberIds {
                     if let senderInfo = try fetchGroupMemberInfo(memberId: memberId, from: db),
-                       let phone = senderInfo.senderPhone {
-                        if phone != ownerPhone {
-                            var contact = ContactInfo(
-                                name: senderInfo.senderName ?? "",
-                                phone: phone
-                            )
-                            if let directory = directory {
-                                contact = try copyContactMedia(
-                                    for: contact,
-                                    from: iPhoneBackup,
-                                    to: directory
-                                )
-                            }
-                            contacts.append(contact)
+                       let phone = senderInfo.senderPhone,
+                       phone != ownerPhone {
+                        var contact = ContactInfo(name: senderInfo.senderName ?? "", phone: phone)
+                        if let directory = directory {
+                            contact = try copyContactMedia(for: contact, from: iPhoneBackup, to: directory)
                         }
+                        contacts.append(contact)
                     }
                 }
             }
         }
 
-        // 4. Return the tuple ([MessageInfo], [ContactInfo])
         return (processedMessages, contacts)
     }
     
@@ -830,29 +785,33 @@ extension WABackup {
     /// - Parameters:
     ///   - chats: The list of chats to extract contacts from.
     ///   - directory: Optional directory to save contact media files.
-    ///   - waDatabase: The database identifier.
     /// - Returns: An array of `ContactInfo` objects.
     /// - Throws: An error if contacts cannot be fetched or media files cannot be copied.
-    public func getContacts(chats: [ChatInfo], directoryToSaveMedia directory: URL?, from waDatabase: WADatabase) throws -> [ContactInfo] {
-        guard let dbQueue = chatDatabases[waDatabase],
-              let iPhoneBackup = iPhoneBackups[waDatabase] else {
-            throw WABackupError.databaseConnectionError(underlyingError: DatabaseError(message: "Database or backup not found"))
+    public func getContacts(chats: [ChatInfo], directoryToSaveMedia directory: URL?) throws -> [ContactInfo] {
+        guard let dbQueue = chatDatabase,
+              let iPhoneBackup = iPhoneBackup else {
+            throw WABackupError.databaseConnectionError(
+                underlyingError: DatabaseError(message: "Database or backup not found")
+            )
         }
-
-        // Fetch the owner's profile and contacts within a single database read operation.
+        
+        // Obtener el perfil del usuario y los contactos en una sola lectura
         let (_, contactsSet) = try dbQueue.performRead { db -> (ContactInfo, Set<ContactInfo>) in
             let ownerProfile = try fetchOwnerProfile(from: db)
-            let contactsSet = try extractContacts(from: chats,
-                                                  excludingPhone: ownerProfile.phone,
-                                                  from: db)
+            let contactsSet = try extractContacts(
+                from: chats,
+                excludingPhone: ownerProfile.phone,
+                from: db
+            )
             return (ownerProfile, contactsSet)
         }
-
+        
         var updatedContacts: [ContactInfo] = []
         for contact in contactsSet {
             let updatedContact = try copyContactMedia(for: contact, from: iPhoneBackup, to: directory)
             updatedContacts.append(updatedContact)
         }
+        
         return updatedContacts.sorted { $0.name < $1.name }
     }
     
@@ -975,34 +934,34 @@ extension WABackup {
     ///   - waDatabase: The database identifier.
     /// - Returns: A `ContactInfo` object with the user's profile information.
     /// - Throws: An error if the profile cannot be fetched or media files cannot be copied.
-    public func getUserProfile(directoryToSaveMedia directory: URL,
-                               from waDatabase: WADatabase) throws -> ContactInfo? {
-        guard let dbQueue = chatDatabases[waDatabase],
-              let iPhoneBackup = iPhoneBackups[waDatabase] else {
-            throw WABackupError.databaseConnectionError(underlyingError: DatabaseError(message: "Database or backup not found"))
+    public func getUserProfile(directoryToSaveMedia directory: URL) throws -> ContactInfo? {
+        guard let dbQueue = chatDatabase,
+              let iPhoneBackup = iPhoneBackup else {
+            throw WABackupError.databaseConnectionError(
+                underlyingError: DatabaseError(message: "Database or backup not found")
+            )
         }
-
+        
         var ownerProfile = try dbQueue.performRead { db in
             try fetchOwnerProfile(from: db)
         }
+        
         let ownerPhotoTargetUrl = directory.appendingPathComponent("Photo.jpg")
         let ownerThumbnailTargetUrl = directory.appendingPathComponent("Photo.thumb")
-
-        // Attempt to obtain and copy the profile photo.
+        
+        // Copiar foto de perfil
         let ownerPhotoHash = try iPhoneBackup.fetchWAFileHash(endsWith: "Media/Profile/Photo.jpg")
         try copy(hashFile: ownerPhotoHash,
                  toTargetFileUrl: ownerPhotoTargetUrl,
                  from: iPhoneBackup)
-
         delegate?.didWriteMediaFile(fileName: ownerPhotoTargetUrl.lastPathComponent)
         ownerProfile.photoFilename = "Photo.jpg"
-
-        // Attempt to obtain and copy the profile thumbnail.
+        
+        // Copiar thumbnail de perfil
         let ownerThumbnailHash = try iPhoneBackup.fetchWAFileHash(endsWith: "Media/Profile/Photo.thumb")
         try copy(hashFile: ownerThumbnailHash,
                  toTargetFileUrl: ownerThumbnailTargetUrl,
                  from: iPhoneBackup)
-
         delegate?.didWriteMediaFile(fileName: ownerThumbnailTargetUrl.lastPathComponent)
         ownerProfile.thumbnailFilename = "Photo.thumb"
         

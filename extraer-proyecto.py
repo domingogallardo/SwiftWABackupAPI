@@ -3,7 +3,7 @@ import os
 extensiones = {'.swift', '.xib', '.storyboard', '.plist', '.json', '.md'}
 excluir_directorios = {'Pods', '.git', 'DerivedData', 'build', '.build'}
 
-archivo_salida = 'proyecto_swift.txt'
+archivo_salida = 'complete_project.txt'
 
 with open(archivo_salida, 'w', encoding='utf-8') as fout:
     for root, dirs, files in os.walk('.'):
