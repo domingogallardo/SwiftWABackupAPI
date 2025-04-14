@@ -10,9 +10,6 @@
 import Foundation
 import GRDB
 
-/// A unique identifier for a connected WhatsApp database instance.
-public typealias WADatabase = UUID
-
 /// Errors that can occur while accessing or processing WhatsApp backups.
 public enum WABackupError: Error, LocalizedError {
     case directoryAccessError(underlyingError: Error)
@@ -931,7 +928,6 @@ extension WABackup {
     /// Retrieves the user's profile information and copies associated media.
     /// - Parameters:
     ///   - directory: The directory to save the profile media files.
-    ///   - waDatabase: The database identifier.
     /// - Returns: A `ContactInfo` object with the user's profile information.
     /// - Throws: An error if the profile cannot be fetched or media files cannot be copied.
     public func getUserProfile(directoryToSaveMedia directory: URL) throws -> ContactInfo? {
