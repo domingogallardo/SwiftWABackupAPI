@@ -68,10 +68,11 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
     public let lastMessageDate: Date
     public let chatType: ChatType
     public let isArchived: Bool
+    public var photoFilename: String?
     
     /// Initializes a new `ChatInfo` instance.
     init(id: Int, contactJid: String, name: String,
-         numberMessages: Int, lastMessageDate: Date, isArchived: Bool) {
+         numberMessages: Int, lastMessageDate: Date, isArchived: Bool, photoFilename: String? = nil) {
         self.id = id
         self.contactJid = contactJid
         self.name = name
@@ -79,6 +80,7 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
         self.lastMessageDate = lastMessageDate
         self.isArchived = isArchived
         self.chatType = contactJid.hasSuffix("@g.us") ? .group : .individual
+        self.photoFilename = photoFilename
         }
 
     public var description: String {
@@ -92,7 +94,8 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
             + "Name - \(name), Number of Messages - \(numberMessages), "
             + "Last Message Date - \(localDateString), "
             + "Chat Type - \(chatType.rawValue), "
-            + "Is Archived - \(isArchived)"
+            + "Is Archived - \(isArchived), "
+            + "Photo Filename - \(photoFilename ?? "None")"
         }
 }
 
@@ -271,8 +274,9 @@ public class WABackup {
     /// Retrieves all chats from the connected WhatsApp database.
     /// - Returns: An array of `ChatInfo` objects.
     /// - Throws: An error if the database is not connected.
-    public func getChats() throws -> [ChatInfo] {
-        guard let dbQueue = chatDatabase else {
+    public func getChats(directoryToSavePhotos directory: URL? = nil) throws -> [ChatInfo] {
+        guard let dbQueue = chatDatabase,
+              let iPhoneBackup = iPhoneBackup else {
             throw WABackupError.databaseConnectionError(
                 underlyingError: DatabaseError(message: "Database not connected")
             )
@@ -281,7 +285,7 @@ public class WABackup {
         let chatInfos = try dbQueue.performRead { db -> [ChatInfo] in
             let chatSessions = try ChatSession.fetchAllChats(from: db)
 
-            return chatSessions.compactMap { chatSession in
+            return chatSessions.compactMap { chatSession  -> ChatInfo? in
                 guard chatSession.sessionType != 5 else {
                     return nil
                 }
@@ -291,13 +295,23 @@ public class WABackup {
                     chatName = "Me"
                 }
 
+                var photoFilename: String? = nil
+                if let directory = directory {
+                    photoFilename = try? fetchChatPhotoFilename(
+                        for: chatSession.contactJid,
+                        chatId: Int(chatSession.id),
+                        to: directory,
+                        from: iPhoneBackup
+                    )                }
+                
                 return ChatInfo(
                     id: Int(chatSession.id),
                     contactJid: chatSession.contactJid,
                     name: chatName,
                     numberMessages: Int(chatSession.messageCounter),
                     lastMessageDate: chatSession.lastMessageDate,
-                    isArchived: chatSession.isArchived
+                    isArchived: chatSession.isArchived,
+                    photoFilename: photoFilename
                 )
             }
         }
@@ -319,7 +333,6 @@ public class WABackup {
     /// - Returns: An array of `MessageInfo` objects.
     /// - Throws: An error if messages cannot be fetched or processed.
     public func getChatMessages(chatId: Int, directoryToSaveMedia directory: URL?) throws -> ([MessageInfo], [ContactInfo]) {
-        // 1. Verificar base de datos y backup
         guard let dbQueue = chatDatabase,
               let iPhoneBackup = iPhoneBackup else {
             throw WABackupError.databaseConnectionError(
@@ -327,7 +340,6 @@ public class WABackup {
             )
         }
 
-        // 2. Obtener chatInfo y mensajes
         let chatInfo = try fetchChatInfo(id: chatId, from: dbQueue)
         let messages = try fetchMessagesFromDatabase(chatId: chatId, from: dbQueue)
         
@@ -735,6 +747,34 @@ public class WABackup {
 
 // MARK: - Contact-Related Methods
 
+
+    private func fetchChatPhotoFilename(for contactJid: String,
+                                        chatId: Int,
+                                        to directory: URL,
+                                        from backup: IPhoneBackup) throws -> String? {
+        let basePath: String
+        if contactJid.hasSuffix("@s.whatsapp.net") || contactJid.hasSuffix("@c.us") {
+            basePath = "Media/Profile/\(contactJid.extractedPhone)"
+        } else {
+            basePath = "Media/Profile/\(contactJid)"
+        }
+
+        let files = backup.fetchWAFileDetails(contains: basePath)
+
+        guard let latest = getLatestFile(for: basePath, fileExtension: "jpg", files: files)
+            ?? getLatestFile(for: basePath, fileExtension: "thumb", files: files) else {
+            return nil
+        }
+
+        let ext = latest.filename.hasSuffix(".jpg") ? ".jpg" : ".thumb"
+        let filename = "chat_\(chatId)\(ext)"
+        let destinationURL = directory.appendingPathComponent(filename)
+
+        try copy(hashFile: latest.fileHash, toTargetFileUrl: destinationURL, from: backup)
+
+        delegate?.didWriteMediaFile(fileName: filename)
+        return filename
+    }
     
     private func buildContactList(for chatInfo: ChatInfo,
                                   from dbQueue: DatabaseQueue,
