@@ -195,6 +195,8 @@ public struct ContactInfo: CustomStringConvertible, Encodable, Hashable {
     }
 }
 
+public typealias ChatDump = (chatInfo: ChatInfo, messages: [MessageInfo], contacts: [ContactInfo])
+
 /// Protocol to notify delegate about media file operations.
 public protocol WABackupDelegate: AnyObject {
     /// Called when a media file has been written.
@@ -331,7 +333,7 @@ public class WABackup {
     ///   - directory: Optional directory to save media files.
     /// - Returns: An array of `MessageInfo` objects.
     /// - Throws: An error if messages cannot be fetched or processed.
-    public func getChatMessages(chatId: Int, directoryToSaveMedia directory: URL?) throws -> ([MessageInfo], [ContactInfo]) {
+    public func getChat(chatId: Int, directoryToSaveMedia directory: URL?) throws -> ChatDump {
         guard let dbQueue = chatDatabase,
               let iPhoneBackup = iPhoneBackup else {
             throw WABackupError.databaseConnectionError(
@@ -357,7 +359,7 @@ public class WABackup {
             directory: directory
         )
         
-        return (processedMessages, contacts)
+        return (chatInfo, processedMessages, contacts)
     }
     
     /// Fetches chat information by ID.
@@ -745,7 +747,6 @@ public class WABackup {
     }
 
 // MARK: - Contact-Related Methods
-
 
     private func fetchChatPhotoFilename(for contactJid: String,
                                         chatId: Int,
