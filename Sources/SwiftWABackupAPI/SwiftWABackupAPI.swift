@@ -180,7 +180,6 @@ public struct ContactInfo: CustomStringConvertible, Encodable, Hashable {
     public let name: String
     public let phone: String
     public var photoFilename: String?
-    public var thumbnailFilename: String?
 
     public var description: String {
         return "Contact: Phone - \(phone), Name - \(name)"
