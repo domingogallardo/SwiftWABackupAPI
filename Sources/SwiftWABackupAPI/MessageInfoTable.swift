@@ -4,39 +4,28 @@
 //
 //  Created by Domingo Gallardo on 3/10/24.
 //
+//
+//  Re‑implemented with GRDBSchemaCheckable + FetchableByID
+//
 
 import Foundation
 import GRDB
 
-struct MessageInfoTable {
+struct MessageInfoTable: FetchableByID {
+    // MARK:‑ Static metadata required by the protocols
+    static let tableName      = "ZWAMESSAGEINFO"
+    static let expectedColumns: Set<String> = ["ZRECEIPTINFO", "ZMESSAGE"]
+    static let primaryKey     = "ZMESSAGE"         // ← clave que enlaza con ZWAMESSAGE
+    typealias Key = Int      // o Int64 si prefieres
+
+    // MARK:‑ Stored properties
     let messageId: Int64
     let receiptInfo: Data?
-    
-    // Define the expected columns for the ZWAMESSAGEINFO table
-    static let expectedColumns: Set<String> = ["ZRECEIPTINFO", "ZMESSAGE"]
 
-    // Method to check the schema of the ZWAMESSAGEINFO table
-    static func checkSchema(in db: Database) throws {
-        let tableName = "ZWAMESSAGEINFO"
-        try checkTableSchema(tableName: tableName, expectedColumns: expectedColumns, in: db)
-    }
-    
+    // MARK:‑ Row → Struct
     init(row: Row) {
-        self.messageId = row["ZMESSAGE"] as? Int64 ?? 0
-        self.receiptInfo = row["ZRECEIPTINFO"] as? Data
-    }
-    
-    static func fetchMessageInfo(byMessageId messageId: Int, from db: Database) throws -> MessageInfoTable? {
-        let sql = """
-            SELECT * FROM ZWAMESSAGEINFO WHERE ZMESSAGE = ?
-            """
-        do {
-            if let row = try Row.fetchOne(db, sql: sql, arguments: [messageId]) {
-                return MessageInfoTable(row: row)
-            }
-            return nil
-        } catch {
-            throw WABackupError.databaseConnectionError(underlyingError: error)
-        }
+        // usa el helper Row.value(for:default:) propuesto
+        messageId   = row.value(for: "ZMESSAGE", default: 0)
+        receiptInfo = row["ZRECEIPTINFO"] as? Data
     }
 }

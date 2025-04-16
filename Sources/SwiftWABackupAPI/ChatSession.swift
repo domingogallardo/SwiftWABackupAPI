@@ -2,13 +2,24 @@
 //  ChatSession.swift
 //  SwiftWABackupAPI
 //
-//  Created by Domingo Gallardo on 3/10/24.
+//  Refactor: GRDBSchemaCheckable + FetchableByID
 //
 
 import Foundation
 import GRDB
 
-struct ChatSession {
+struct ChatSession: FetchableByID {
+    // MARK:‑ Protocol metadata
+    static let tableName      = "ZWACHATSESSION"
+    static let expectedColumns: Set<String> = [
+        "Z_PK", "ZCONTACTJID", "ZPARTNERNAME",
+        "ZLASTMESSAGEDATE", "ZMESSAGECOUNTER",
+        "ZSESSIONTYPE", "ZARCHIVED"
+    ]
+    static let primaryKey     = "Z_PK"
+    typealias Key = Int64
+
+    // MARK:‑ Stored properties
     let id: Int64
     let contactJid: String
     let partnerName: String
@@ -16,104 +27,85 @@ struct ChatSession {
     var messageCounter: Int64
     let isArchived: Bool
     let sessionType: Int64
-    
-    var isGroupChat: Bool {
-            return contactJid.hasSuffix("@g.us")
-    }
-    
-    // Define the expected columns for the ZWACHATSESSION table
-    static let expectedColumns: Set<String> = [
-        "Z_PK", "ZCONTACTJID", "ZPARTNERNAME",
-        "ZLASTMESSAGEDATE", "ZMESSAGECOUNTER", "ZSESSIONTYPE", "ZARCHIVED"
-    ]
 
-    // Method to check the schema of the ZWACHATSESSION table
-    static func checkSchema(in db: Database) throws {
-        let tableName = "ZWACHATSESSION"
-        try checkTableSchema(tableName: tableName, expectedColumns: expectedColumns, in: db)
-    }
-    
+    // MARK:‑ Computed
+    var isGroupChat: Bool { contactJid.hasSuffix("@g.us") }
+
+    // MARK:‑ Row → Struct
     init(row: Row) {
-        self.id = row["Z_PK"] as? Int64 ?? 0
-        self.contactJid = row["ZCONTACTJID"] as? String ?? ""
-        self.partnerName = row["ZPARTNERNAME"] as? String ?? ""
-        self.lastMessageDate = convertTimestampToDate(timestamp: row["ZLASTMESSAGEDATE"] as Any)
-        self.messageCounter = row["ZMESSAGECOUNTER"] as? Int64 ?? 0
-        self.isArchived = (row["ZARCHIVED"] as? Int64 ?? 0) == 1
-        self.sessionType = row["ZSESSIONTYPE"] as? Int64 ?? 0
+        id             = row.value(for: "Z_PK",            default: 0)
+        contactJid     = row.value(for: "ZCONTACTJID",     default: "")
+        partnerName    = row.value(for: "ZPARTNERNAME",    default: "")
+        lastMessageDate = row.date(for: "ZLASTMESSAGEDATE")
+        messageCounter = row.value(for: "ZMESSAGECOUNTER", default: 0)
+        isArchived     = row.value(for: "ZARCHIVED",       default: Int64(0)) == 1
+        sessionType    = row.value(for: "ZSESSIONTYPE",    default: 0)
     }
-    
+}
+
+// MARK:‑ Convenience API (firmas preservadas)
+extension ChatSession {
+
+    /// Chats con al menos un mensaje distinto de STATUS.
     static func fetchAllChats(from db: Database) throws -> [ChatSession] {
         let statusType = SupportedMessageType.status.rawValue
+        let supported  = SupportedMessageType.allValues
+        let inClause   = supported.count.questionMarks
 
-        // Prepare the list of supported message types
-        let supportedTypes = SupportedMessageType.allCases
-            .map { $0.rawValue }
-
-        // Build the placeholders for the IN clause
-        let placeholders = databaseQuestionMarks(count: supportedTypes.count)
-
-        // Obtain all the chats excepts those whose messages are of type `status`
         let sql = """
-            SELECT cs.*, COUNT(m.Z_PK) as messageCount
-            FROM ZWACHATSESSION cs
+            SELECT cs.*, COUNT(m.Z_PK) AS messageCount
+            FROM \(tableName) cs
             JOIN ZWAMESSAGE m ON m.ZCHATSESSION = cs.Z_PK
             WHERE cs.ZCONTACTJID NOT LIKE ?
-            AND m.ZMESSAGETYPE IN (\(placeholders))
+              AND m.ZMESSAGETYPE IN (\(inClause))
             GROUP BY cs.Z_PK
             HAVING SUM(CASE WHEN m.ZMESSAGETYPE != ? THEN 1 ELSE 0 END) > 0
             """
 
-        // Prepare the arguments, including the STATUS type for the HAVING clause
-        var arguments: [DatabaseValueConvertible] = ["%@status"] + supportedTypes
-        arguments.append(statusType)
+        var args: [DatabaseValueConvertible] = ["%@status"] + supported
+        args.append(statusType)
 
-        let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments))
-        return rows.map { row in
-            var chatSession = ChatSession(row: row)
-            // Actualizar el contador de mensajes con el conteo real
-            chatSession.messageCounter = row["messageCount"] as? Int64 ?? 0
-            return chatSession
-        }
-    }
-    
-    static func fetchChat(byId id: Int, from db: Database) throws -> ChatSession {
-        let sql = """
-            SELECT * FROM ZWACHATSESSION WHERE Z_PK = ?
-            """
-        if let row = try Row.fetchOne(db, sql: sql, arguments: [id]) {
-            return ChatSession(row: row)
-        } else {
-            throw WABackupError.databaseConnectionError(underlyingError: DatabaseError(message: "Chat not found"))
-        }
-    }
-    
-    
-    static func fetchChatSessionName(for contactJid: String, from db: Database) throws -> String? {
-        let sql = """
-            SELECT ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID = ?
-        """
-        let arguments: [DatabaseValueConvertible] = [contactJid]
-        
-        if let name: String = try Row.fetchOne(db, sql: sql, arguments: StatementArguments(arguments))?["ZPARTNERNAME"] {
-            return name
-        }
-        return nil
+        return try Row.fetchAll(db, sql: sql,
+                                arguments: StatementArguments(args))
+                     .map { row in
+                         var session = ChatSession(row: row)
+                         session.messageCounter =
+                             row["messageCount"] as? Int64 ?? 0
+                         return session
+                     }
     }
 
+    /// Chat por id o error `chatNotFound`.
+    static func fetchChat(byId id: Int,
+                          from db: Database) throws -> ChatSession {
+        if let chat = try fetch(by: Int64(id), from: db) { return chat }
+        throw WABackupError.chatNotFound(id: id)
+    }
+
+    /// Nombre de la sesión para un `contactJid`.
+    static func fetchChatSessionName(for contactJid: String,
+                                     from db: Database) throws -> String? {
+        try Row.fetchOne(
+            db,
+            sql: "SELECT ZPARTNERNAME FROM \(tableName) WHERE ZCONTACTJID = ?",
+            arguments: [contactJid]
+        )?["ZPARTNERNAME"]
+    }
+
+    // MARK:‑ SenderInfo helper usado por WABackup
     typealias SenderInfo = (senderName: String?, senderPhone: String?)
-    
-    static func fetchSenderInfo(chatId: Int, from db: Database) throws ->  SenderInfo {
-        let sql = """
-            SELECT ZCONTACTJID, ZPARTNERNAME FROM ZWACHATSESSION WHERE Z_PK = ?
-            """
-        let row = try Row.fetchOne(db, sql: sql, arguments: [chatId])
-        
-        if let sessionRow = row {
-            let senderPhone = (sessionRow["ZCONTACTJID"] as? String)?.extractedPhone
-            let senderName = sessionRow["ZPARTNERNAME"] as? String
-            return (senderName, senderPhone)
+
+    static func fetchSenderInfo(chatId: Int,
+                                from db: Database) throws -> SenderInfo {
+        guard let row = try Row.fetchOne(
+            db,
+            sql: "SELECT ZCONTACTJID, ZPARTNERNAME FROM \(tableName) WHERE Z_PK = ?",
+            arguments: [chatId]
+        ) else {
+            return (nil, nil)
         }
-        return (nil, nil)
+        let phone = (row["ZCONTACTJID"] as? String)?.extractedPhone
+        let name  = row["ZPARTNERNAME"] as? String
+        return (name, phone)
     }
 }
