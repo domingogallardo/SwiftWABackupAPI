@@ -580,8 +580,11 @@ public class WABackup {
     }
     
     /// Fetches reactions to a message.
-    private func fetchReactions(forMessageId messageId: Int, from db: Database) throws -> [Reaction]? {
-        if let messageInfo = try MessageInfoTable.fetchMessageInfo(byMessageId: messageId, from: db),
+    private func fetchReactions(forMessageId messageId: Int,
+                                from db: Database) throws -> [Reaction]? {
+        // Tras la refactorización, MessageInfoTable adoptó FetchableByID,
+        // por lo que el método adecuado es `fetch(by:from:)`.
+        if let messageInfo = try MessageInfoTable.fetch(by: messageId, from: db),
            let reactionsData = messageInfo.receiptInfo {
             return extractReactions(from: reactionsData)
         }
@@ -675,7 +678,7 @@ public class WABackup {
         let senderPhone = jid.extractedPhone
         if let senderName = try ChatSession.fetchChatSessionName(for: jid, from: db) {
             return (senderName, senderPhone)
-        } else if let pushName = try ProfilePushName.fetchProfilePushName(for: jid, from: db) {
+        } else if let pushName =  try ProfilePushName.pushName(for: jid, from: db) {
             return ("~" + pushName, senderPhone)
         } else {
             return (contactNameGroupMember, senderPhone)

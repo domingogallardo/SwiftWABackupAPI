@@ -3,85 +3,77 @@
 //  SwiftWABackupAPI
 //
 //  Created by Domingo Gallardo on 3/10/24.
+//  Refactor: adopta GRDBSchemaCheckable + FetchableByID
 //
-
 
 import GRDB
 
-struct GroupMember {
+struct GroupMember: FetchableByID {
+    // MARK: - Protocol metadata
+    static let tableName      = "ZWAGROUPMEMBER"
+    static let expectedColumns: Set<String> = ["Z_PK", "ZMEMBERJID", "ZCONTACTNAME"]
+    static let primaryKey     = "Z_PK"
+    typealias Key = Int64
+
+    // MARK: - Stored properties
     let id: Int64
     let memberJid: String
     let contactName: String?
-    
-    // Define the expected columns for the ZWAGROUPMEMBER table
-    static let expectedColumns: Set<String> = ["Z_PK", "ZMEMBERJID", "ZCONTACTNAME"]
 
-    // Method to check the schema of the ZWAGROUPMEMBER table
-    static func checkSchema(in db: Database) throws {
-        let tableName = "ZWAGROUPMEMBER"
-        try checkTableSchema(tableName: tableName, expectedColumns: expectedColumns, in: db)
-    }
-    
+    // MARK: - Row → Struct
     init(row: Row) {
-        self.id = row["Z_PK"] as? Int64 ?? 0
-        self.memberJid = row["ZMEMBERJID"] as? String ?? ""
-        self.contactName = row["ZCONTACTNAME"] as? String
+        id          = row.value(for: "Z_PK",        default: 0)
+        memberJid   = row.value(for: "ZMEMBERJID",  default: "")
+        contactName = row["ZCONTACTNAME"]
     }
-    
-    static func fetchGroupMember(byId id: Int64, from db: Database) throws -> GroupMember? {
-        let sql = """
-            SELECT * FROM ZWAGROUPMEMBER WHERE Z_PK = ?
-            """
-        if let row = try Row.fetchOne(db, sql: sql, arguments: [id]) {
-            return GroupMember(row: row)
-        }
-        return nil
+}
+
+// MARK: - Convenience API (mantiene firmas usadas en WABackup)
+extension GroupMember {
+
+    /// Devuelve el miembro por id o `nil`.
+    static func fetchGroupMember(byId id: Int64,
+                                 from db: Database) throws -> GroupMember? {
+        try fetch(by: id, from: db)
     }
-    
-    // Fetches all distinct group member IDs for a given chat session and supported message types.
-    static func fetchGroupMemberIds(forChatId chatId: Int, from db: Database) throws -> [Int64] {
-        let supportedMessageTypes = SupportedMessageType.allValues
-            .map { "\($0)" }
+
+    /// Ids únicos de miembros de un chat que envían mensajes soportados.
+    static func fetchGroupMemberIds(forChatId chatId: Int,
+                                    from db: Database) throws -> [Int64] {
+
+        let types = SupportedMessageType.allValues
+            .map(String.init)
             .joined(separator: ", ")
 
-        // Construct the SQL query
         let sql = """
-            SELECT DISTINCT ZGROUPMEMBER 
-            FROM ZWAMESSAGE 
-            WHERE ZCHATSESSION = ? 
-            AND ZMESSAGETYPE IN (\(supportedMessageTypes))
+            SELECT DISTINCT ZGROUPMEMBER
+            FROM ZWAMESSAGE
+            WHERE ZCHATSESSION = ?
+              AND ZMESSAGETYPE IN (\(types))
             """
-        
-        // Execute the query and extract member IDs
-        let rows = try Row.fetchAll(db, sql: sql, arguments: [chatId])
-        let memberIds = rows.compactMap { row -> Int64? in
-            return row["ZGROUPMEMBER"] as? Int64
-        }
-        
-        return memberIds
+
+        return try Row.fetchAll(db, sql: sql, arguments: [chatId])
+                      .compactMap { $0["ZGROUPMEMBER"] as? Int64 }
     }
-    
-    // Represents the raw data needed to obtain SenderInfo.
+
+    // MARK: Sender‑info “raw” acceso conservado
     struct GroupMemberSenderInfo {
         let memberJid: String
         let contactName: String?
     }
-    
-    /// Fetches raw sender information from a group member.
-    static func fetchRawSenderInfo(memberId: Int, from db: Database) throws -> GroupMemberSenderInfo? {
-        let sql = """
-            SELECT ZMEMBERJID, ZCONTACTNAME FROM ZWAGROUPMEMBER WHERE Z_PK = ?
-            """
-        guard let row = try Row.fetchOne(db, sql: sql, arguments: [memberId]) else {
-            return nil
-        }
-        
-        guard let memberJid = row["ZMEMBERJID"] as? String else {
-            return nil
-        }
-        
-        let contactName = row["ZCONTACTNAME"] as? String
-        
-        return GroupMemberSenderInfo(memberJid: memberJid, contactName: contactName)
+
+    static func fetchRawSenderInfo(memberId: Int,
+                                   from db: Database) throws -> GroupMemberSenderInfo? {
+        guard let row = try Row.fetchOne(
+            db,
+            sql: "SELECT ZMEMBERJID, ZCONTACTNAME FROM \(tableName) WHERE \(primaryKey) = ?",
+            arguments: [memberId]
+        ) else { return nil }
+
+        guard let jid: String = row["ZMEMBERJID"] else { return nil }
+        return GroupMemberSenderInfo(
+            memberJid: jid,
+            contactName: row["ZCONTACTNAME"]
+        )
     }
 }
