@@ -79,7 +79,7 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
         self.numberMessages = numberMessages
         self.lastMessageDate = lastMessageDate
         self.isArchived = isArchived
-        self.chatType = contactJid.hasSuffix("@g.us") ? .group : .individual
+        self.chatType = contactJid.isGroupJid ? .group : .individual
         self.photoFilename = photoFilename
         }
 
@@ -637,9 +637,9 @@ public class WABackup {
 
         // 1. Construir la ruta base según tipo de JID
         let basePath: String
-        if contactJid.hasSuffix("@s.whatsapp.net") {
+        if contactJid.isIndividualJid  {
             basePath = "Media/Profile/\(contactJid.extractedPhone)"
-        } else if contactJid.hasSuffix("@g.us") {
+        } else if contactJid.isGroupJid {
             let groupId = contactJid.components(separatedBy: "@").first ?? contactJid
             basePath = "Media/Profile/\(groupId)"
         } else {
@@ -651,7 +651,7 @@ public class WABackup {
         let files = backup.fetchWAFileDetails(contains: basePath)
         guard let latest = FileUtils.latestFile(for: basePath, fileExtension: "jpg", in: files)
             ?? FileUtils.latestFile(for: basePath, fileExtension: "thumb", in: files) else {
-            let type = contactJid.hasSuffix("@g.us") ? "Group" : "Individual"
+            let type = contactJid.isGroupJid ? "Group" : "Individual"
             print("📭 No image found for \(type) chat [ID: \(chatId), JID: \(contactJid)]")
             return nil
         }
@@ -732,11 +732,3 @@ public class WABackup {
     }
 }
 
-// MARK: - String Extension
-
-extension String {
-    /// Extracts the phone number from a JID string.
-    var extractedPhone: String {
-        return self.components(separatedBy: "@").first ?? ""
-    }
-}
