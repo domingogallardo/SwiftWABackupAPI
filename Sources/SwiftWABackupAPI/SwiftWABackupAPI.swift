@@ -223,6 +223,8 @@ public class WABackup {
     private var iPhoneBackup: IPhoneBackup?
     private var ownerJid: String?
     
+    private var mediaCopier: MediaCopier?
+    
     /// Initializes the backup manager with an optional custom backup path.
     public init(backupPath: String = "~/Library/Application Support/MobileSync/Backup/") {
         self.phoneBackup = BackupManager(backupPath: backupPath)
@@ -250,6 +252,7 @@ public class WABackup {
         self.chatDatabase = dbQueue
         self.iPhoneBackup = backup
         self.ownerJid = try dbQueue.performRead { try Message.fetchOwnerJid(from: $0) }
+        self.mediaCopier = MediaCopier(backup: backup, delegate: delegate)   // ← NUEVO
     }
     
     /// Validates the schema of the WhatsApp database.
@@ -524,34 +527,21 @@ public class WABackup {
         return (mediaFilename, caption, seconds, latitude, longitude, error)
     }
     
-    /// Fetches the media filename and copies the media file if necessary.
     private func fetchMediaFilename(forMediaItem mediaItemId: Int64,
                                     from iPhoneBackup: IPhoneBackup,
                                     toDirectory directoryURL: URL?,
                                     from db: Database) throws -> MediaFilename? {
-        do {
-            if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
-               let mediaLocalPath = mediaItem.localPath {
-                
-                guard let hashFile = try? iPhoneBackup.fetchWAFileHash(endsWith: mediaLocalPath) else {
-                    return MediaFilename.error("Media file not found: \(mediaLocalPath)")
-                }
-                
-                let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
-                let mediaFileName = try copyMediaFile(hashFile: hashFile,
-                                                      fileName: fileName,
-                                                      to: directoryURL,
-                                                      from: iPhoneBackup)
-                return MediaFilename.fileName(mediaFileName)
-            }
-            return nil
-        } catch let error as WABackupError {
-            // Error thrown by the copy function or MediaItem.fetchMediaItem.
-            throw error
-        } catch {
-            // Other errors.
-            throw WABackupError.databaseConnectionError(underlyingError: error)
+        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
+           let mediaLocalPath = mediaItem.localPath,
+           let hashFile = try? iPhoneBackup.fetchWAFileHash(endsWith: mediaLocalPath) {
+
+            let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
+            try mediaCopier?.copy(hash: hashFile,
+                                  named: fileName,
+                                  to: directoryURL)
+            return .fileName(fileName)
         }
+        return nil
     }
     
     /// Fetches group member information by member ID.
@@ -660,17 +650,6 @@ public class WABackup {
         case error(String)
     }
     
-    /// Copies a media file from the backup to a specified directory.
-    private func copyMediaFile(hashFile: String, fileName: String, to directoryURL: URL?, from iPhoneBackup: IPhoneBackup) throws -> String {
-        if let directoryURL = directoryURL {
-            let targetFileUrl = directoryURL.appendingPathComponent(fileName)
-            try copy(hashFile: hashFile, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
-        }
-        // Notify the delegate that a media file has been written.
-        delegate?.didWriteMediaFile(fileName: fileName)
-        return fileName
-    }
-    
     /// Obtains sender information based on the JID.
     private func obtainSenderInfo(jid: String,
                                   contactNameGroupMember: String?,
@@ -731,61 +710,45 @@ public class WABackup {
     private func sortMessagesByDate(_ messages: [MessageInfo]) -> [MessageInfo] {
         return messages.sorted { $0.date > $1.date }
     }
-    
-    /// Copies a file from the backup to a target URL if the URL is provided.
-    private func copy(hashFile: String, toTargetFileUrl url: URL?, from iPhoneBackup: IPhoneBackup) throws {
-        guard let url = url else {
-            return
-        }
-        let sourceFileUrl = iPhoneBackup.getUrl(fileHash: hashFile)
-        let fileManager = FileManager.default
-        // If the file already exists, do nothing.
-        if !fileManager.fileExists(atPath: url.path) {
-            do {
-                try fileManager.copyItem(at: sourceFileUrl, to: url)
-            } catch {
-                throw WABackupError.fileCopyError(source: sourceFileUrl, destination: url, underlyingError: error)
-            }
-        }
-    }
 
 // MARK: - Contact-Related Methods
 
+    /// Devuelve el nombre de archivo de la foto del chat y lo copia al directorio indicado.
     private func fetchChatPhotoFilename(for contactJid: String,
                                         chatId: Int,
                                         to directory: URL,
                                         from backup: IPhoneBackup) throws -> String? {
-        let basePath: String
 
+        // 1. Construir la ruta base según tipo de JID
+        let basePath: String
         if contactJid.hasSuffix("@s.whatsapp.net") {
-            // Chats individuales: usar solo el número
             basePath = "Media/Profile/\(contactJid.extractedPhone)"
         } else if contactJid.hasSuffix("@g.us") {
-            // Grupos: usar solo el ID sin sufijo
             let groupId = contactJid.components(separatedBy: "@").first ?? contactJid
             basePath = "Media/Profile/\(groupId)"
         } else {
-            // No reconocido (no usamos esta rama para buscar imagen)
             print("⚠️  ContactJid '\(contactJid)' has unsupported format. No image will be retrieved.")
             return nil
         }
 
+        // 2. Localizar el fichero más reciente (.jpg o .thumb)
         let files = backup.fetchWAFileDetails(contains: basePath)
         guard let latest = getLatestFile(for: basePath, fileExtension: "jpg", files: files)
-            ?? getLatestFile(for: basePath, fileExtension: "thumb", files: files) else {
+           ??  getLatestFile(for: basePath, fileExtension: "thumb", files: files) else {
             let type = contactJid.hasSuffix("@g.us") ? "Group" : "Individual"
             print("📭 No image found for \(type) chat [ID: \(chatId), JID: \(contactJid)]")
             return nil
         }
 
-        let ext = latest.filename.hasSuffix(".jpg") ? ".jpg" : ".thumb"
-        let filename = "chat_\(chatId)\(ext)"
-        let destinationURL = directory.appendingPathComponent(filename)
+        // 3. Nombre destino “chat_<id>.ext” y copia mediante MediaCopier
+        let ext       = latest.filename.hasSuffix(".jpg") ? ".jpg" : ".thumb"
+        let fileName  = "chat_\(chatId)\(ext)"
 
-        try copy(hashFile: latest.fileHash, toTargetFileUrl: destinationURL, from: backup)
-        delegate?.didWriteMediaFile(fileName: filename)
+        try mediaCopier?.copy(hash: latest.fileHash,
+                              named: fileName,
+                              to: directory) 
 
-        return filename
+        return fileName
     }
     
     private func buildContactList(for chatInfo: ChatInfo,
@@ -835,22 +798,20 @@ public class WABackup {
     
     /// Copies contact media files if available.
     private func copyContactMedia(for contact: ContactInfo, from iPhoneBackup: IPhoneBackup, to directory: URL?) throws -> ContactInfo {
-        var updatedContact = contact
-        let contactPhotoFilename = "Media/Profile/\(contact.phone)"
-        let filesNamesAndHashes = iPhoneBackup.fetchWAFileDetails(contains: contactPhotoFilename)
-        
-        // Primero intenta jpg, si no existe intenta thumb
-        let latestFile = getLatestFile(for: contactPhotoFilename, fileExtension: "jpg", files: filesNamesAndHashes)
-        ?? getLatestFile(for: contactPhotoFilename, fileExtension: "thumb", files: filesNamesAndHashes)
-        
-        if let latestFile = latestFile {
-            let targetFilename = contact.phone + (latestFile.filename.hasSuffix(".jpg") ? ".jpg" : ".thumb")
-            let targetFileUrl = directory?.appendingPathComponent(targetFilename)
-            try copy(hashFile: latestFile.fileHash, toTargetFileUrl: targetFileUrl, from: iPhoneBackup)
-            delegate?.didWriteMediaFile(fileName: targetFilename)
-            updatedContact.photoFilename = targetFilename
+        var updated = contact
+        let prefix = "Media/Profile/\(contact.phone)"
+        let files  = iPhoneBackup.fetchWAFileDetails(contains: prefix)
+
+        let latest = getLatestFile(for: prefix, fileExtension: "jpg",   files: files) ??
+                     getLatestFile(for: prefix, fileExtension: "thumb", files: files)
+        if let (fileName, hash) = latest {
+            let targetFileName = contact.phone + (fileName.hasSuffix(".jpg") ? ".jpg" : ".thumb")
+            try mediaCopier?.copy(hash: hash,
+                                  named: targetFileName,
+                                  to: directory)
+            updated.photoFilename = targetFileName
         }
-        return updatedContact
+        return updated
     }
     
     /// Obtains the latest file for a given prefix and file extension.
