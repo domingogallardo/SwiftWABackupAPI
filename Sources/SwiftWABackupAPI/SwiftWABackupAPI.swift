@@ -649,8 +649,8 @@ public class WABackup {
 
         // 2. Localizar el fichero más reciente (.jpg o .thumb)
         let files = backup.fetchWAFileDetails(contains: basePath)
-        guard let latest = getLatestFile(for: basePath, fileExtension: "jpg", files: files)
-           ??  getLatestFile(for: basePath, fileExtension: "thumb", files: files) else {
+        guard let latest = FileUtils.latestFile(for: basePath, fileExtension: "jpg", in: files)
+            ?? FileUtils.latestFile(for: basePath, fileExtension: "thumb", in: files) else {
             let type = contactJid.hasSuffix("@g.us") ? "Group" : "Individual"
             print("📭 No image found for \(type) chat [ID: \(chatId), JID: \(contactJid)]")
             return nil
@@ -713,62 +713,22 @@ public class WABackup {
     }
     
     /// Copies contact media files if available.
-    private func copyContactMedia(for contact: ContactInfo, from iPhoneBackup: IPhoneBackup, to directory: URL?) throws -> ContactInfo {
-        var updated = contact
-        let prefix = "Media/Profile/\(contact.phone)"
-        let files  = iPhoneBackup.fetchWAFileDetails(contains: prefix)
+    private func copyContactMedia(for contact: ContactInfo,
+                                  from iPhoneBackup: IPhoneBackup,
+                                  to directory: URL?) throws -> ContactInfo {
 
-        let latest = getLatestFile(for: prefix, fileExtension: "jpg",   files: files) ??
-                     getLatestFile(for: prefix, fileExtension: "thumb", files: files)
+        var updated = contact
+        let prefix  = "Media/Profile/\(contact.phone)"
+        let files   = iPhoneBackup.fetchWAFileDetails(contains: prefix)
+
+        let latest = FileUtils.latestFile(for: prefix, fileExtension: "jpg", in: files)
+                ??  FileUtils.latestFile(for: prefix,  fileExtension: "thumb", in: files)
         if let (fileName, hash) = latest {
             let targetFileName = contact.phone + (fileName.hasSuffix(".jpg") ? ".jpg" : ".thumb")
-            try mediaCopier?.copy(hash: hash,
-                                  named: targetFileName,
-                                  to: directory)
+            try mediaCopier?.copy(hash: hash, named: targetFileName, to: directory)
             updated.photoFilename = targetFileName
         }
         return updated
-    }
-    
-    /// Obtains the latest file for a given prefix and file extension.
-    private func getLatestFile(for prefixFilename: String,
-                               fileExtension: String,
-                               files namesAndHashes: [FilenameAndHash])
-    -> (FilenameAndHash)? {
-        
-        guard !namesAndHashes.isEmpty else {
-            return nil
-        }
-        
-        var latestFile: FilenameAndHash?  = nil
-        var latestTimeSuffix = 0
-        
-        for nameAndHash in namesAndHashes {
-            if let timeSuffix = extractTimeSuffix(from: prefixFilename,
-                                                  fileExtension: fileExtension,
-                                                  fileName: nameAndHash.filename) {
-                if timeSuffix > latestTimeSuffix {
-                    latestFile = (nameAndHash.filename, nameAndHash.fileHash)
-                    latestTimeSuffix = timeSuffix
-                }
-            }
-        }
-        return latestFile
-    }
-    
-    /// Extracts the time suffix from a filename.
-    private func extractTimeSuffix(from prefixFilename: String,
-                                   fileExtension: String,
-                                   fileName: String) -> Int? {
-        let pattern = prefixFilename + "-(\\d+)\\." + fileExtension
-        let regex = try? NSRegularExpression(pattern: pattern)
-        let fullRange = NSRange(fileName.startIndex..<fileName.endIndex, in: fileName)
-        if let match = regex?.firstMatch(in: fileName, range: fullRange) {
-            let timeSuffixString = (fileName as NSString).substring(with: match.range(at: 1))
-            let timeSuffix = Int(timeSuffixString) ?? 0
-            return timeSuffix
-        }
-        return nil
     }
 }
 
