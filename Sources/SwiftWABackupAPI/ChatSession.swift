@@ -29,7 +29,7 @@ struct ChatSession: FetchableByID {
     let sessionType: Int64
 
     // MARK:‑ Computed
-    var isGroupChat: Bool { contactJid.hasSuffix("@g.us") }
+    var isGroupChat: Bool { contactJid.isGroupJid }
 
     // MARK:‑ Row → Struct
     init(row: Row) {
