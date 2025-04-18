@@ -79,7 +79,7 @@ extension ChatSession {
     static func fetchChat(byId id: Int,
                           from db: Database) throws -> ChatSession {
         if let chat = try fetch(by: Int64(id), from: db) { return chat }
-        throw DatabaseErrorWA.recordNotFound(table: "ZWACHATSESSION", id: id)
+        throw DatabaseErrorWA.recordNotFound(table: Self.tableName, id: id)
     }
 
     /// Nombre de la sesión para un `contactJid`.

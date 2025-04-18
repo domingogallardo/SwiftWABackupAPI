@@ -7,9 +7,6 @@
 
 import GRDB
 
-func databaseQuestionMarks(count: Int) -> String {
-    return Array(repeating: "?", count: count).joined(separator: ", ")
-}
 
 func checkTableSchema(tableName: String, expectedColumns: Set<String>, in db: Database) throws {
     // Check if the table exists

@@ -14,7 +14,7 @@ import GRDB
 struct MessageInfoTable: FetchableByID {
     // MARK:‑ Static metadata required by the protocols
     static let tableName      = "ZWAMESSAGEINFO"
-    static let expectedColumns: Set<String> = ["ZRECEIPTINFO", "ZMESSAGE"]
+    static let expectedColumns: Set<String> = ["Z_PK", "ZRECEIPTINFO", "ZMESSAGE"]
     static let primaryKey     = "ZMESSAGE"         // ← clave que enlaza con ZWAMESSAGE
     typealias Key = Int      // o Int64 si prefieres
 

@@ -56,7 +56,7 @@ public extension FetchableByID {
     /// Convenience: throws if not found.
     static func require(by id: Key, from db: Database) throws -> Self {
         guard let value = try fetch(by: id, from: db) else {
-            throw DatabaseErrorWA.recordNotFound(table: "ZWAMESSAGE", id: Int64("\(id)") ?? -1)
+            throw DatabaseErrorWA.recordNotFound(table: Self.tableName, id: Int64("\(id)") ?? -1)
         }
         return value
     }
