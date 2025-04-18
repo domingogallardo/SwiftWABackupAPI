@@ -39,10 +39,10 @@ struct MediaCopier {
         do {
             try fm.copyItem(at: sourceURL, to: targetURL)
         } catch {
-            throw WABackupError.fileCopyError(
+            throw BackupError.fileCopy(
                 source: sourceURL,
                 destination: targetURL,
-                underlyingError: error
+                underlying: error
             )
         }
     }

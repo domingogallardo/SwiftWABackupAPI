@@ -14,8 +14,7 @@ func databaseQuestionMarks(count: Int) -> String {
 func checkTableSchema(tableName: String, expectedColumns: Set<String>, in db: Database) throws {
     // Check if the table exists
     guard try db.tableExists(tableName) else {
-        throw WABackupError.databaseUnsupportedSchema(
-            reason: "Table \(tableName) does not exist")
+        throw DatabaseErrorWA.unsupportedSchema(reason: "Table \(tableName) does not exist")
     }
 
     // Fetch columns of the table
@@ -24,7 +23,7 @@ func checkTableSchema(tableName: String, expectedColumns: Set<String>, in db: Da
 
     // Check if all expected fields exist in the table
     if !expectedColumns.isSubset(of: columnNames) {
-        throw WABackupError.databaseUnsupportedSchema(
+        throw DatabaseErrorWA.unsupportedSchema(
             reason: "Table \(tableName) does not have all expected fields")
     }
 }
