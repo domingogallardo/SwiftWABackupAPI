@@ -10,49 +10,6 @@
 import Foundation
 import GRDB
 
-/// Errors that can occur while accessing or processing WhatsApp backups.
-public enum WABackupError: Error, LocalizedError {
-    case directoryAccessError(underlyingError: Error)
-    case noChatStorageFile
-    case databaseConnectionError(underlyingError: Error)
-    case databaseUnsupportedSchema(reason: String)
-    case invalidBackup(url: URL, reason: String)
-    case fileCopyError(source: URL, destination: URL, underlyingError: Error)
-    case mediaNotFound(path: String)
-    case messageNotFound(id: Int64)
-    case chatNotFound(id: Int)
-    case ownerProfileNotFound
-    case unexpectedError(reason: String)
-    
-    public var errorDescription: String? {
-        // Provides user-friendly error descriptions.
-        switch self {
-        case .directoryAccessError(let error):
-            return "Failed to access directory: \(error.localizedDescription)"
-        case .noChatStorageFile:
-            return "ChatStorage.sqlite file not found in the backup."
-        case .databaseConnectionError(let error):
-            return "Failed to connect to the database: \(error.localizedDescription)"
-        case .databaseUnsupportedSchema(let reason):
-            return "Database has an unsupported schema: \(reason)"
-        case .invalidBackup(let url, let reason):
-            return "Invalid backup at \(url.path): \(reason)"
-        case .fileCopyError(let source, let destination, let error):
-            return "Failed to copy file from \(source.path) to \(destination.path): \(error.localizedDescription)"
-        case .mediaNotFound(let path):
-            return "Media file not found at path: \(path)"
-        case .messageNotFound(let id):
-            return "Message with ID \(id) not found."
-        case .chatNotFound(let id):
-            return "Chat with ID \(id) not found."
-        case .ownerProfileNotFound:
-            return "Owner profile not found in the database."
-        case .unexpectedError(let reason):
-            return "An unexpected error occurred: \(reason)"
-        }
-    }
-}
-
 /// Represents information about a WhatsApp chat.
 public struct ChatInfo: CustomStringConvertible, Encodable {
     /// The type of chat (group or individual)
@@ -209,7 +166,7 @@ extension DatabaseQueue {
         do {
             return try self.read(block)
         } catch {
-            throw WABackupError.databaseConnectionError(underlyingError: error)
+            throw DatabaseErrorWA.connection(error)
         }
     }
 }
@@ -236,7 +193,7 @@ public class WABackup {
         do {
             return try phoneBackup.getBackups()
         } catch {
-            throw WABackupError.directoryAccessError(underlyingError: error)
+            throw BackupError.directoryAccess(error)
         }
     }
     
@@ -269,7 +226,7 @@ public class WABackup {
                 try MessageInfoTable.checkSchema(in: db)
             }
         } catch {
-            throw WABackupError.databaseUnsupportedSchema(reason: "Incorrect WA Database Schema")
+            throw DatabaseErrorWA.unsupportedSchema(reason: "Incorrect WA Database Schema")
         }
     }
 
@@ -281,9 +238,7 @@ public class WABackup {
     public func getChats(directoryToSavePhotos directory: URL? = nil) throws -> [ChatInfo] {
         guard let dbQueue = chatDatabase,
               let iPhoneBackup = iPhoneBackup else {
-            throw WABackupError.databaseConnectionError(
-                underlyingError: DatabaseError(message: "Database not connected")
-            )
+            throw DatabaseErrorWA.connection(DatabaseError(message: "Database not connected"))
         }
 
         let chatInfos = try dbQueue.performRead { db -> [ChatInfo] in
@@ -339,9 +294,7 @@ public class WABackup {
     public func getChat(chatId: Int, directoryToSaveMedia directory: URL?) throws -> ChatDump {
         guard let dbQueue = chatDatabase,
               let iPhoneBackup = iPhoneBackup else {
-            throw WABackupError.databaseConnectionError(
-                underlyingError: DatabaseError(message: "Database or backup not found")
-            )
+            throw DatabaseErrorWA.connection(DatabaseError(message: "Database or backup not found"))
         }
 
         let chatInfo = try fetchChatInfo(id: chatId, from: dbQueue)
@@ -414,7 +367,7 @@ public class WABackup {
     /// Processes a single message to create a `MessageInfo` object.
     private func processSingleMessage(_ message: Message, chatType: ChatInfo.ChatType, directoryToSaveMedia: URL?, iPhoneBackup: IPhoneBackup, from db: Database) throws -> MessageInfo {
         guard let messageType = SupportedMessageType(rawValue: message.messageType) else {
-            throw WABackupError.unexpectedError(reason: "Unsupported message type")
+            throw DomainError.unexpected(reason: "Unsupported message type")
         }
         
         var messageText = message.text

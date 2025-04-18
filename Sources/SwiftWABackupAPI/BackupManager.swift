@@ -54,7 +54,7 @@ public struct BackupManager {
             }
             return (validBackups: validBackups, invalidBackups: invalidBackups)
         } catch {
-            throw WABackupError.directoryAccessError(underlyingError: error)
+            throw BackupError.directoryAccess(error)
         }
     }
 
@@ -62,14 +62,14 @@ public struct BackupManager {
         let fileManager = FileManager.default
 
         guard isDirectory(at: url) else {
-            throw WABackupError.invalidBackup(url: url, reason: "Path is not a directory.")
+            throw BackupError.invalidBackup(url: url, reason: "Path is not a directory.")
         }
 
         let expectedFiles = ["Info.plist", "Manifest.db", "Status.plist"]
         for file in expectedFiles {
             let filePath = url.appendingPathComponent(file).path
             if !fileManager.fileExists(atPath: filePath) {
-                throw WABackupError.invalidBackup(url: url, reason: "\(file) is missing.")
+                throw BackupError.invalidBackup(url: url, reason: "\(file) is missing.")
             }
         }
 
@@ -79,7 +79,7 @@ public struct BackupManager {
             
             guard let plistDict = plistObj as? [String: Any],
                   let date = plistDict["Date"] as? Date else {
-                throw WABackupError.invalidBackup(url: url, reason: "Status.plist is malformed.")
+                throw BackupError.invalidBackup(url: url, reason: "Status.plist is malformed.")
             }
 
             let iPhoneBackup = IPhoneBackup(url: url, creationDate: date)
@@ -88,13 +88,13 @@ public struct BackupManager {
             do {
                 _ = try iPhoneBackup.fetchWAFileHash(endsWith: "ChatStorage.sqlite")
             } catch {
-                throw WABackupError.invalidBackup(url: url, reason: "WhatsApp database not found.")
+                throw BackupError.invalidBackup(url: url, reason: "WhatsApp database not found.")
             }
 
             return iPhoneBackup
 
         } catch {
-            throw WABackupError.directoryAccessError(underlyingError: error)
+            throw BackupError.directoryAccess(error)
         }
     }
 
@@ -136,7 +136,7 @@ public struct IPhoneBackup {
     // WhatsApp backup inside the iPhone backup.
     public func fetchWAFileHash(endsWith relativePath: String) throws -> String {
         guard let manifestDb = connectToManifestDB() else {
-            throw WABackupError.databaseConnectionError(underlyingError: DatabaseError(message: "Unable to connect to Manifest.db"))
+            throw DatabaseErrorWA.connection(DatabaseError(message: "Unable to connect to Manifest.db"))
         }
 
         do {
@@ -148,11 +148,11 @@ public struct IPhoneBackup {
                 if let fileID: String = row?["fileID"] {
                     return fileID
                 } else {
-                    throw WABackupError.mediaNotFound(path: relativePath)
+                    throw DomainError.mediaNotFound(path: relativePath)
                 }
             }
         } catch {
-            throw WABackupError.databaseConnectionError(underlyingError: error)
+            throw DatabaseErrorWA.connection(error)
         }
     }
 
