@@ -8,11 +8,6 @@
 import Foundation
 import GRDB
 
-
-public enum BackupManagerError: Error {
-    case directoryAccessError(error: Error)
-}
-
 // A backup is valid if it contains the WhatsApp sqlite database
 public typealias BackupFetchResult = (validBackups: [IPhoneBackup], invalidBackups: [URL])
 
