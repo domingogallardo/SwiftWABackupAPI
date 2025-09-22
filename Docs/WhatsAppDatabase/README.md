@@ -45,14 +45,19 @@ All schema checks live in `DatabaseHelpers.swift` and `DatabaseProtocols.swift`;
 
 `SwiftWABackupAPITests.testChatMessages` verifies that the counts for each supported type are stable against the fixture (e.g. 5532 images, 489 videos, 310 statuses).
 
-### Status (`ZMESSAGETYPE = 10`) Subcodes
+### Status (`ZMESSAGETYPE = 10`) Subcodes (Fixture Snapshot)
 
-Every status message includes a non-null `ZGROUPEVENTTYPE`. The implementation currently recognises:
+| Subcode | Count | Observed payload | Current handling |
+| --- | --- | --- | --- |
+| 2 | 217 | Empty `ZTEXT`; `ZFROMJID` set to contact | Rendered as `Status sync from …` using sender info (new behaviour). |
+| 1 | 24 | Empty text, same shape as `2` | Currently treated as raw status; candidate for sync label. |
+| 38 | 15 | Business chat event; no text/media | Replaced with `"This is a business chat"`. |
+| 21 / 22 | 8 / 3 | `ZTEXT` lists JIDs separated by commas | Left as-is; indicates broadcast/contact list updates. |
+| 26 | 7 | `ZTEXT` contains a business/contact display name | Left as-is. |
+| 40 / 41 | 4 / 7 | `ZTEXT` is a hash-like identifier | Left as-is; likely media sync tokens. |
+| 56 / 58 | 8 / 5 | Empty text, group JID in `ZFROMJID` for 58 | Left as-is; appear to be group status sync events. |
 
-- `38` – Business chat announcements, surfaced as the fixed text `"This is a business chat"`.
-- `2` – Status synchronisation events. If `ZTEXT` is empty, the API emits `"Status sync from …"` using the best available sender detail (display name, phone, or JID).
-
-Other subcodes (1, 5, 6, 13, 14, 21, 22, 25, 26, 29, 30, 31, 34, 40, 41, 56, 58) are present in the database but currently fall back to the raw `ZTEXT` (often empty). Extending the mapping for those codes is a known improvement area.
+Subcodes `5, 6, 13, 14, 25, 29, 30, 31, 34` also exist but with very low counts. Mapping these to descriptive messages would be a useful future enhancement.
 
 ## Sender Name Resolution
 
@@ -77,10 +82,33 @@ Replies are encoded through media metadata rather than a direct foreign key:
 
 `SwiftWABackupAPITests.testMessageContentExtraction` asserts this behaviour (e.g. message 125482 replying to 125479 in the fixture). Parsing failures are tolerated, resulting in a `nil` reply.
 
-## Media Resolution Rules
+## Reaction Storage
 
-- Media filenames are resolved through `IPhoneBackup.fetchWAFileHash` and copied with `MediaCopier`. Missing files record an error string in `MessageInfo.error` instead of throwing.
-- Location messages combine media copying with coordinate extraction; videos/audio add duration; contact messages rely on vCard metadata and may not expose a filename.
+- Reactions live in `ZWAMESSAGEINFO.ZRECEIPTINFO` as binary blobs. Entries only exist for messages that received reactions.
+- `ReactionParser` iterates each blob byte-by-byte: the first byte gives the emoji length, the slice contains the UTF‑8 emoji, and preceding bytes encode the reacting JID (ending in `@s.whatsapp.net`).
+- Parsed reactions become `[Reaction]` (emoji + phone), attached to `MessageInfo.reactions`.
+- `SwiftWABackupAPITests.testMessageContentExtraction` exercises messages with and without reactions to confirm the parser output stays stable.
+
+## Media Retrieval & Manifest Lookup
+
+- Media files referenced in `ZWAMESSAGE` are stored in the iTunes backup under hashed paths. `IPhoneBackup.fetchWAFileHash` queries `Manifest.db` (`domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'`) to translate a relative path such as `Media/345.../file.jpg` into the hash used on disk.
+- `MediaCopier` then copies the hashed file from `<backup>/<hash-prefix>/<hash>` to a caller-specified directory, renaming it to the original filename. Missing files raise `BackupError.fileCopy` so callers can handle partial exports gracefully.
+- Location messages reuse the same mechanism while also surfacing `ZLATITUDE`/`ZLONGITUDE`; video/audio messages add `ZMOVIEDURATION` as `seconds`.
+
+### Profile Photo Retrieval
+
+- Chat/contact avatars live in `Media/Profile/<identifier>-<timestamp>.{jpg,thumb}`. `fetchChatPhotoFilename` looks up the newest file via `FileUtils.latestFile` and copies it to the destination directory as `chat_<chatId>.ext`.
+- Contact exports (`copyContactMedia`) follow the same pattern, naming files after the contact phone number. If no entry is found, the photo filename remains `nil` and the API logs a debug message.
+
+## Error Reporting
+
+The library surfaces granular error enums so consumers can react appropriately:
+
+- `BackupError` – issues while scanning or copying from the iTunes backup (e.g. missing Manifest.db, copy failure).
+- `DatabaseErrorWA` – database connection problems, unexpected schemas, or missing rows.
+- `DomainError` – higher-level logic errors (media not found, unsupported message types).
+
+These errors are thrown from API entry points (`getBackups`, `connectChatStorageDb`, `getChat`, etc.) and are covered by the happy-path tests; you can trigger them manually by corrupting the fixture or requesting unsupported resources.
 
 ## Test Coverage
 
@@ -88,5 +116,5 @@ Key tests that exercise the database assumptions:
 
 - `testGetChats` – Validates counts of active/archived sessions read from `ZWACHATSESSION`.
 - `testChatMessages` – Iterates every chat, asserting message totals per type and confirming that `MessageInfo` mirrors `ZWAMESSAGE` counters.
-- `testMessageContentExtraction` – Spot-checks individual messages (text, link, document, status) to confirm sender resolution, reply chains, filenames, and the new status sync wording.
+- `testMessageContentExtraction` – Spot-checks individual messages (text, link, document, status) to confirm sender resolution, reply chains, filenames, reactions, and status-sync wording.
 - `testChatContacts` – Uses `ZWAVCARDMENTION` and profile media lookups to ensure contact export logic matches the fixture (current expectation failures highlight when the dataset evolves).
