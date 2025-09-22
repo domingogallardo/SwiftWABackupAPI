@@ -370,12 +370,11 @@ public class WABackup {
             throw DomainError.unexpected(reason: "Unsupported message type")
         }
         
-        var messageText = message.text
-        
-        // Handle specific group event types.
-        if message.groupEventType == 38 {
-            messageText = "This is a business chat"
-        }
+        let senderInfo = try fetchSenderInfo(for: message, chatType: chatType, from: db)
+
+        let messageText = resolveMessageText(for: message,
+                                             messageType: messageType,
+                                             senderInfo: senderInfo)
         
         var messageInfo = MessageInfo(
             id: Int(message.id),
@@ -387,7 +386,7 @@ public class WABackup {
         )
         
         // Fetch sender info if the message is not from the user.
-        if let senderInfo = try fetchSenderInfo(for: message, chatType: chatType, from: db) {
+        if let senderInfo = senderInfo {
             messageInfo.senderName = senderInfo.senderName
             messageInfo.senderPhone = senderInfo.senderPhone
         }
@@ -532,6 +531,57 @@ public class WABackup {
             return ReactionParser.parse(reactionsData)
         }
         return nil
+    }
+    
+    private func describeStatusSync(for message: Message,
+                                    senderInfo: SenderInfo?) -> String {
+        if message.isFromMe {
+            return "Status sync from me"
+        }
+
+        if let name = senderInfo?.senderName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty {
+            return "Status sync from \(name)"
+        }
+
+        if let phone = senderInfo?.senderPhone, !phone.isEmpty {
+            return "Status sync from \(phone)"
+        }
+
+        if let fromJid = message.fromJid, !fromJid.isEmpty {
+            if fromJid.isIndividualJid || fromJid.isGroupJid {
+                let identifier = fromJid.extractedPhone
+                if !identifier.isEmpty {
+                    return "Status sync from \(identifier)"
+                }
+            }
+            return "Status sync from \(fromJid)"
+        }
+
+        return "Status sync notification"
+    }
+
+    private func resolveMessageText(for message: Message,
+                                    messageType: SupportedMessageType,
+                                    senderInfo: SenderInfo?) -> String? {
+        switch messageType {
+        case .status:
+            guard let eventType = message.groupEventType else { return message.text }
+            switch eventType {
+            case 38:
+                return "This is a business chat"
+            case 2:
+                if let current = message.text,
+                   !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return current
+                }
+                return describeStatusSync(for: message, senderInfo: senderInfo)
+            default:
+                return message.text
+            }
+        default:
+            return message.text
+        }
     }
     
 
@@ -684,4 +734,3 @@ public class WABackup {
         return updated
     }
 }
-
