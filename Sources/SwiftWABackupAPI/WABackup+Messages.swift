@@ -1,0 +1,373 @@
+//
+//  WABackup+Messages.swift
+//  SwiftWABackupAPI
+//
+
+import Foundation
+import GRDB
+
+public extension WABackup {
+    /// Retrieves a full chat export using the legacy tuple payload.
+    func getChat(chatId: Int, directoryToSaveMedia directory: URL?) throws -> ChatDump {
+        guard let dbQueue = chatDatabase, let iPhoneBackup = iPhoneBackup else {
+            throw DatabaseErrorWA.connection(DatabaseError(message: "Database or backup not found"))
+        }
+
+        let chatInfo = try fetchChatInfo(id: chatId, from: dbQueue)
+        let messages = try fetchMessagesFromDatabase(chatId: chatId, from: dbQueue)
+        let processedMessages = try processMessages(
+            messages,
+            chatType: chatInfo.chatType,
+            directoryToSaveMedia: directory,
+            iPhoneBackup: iPhoneBackup,
+            from: dbQueue
+        )
+        let contacts = try buildContactList(
+            for: chatInfo,
+            from: dbQueue,
+            iPhoneBackup: iPhoneBackup,
+            directory: directory
+        )
+
+        return (chatInfo, processedMessages, contacts)
+    }
+
+    /// Retrieves a full chat export wrapped in an `Encodable` payload.
+    func getChatPayload(chatId: Int, directoryToSaveMedia directory: URL?) throws -> ChatDumpPayload {
+        try ChatDumpPayload(getChat(chatId: chatId, directoryToSaveMedia: directory))
+    }
+}
+
+extension WABackup {
+    func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) throws -> ChatInfo {
+        try dbQueue.performRead { db in
+            let chatSession = try ChatSession.fetchChat(byId: id, from: db)
+
+            return ChatInfo(
+                id: Int(chatSession.id),
+                contactJid: chatSession.contactJid,
+                name: resolvedChatName(for: chatSession),
+                numberMessages: Int(chatSession.messageCounter),
+                lastMessageDate: chatSession.lastMessageDate,
+                isArchived: chatSession.isArchived
+            )
+        }
+    }
+
+    func fetchMessagesFromDatabase(chatId: Int, from dbQueue: DatabaseQueue) throws -> [Message] {
+        try dbQueue.performRead { db in
+            try Message.fetchMessages(forChatId: chatId, from: db)
+        }
+    }
+
+    func processMessages(
+        _ messages: [Message],
+        chatType: ChatInfo.ChatType,
+        directoryToSaveMedia: URL?,
+        iPhoneBackup: IPhoneBackup,
+        from dbQueue: DatabaseQueue
+    ) throws -> [MessageInfo] {
+        var messagesInfo: [MessageInfo] = []
+
+        try dbQueue.read { db in
+            for message in messages {
+                let messageInfo = try processSingleMessage(
+                    message,
+                    chatType: chatType,
+                    directoryToSaveMedia: directoryToSaveMedia,
+                    iPhoneBackup: iPhoneBackup,
+                    from: db
+                )
+                messagesInfo.append(messageInfo)
+            }
+        }
+
+        return messagesInfo
+    }
+
+    func processSingleMessage(
+        _ message: Message,
+        chatType: ChatInfo.ChatType,
+        directoryToSaveMedia: URL?,
+        iPhoneBackup: IPhoneBackup,
+        from db: Database
+    ) throws -> MessageInfo {
+        guard let messageType = SupportedMessageType(rawValue: message.messageType) else {
+            throw DomainError.unexpected(reason: "Unsupported message type")
+        }
+
+        let senderInfo = try fetchSenderInfo(for: message, chatType: chatType, from: db)
+        let messageText = resolveMessageText(
+            for: message,
+            messageType: messageType,
+            senderInfo: senderInfo
+        )
+
+        var messageInfo = MessageInfo(
+            id: Int(message.id),
+            chatId: Int(message.chatSessionId),
+            message: messageText,
+            date: message.date,
+            isFromMe: message.isFromMe,
+            messageType: messageType.description
+        )
+
+        if let senderInfo {
+            messageInfo.senderName = senderInfo.senderName
+            messageInfo.senderPhone = senderInfo.senderPhone
+        }
+
+        if let replyMessageId = try fetchReplyMessageId(for: message, from: db) {
+            messageInfo.replyTo = Int(replyMessageId)
+        }
+
+        if let mediaInfo = try handleMedia(
+            for: message,
+            directoryToSaveMedia: directoryToSaveMedia,
+            iPhoneBackup: iPhoneBackup,
+            from: db
+        ) {
+            messageInfo.mediaFilename = mediaInfo.mediaFilename
+            messageInfo.caption = mediaInfo.caption
+            messageInfo.seconds = mediaInfo.seconds
+            messageInfo.latitude = mediaInfo.latitude
+            messageInfo.longitude = mediaInfo.longitude
+            messageInfo.error = mediaInfo.error
+        }
+
+        messageInfo.reactions = try fetchReactions(forMessageId: Int(message.id), from: db)
+        return messageInfo
+    }
+
+    func fetchSenderInfo(
+        for message: Message,
+        chatType: ChatInfo.ChatType,
+        from db: Database
+    ) throws -> (senderName: String?, senderPhone: String?)? {
+        if message.isFromMe {
+            return nil
+        }
+
+        switch chatType {
+        case .group:
+            if let memberId = message.groupMemberId {
+                return try fetchGroupMemberInfo(memberId: memberId, from: db)
+            }
+        case .individual:
+            return try fetchIndividualChatSenderInfo(chatSessionId: message.chatSessionId, from: db)
+        }
+
+        return nil
+    }
+
+    func fetchReplyMessageId(for message: Message, from db: Database) throws -> Int64? {
+        if let mediaItemId = message.mediaItemId,
+           let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
+           let stanzaId = mediaItem.extractReplyStanzaId() {
+            return try Message.fetchMessageId(byStanzaId: stanzaId, from: db)
+        }
+
+        return nil
+    }
+
+    func handleMedia(
+        for message: Message,
+        directoryToSaveMedia: URL?,
+        iPhoneBackup: IPhoneBackup,
+        from db: Database
+    ) throws -> (
+        mediaFilename: String?,
+        caption: String?,
+        seconds: Int?,
+        latitude: Double?,
+        longitude: Double?,
+        error: String?
+    )? {
+        guard let mediaItemId = message.mediaItemId else {
+            return nil
+        }
+
+        let mediaFilename = try fetchMediaFilename(
+            forMediaItem: mediaItemId,
+            from: iPhoneBackup,
+            toDirectory: directoryToSaveMedia,
+            from: db
+        )
+        let caption = try fetchCaption(mediaItemId: mediaItemId, from: db)
+
+        let seconds: Int?
+        let latitude: Double?
+        let longitude: Double?
+
+        if let messageType = SupportedMessageType(rawValue: message.messageType),
+           messageType == .video || messageType == .audio {
+            seconds = try fetchDuration(mediaItemId: mediaItemId, from: db)
+        } else {
+            seconds = nil
+        }
+
+        if let messageType = SupportedMessageType(rawValue: message.messageType),
+           messageType == .location {
+            let location = try fetchLocation(mediaItemId: mediaItemId, from: db)
+            latitude = location.0
+            longitude = location.1
+        } else {
+            latitude = nil
+            longitude = nil
+        }
+
+        return (mediaFilename, caption, seconds, latitude, longitude, nil)
+    }
+
+    func fetchMediaFilename(
+        forMediaItem mediaItemId: Int64,
+        from iPhoneBackup: IPhoneBackup,
+        toDirectory directoryURL: URL?,
+        from db: Database
+    ) throws -> String? {
+        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
+           let mediaLocalPath = mediaItem.localPath,
+           let hashFile = try? iPhoneBackup.fetchWAFileHash(endsWith: mediaLocalPath) {
+            let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
+            try mediaCopier?.copy(hash: hashFile, named: fileName, to: directoryURL)
+            return fileName
+        }
+
+        return nil
+    }
+
+    func fetchGroupMemberInfo(
+        memberId: Int64,
+        from db: Database
+    ) throws -> (senderName: String?, senderPhone: String?)? {
+        if let groupMember = try GroupMember.fetchGroupMember(byId: memberId, from: db) {
+            return try obtainSenderInfo(
+                jid: groupMember.memberJid,
+                contactNameGroupMember: groupMember.contactName,
+                from: db
+            )
+        }
+
+        return nil
+    }
+
+    func fetchIndividualChatSenderInfo(
+        chatSessionId: Int64,
+        from db: Database
+    ) throws -> (senderName: String?, senderPhone: String?) {
+        let chatSession = try ChatSession.fetchChat(byId: Int(chatSessionId), from: db)
+        return (chatSession.partnerName, chatSession.contactJid.extractedPhone)
+    }
+
+    func fetchDuration(mediaItemId: Int64, from db: Database) throws -> Int? {
+        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
+           let duration = mediaItem.movieDuration {
+            return Int(duration)
+        }
+
+        return nil
+    }
+
+    func fetchReactions(forMessageId messageId: Int, from db: Database) throws -> [Reaction]? {
+        if let messageInfo = try MessageInfoTable.fetch(by: messageId, from: db),
+           let reactionsData = messageInfo.receiptInfo {
+            return ReactionParser.parse(reactionsData)
+        }
+
+        return nil
+    }
+
+    func describeStatusSync(
+        for message: Message,
+        senderInfo: (senderName: String?, senderPhone: String?)?
+    ) -> String {
+        if message.isFromMe {
+            return "Status sync from me"
+        }
+
+        if let name = senderInfo?.senderName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty {
+            return "Status sync from \(name)"
+        }
+
+        if let phone = senderInfo?.senderPhone, !phone.isEmpty {
+            return "Status sync from \(phone)"
+        }
+
+        if let fromJid = message.fromJid, !fromJid.isEmpty {
+            if fromJid.isIndividualJid || fromJid.isGroupJid {
+                let identifier = fromJid.extractedPhone
+                if !identifier.isEmpty {
+                    return "Status sync from \(identifier)"
+                }
+            }
+
+            return "Status sync from \(fromJid)"
+        }
+
+        return "Status sync notification"
+    }
+
+    func resolveMessageText(
+        for message: Message,
+        messageType: SupportedMessageType,
+        senderInfo: (senderName: String?, senderPhone: String?)?
+    ) -> String? {
+        switch messageType {
+        case .status:
+            guard let eventType = message.groupEventType else {
+                return message.text
+            }
+
+            switch eventType {
+            case 38:
+                return "This is a business chat"
+            case 2:
+                if let current = message.text,
+                   !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return current
+                }
+
+                return describeStatusSync(for: message, senderInfo: senderInfo)
+            default:
+                return message.text
+            }
+        default:
+            return message.text
+        }
+    }
+
+    func fetchCaption(mediaItemId: Int64, from db: Database) throws -> String? {
+        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
+           let caption = mediaItem.title,
+           !caption.isEmpty {
+            return caption
+        }
+
+        return nil
+    }
+
+    func fetchLocation(mediaItemId: Int64, from db: Database) throws -> (Double, Double) {
+        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db) {
+            return (mediaItem.latitude ?? 0.0, mediaItem.longitude ?? 0.0)
+        }
+
+        return (0.0, 0.0)
+    }
+
+    func obtainSenderInfo(
+        jid: String,
+        contactNameGroupMember: String?,
+        from db: Database
+    ) throws -> (senderName: String?, senderPhone: String?) {
+        let senderPhone = jid.extractedPhone
+
+        if let senderName = try ChatSession.fetchChatSessionName(for: jid, from: db) {
+            return (senderName, senderPhone)
+        } else if let pushName = try ProfilePushName.pushName(for: jid, from: db) {
+            return ("~" + pushName, senderPhone)
+        } else {
+            return (contactNameGroupMember, senderPhone)
+        }
+    }
+}

@@ -43,7 +43,7 @@ All schema checks live in `DatabaseHelpers.swift` and `DatabaseProtocols.swift`;
 | 11 | GIF | Treated like video, stored as MP4 in the backup. |
 | 15 | Sticker | Returns `.webp` filename. |
 
-`SwiftWABackupAPITests.testChatMessages` verifies that the counts for each supported type are stable against the fixture (e.g. 5532 images, 489 videos, 310 statuses).
+`SwiftWABackupAPITests.testChatMessages` verifies that the counts for each supported type are stable against the fixture (currently 5281 images, 489 videos, and 264 status messages).
 
 ### Status (`ZMESSAGETYPE = 10`) Subcodes (Fixture Snapshot)
 

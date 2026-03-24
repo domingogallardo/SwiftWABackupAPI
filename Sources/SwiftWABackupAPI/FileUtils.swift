@@ -9,12 +9,12 @@
 
 import Foundation
 
-/// Agrupa helpers relacionados con ficheros de WhatsApp dentro del backup.
+/// Groups helpers related to WhatsApp files stored inside an iPhone backup.
 enum FileUtils {
-    public typealias NameHash = FilenameAndHash      // (filename, fileHash)
+    typealias NameHash = FilenameAndHash
 
-    /// Devuelve el fichero más reciente cuyo nombre empieza por `prefixFilename`
-    /// y tiene la extensión indicada (`jpg`, `thumb`, …).
+    /// Returns the newest file whose name starts with `prefixFilename`
+    /// and ends with the provided extension (`jpg`, `thumb`, and so on).
     static func latestFile(for prefixFilename: String,
                            fileExtension: String,
                            in files: [NameHash]) -> NameHash? {
@@ -34,7 +34,7 @@ enum FileUtils {
         return latest
     }
 
-    /// Extrae el sufijo entero que WhatsApp añade a las fotos de perfil
+    /// Extracts the timestamp suffix used by WhatsApp profile photos
     /// (`Media/Profile/<JID>-<timestamp>.jpg`).
     static func extractTimeSuffix(from prefixFilename: String,
                                   fileExtension: String,

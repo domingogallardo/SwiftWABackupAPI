@@ -11,14 +11,14 @@ import GRDB
 
 public extension Row {
 
-    /// Devuelve el valor tipado de la columna o `defaultValue` si es `NULL`
-    /// o la columna no existe.
+    /// Returns the typed column value, or `defaultValue` when the column is `NULL`
+    /// or not present in the row.
     func value<T>(for column: String, default defaultValue: T) -> T {
         return self[column] as? T ?? defaultValue
     }
 
-    /// Convierte automáticamente un timestamp (`Int`, `Int64` o `Double`)
-    /// al `Date` basado en `timeIntervalSinceReferenceDate`.
+    /// Converts a numeric timestamp (`Int`, `Int64`, or `Double`) into a `Date`
+    /// using `timeIntervalSinceReferenceDate`.
     func date(for column: String,
               default defaultDate: Date = Date(timeIntervalSinceReferenceDate: 0)
     ) -> Date {
