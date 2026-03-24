@@ -11,8 +11,8 @@ import Foundation
 
 struct ReactionParser {
 
-    /// Convierte el blob `receiptInfo` en un array de `Reaction`.
-    /// Devuelve `nil` si no hay reacciones válidas.
+    /// Parses a WhatsApp `receiptInfo` blob into reactions.
+    /// Returns `nil` when no valid reactions can be extracted.
     static func parse(_ data: Data) -> [Reaction]? {
         var reactions: [Reaction] = []
         let dataArray = [UInt8](data)

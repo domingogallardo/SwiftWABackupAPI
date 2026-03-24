@@ -4,7 +4,7 @@
 //
 //  Created by Domingo Gallardo on 17/4/25.
 
-//  Encapsulates all file‑copy logic so it can be reused from WABackup.
+//  Encapsulates file-copy logic so it can be reused from WABackup.
 //
 
 import Foundation
@@ -13,9 +13,9 @@ struct MediaCopier {
     let backup: IPhoneBackup
     weak var delegate: WABackupDelegate?
 
-    /// Copia el hash del backup al directorio destino (si se indica) y devuelve el nombre del fichero.
-    /// ‑ Si el fichero ya existe, no hace nada.
-    /// ‑ Notifica al delegate siempre que el fichero haya sido «procesado».
+    /// Copies a hashed backup file into the destination directory when one is provided.
+    /// If the target already exists, the copy is skipped.
+    /// The delegate is notified whenever the file is processed.
     @discardableResult
     func copy(hash: String,
               named fileName: String,

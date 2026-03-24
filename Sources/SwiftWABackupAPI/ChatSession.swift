@@ -43,10 +43,10 @@ struct ChatSession: FetchableByID {
     }
 }
 
-// MARK:‑ Convenience API (firmas preservadas)
+// MARK: - Convenience API
 extension ChatSession {
 
-    /// Chats con al menos un mensaje distinto de STATUS.
+    /// Returns chats with at least one supported non-status message.
     static func fetchAllChats(from db: Database) throws -> [ChatSession] {
         let statusType = SupportedMessageType.status.rawValue
         let supported  = SupportedMessageType.allValues
@@ -75,14 +75,14 @@ extension ChatSession {
                      }
     }
 
-    /// Chat por id o error `chatNotFound`.
+    /// Returns a chat by id or throws if it does not exist.
     static func fetchChat(byId id: Int,
                           from db: Database) throws -> ChatSession {
         if let chat = try fetch(by: Int64(id), from: db) { return chat }
         throw DatabaseErrorWA.recordNotFound(table: Self.tableName, id: id)
     }
 
-    /// Nombre de la sesión para un `contactJid`.
+    /// Returns the chat display name stored for a contact JID.
     static func fetchChatSessionName(for contactJid: String,
                                      from db: Database) throws -> String? {
         try Row.fetchOne(
@@ -92,7 +92,7 @@ extension ChatSession {
         )?["ZPARTNERNAME"]
     }
 
-    // MARK:‑ SenderInfo helper usado por WABackup
+    // MARK: - Sender Info
     typealias SenderInfo = (senderName: String?, senderPhone: String?)
 
     static func fetchSenderInfo(chatId: Int,

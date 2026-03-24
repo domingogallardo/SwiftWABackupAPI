@@ -4,27 +4,24 @@
 //
 //  Created by Domingo Gallardo on 3/10/24.
 //
-//
-//  Re‑implemented with GRDBSchemaCheckable + FetchableByID
-//
+//  Re-implemented with GRDBSchemaCheckable + FetchableByID
 
 import Foundation
 import GRDB
 
 struct MessageInfoTable: FetchableByID {
-    // MARK:‑ Static metadata required by the protocols
+    // MARK: - Static Metadata
     static let tableName      = "ZWAMESSAGEINFO"
     static let expectedColumns: Set<String> = ["Z_PK", "ZRECEIPTINFO", "ZMESSAGE"]
-    static let primaryKey     = "ZMESSAGE"         // ← clave que enlaza con ZWAMESSAGE
-    typealias Key = Int      // o Int64 si prefieres
+    static let primaryKey     = "ZMESSAGE"
+    typealias Key = Int
 
-    // MARK:‑ Stored properties
+    // MARK: - Stored Properties
     let messageId: Int64
     let receiptInfo: Data?
 
-    // MARK:‑ Row → Struct
+    // MARK: - Row to Struct
     init(row: Row) {
-        // usa el helper Row.value(for:default:) propuesto
         messageId   = row.value(for: "ZMESSAGE", default: 0)
         receiptInfo = row["ZRECEIPTINFO"] as? Data
     }

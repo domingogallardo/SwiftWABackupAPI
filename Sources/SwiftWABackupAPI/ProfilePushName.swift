@@ -2,7 +2,7 @@
 //  ProfilePushName.swift
 //  SwiftWABackupAPI
 //
-//  Refactor: adopta GRDBSchemaCheckable + FetchableByID
+//  Refactor: adopts GRDBSchemaCheckable + FetchableByID
 //
 
 import GRDB
@@ -12,7 +12,7 @@ struct ProfilePushName: FetchableByID {
     static let tableName      = "ZWAPROFILEPUSHNAME"
     static let expectedColumns: Set<String> = ["ZPUSHNAME", "ZJID"]
     static let primaryKey     = "ZJID"
-    typealias Key = String        // el PK es el JID (texto)
+    typealias Key = String
 
     // MARK: - Stored properties
     let jid: String
@@ -25,10 +25,9 @@ struct ProfilePushName: FetchableByID {
     }
 }
 
-// MARK: - Convenience API (opcional)
-// Para mantener la firma “parecida” al método anterior.
+// MARK: - Convenience API
 extension ProfilePushName {
-    /// Devuelve el push‑name o `nil` si no existe registro.
+    /// Returns the stored push name for a contact JID, if present.
     static func pushName(for contactJid: String,
                          from db: Database) throws -> String? {
         try Self.fetch(by: contactJid, from: db)?.pushName
