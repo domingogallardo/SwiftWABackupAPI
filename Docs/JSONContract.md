@@ -58,6 +58,13 @@ The contract is verified by the local private regression suite that accompanies 
 
 ```json
 {
+  "author": {
+    "displayName": "Sample Contact",
+    "jid": "15550000001@s.whatsapp.net",
+    "kind": "participant",
+    "phone": "15550000001",
+    "source": "chatSession"
+  },
   "caption": "Example caption",
   "chatId": 44,
   "date": "2024-04-03T11:24:16Z",
@@ -75,9 +82,7 @@ The contract is verified by the local private regression suite that accompanies 
     }
   ],
   "replyTo": 125479,
-  "seconds": 12,
-  "senderName": "Sample Contact",
-  "senderPhone": "15550000001"
+  "seconds": 12
 }
 ```
 
@@ -89,8 +94,7 @@ The contract is verified by the local private regression suite that accompanies 
 | `date` | `String` | Yes | ISO 8601 timestamp for the message. |
 | `isFromMe` | `Bool` | Yes | Whether the message was sent by the owner. |
 | `messageType` | `String` | Yes | Human-readable message type name. |
-| `senderName` | `String` | No | Resolved display name for incoming messages. |
-| `senderPhone` | `String` | No | Resolved phone number for incoming messages. |
+| `author` | `MessageAuthor` | No | Structured author identity for the message. |
 | `caption` | `String` | No | Media caption or title. |
 | `replyTo` | `Int` | No | Identifier of the replied-to message when it can be resolved. |
 | `mediaFilename` | `String` | No | Exported media filename when media is copied or resolved. |
@@ -99,6 +103,26 @@ The contract is verified by the local private regression suite that accompanies 
 | `seconds` | `Int` | No | Duration for audio and video messages. |
 | `latitude` | `Double` | No | Latitude for location messages. |
 | `longitude` | `Double` | No | Longitude for location messages. |
+
+## `MessageAuthor`
+
+```json
+{
+  "displayName": "Sample Contact",
+  "jid": "15550000001@s.whatsapp.net",
+  "kind": "participant",
+  "phone": "15550000001",
+  "source": "chatSession"
+}
+```
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `kind` | `"me" | "participant"` | Yes | Whether the author is the owner or another participant. |
+| `displayName` | `String` | No | Best-effort display name selected by the API. |
+| `phone` | `String` | No | Phone-like user portion derived from the author JID. |
+| `jid` | `String` | No | Raw WhatsApp JID when it can be determined. |
+| `source` | `"owner" | "chatSession" | "pushName" | "groupMember" | "messageJid"` | Yes | Data source used by the API to resolve the author. |
 
 ## `ContactInfo`
 
@@ -140,3 +164,5 @@ The contract is verified by the local private regression suite that accompanies 
 
 - `ChatDump` remains available as the legacy tuple returned by `getChat(...)`.
 - `ChatDumpPayload` is the recommended type for JSON export because it is stable, explicit, and directly `Encodable`.
+- `MessageInfo.author` is the canonical authorship model for new integrations.
+- `senderName` and `senderPhone` are no longer part of the public `MessageInfo` contract.

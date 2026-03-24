@@ -90,6 +90,51 @@ public struct Reaction: Encodable {
     public let senderPhone: String
 }
 
+/// Represents the structured author identity resolved for a message.
+public struct MessageAuthor: Encodable {
+    /// High-level category of message author.
+    public enum Kind: String, Codable {
+        /// The owner of the backup sent the message.
+        case me
+
+        /// Another WhatsApp participant sent the message.
+        case participant
+    }
+
+    /// Source used to resolve the author identity.
+    public enum Source: String, Codable {
+        /// Resolved from the owner identity detected in the backup.
+        case owner
+
+        /// Resolved from `ZWACHATSESSION`.
+        case chatSession
+
+        /// Resolved from `ZWAPROFILEPUSHNAME`.
+        case pushName
+
+        /// Resolved from `ZWAGROUPMEMBER`.
+        case groupMember
+
+        /// Resolved from the raw message JID stored in `ZWAMESSAGE`.
+        case messageJid
+    }
+
+    /// Whether the author is the owner or another participant.
+    public let kind: Kind
+
+    /// Best-effort display name selected by the API.
+    public let displayName: String?
+
+    /// Phone-like user portion derived from the WhatsApp JID.
+    public let phone: String?
+
+    /// Raw WhatsApp JID when it can be determined.
+    public let jid: String?
+
+    /// Source used by the API to resolve the author.
+    public let source: Source
+}
+
 enum SupportedMessageType: Int64, CaseIterable {
     case text = 0
     case image = 1
@@ -145,11 +190,8 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     /// Human-readable message type name.
     public let messageType: String
 
-    /// Resolved sender display name for incoming messages.
-    public var senderName: String?
-
-    /// Sender phone number resolved from the sender JID.
-    public var senderPhone: String?
+    /// Structured author identity for the message when it can be resolved.
+    public var author: MessageAuthor?
 
     /// Caption or title associated with linked media.
     public var caption: String?
@@ -174,6 +216,32 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
 
     /// Longitude for location messages.
     public var longitude: Double?
+
+    init(
+        id: Int,
+        chatId: Int,
+        message: String?,
+        date: Date,
+        isFromMe: Bool,
+        messageType: String,
+        author: MessageAuthor? = nil
+    ) {
+        self.id = id
+        self.chatId = chatId
+        self.message = message
+        self.date = date
+        self.isFromMe = isFromMe
+        self.messageType = messageType
+        self.author = author
+        self.caption = nil
+        self.replyTo = nil
+        self.mediaFilename = nil
+        self.reactions = nil
+        self.error = nil
+        self.seconds = nil
+        self.latitude = nil
+        self.longitude = nil
+    }
 
     /// A human-readable description intended for debugging.
     public var description: String {

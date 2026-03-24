@@ -22,6 +22,7 @@ Returned models are `Encodable` and designed to be easy to serialize:
 
 - `ChatInfo`
 - `MessageInfo`
+- `MessageAuthor`
 - `ContactInfo`
 - `Reaction`
 - `ChatDumpPayload`
@@ -86,6 +87,8 @@ let payload = try backupAPI.getChatPayload(chatId: chats[0].id, directoryToSaveM
 
 `ChatDumpPayload` exists specifically so consumers can serialize a full export without depending on the legacy tuple-based `ChatDump`.
 
+`MessageInfo.author` is now the only public authorship model exposed by `MessageInfo`. Use `author.kind`, `author.displayName`, `author.phone`, `author.jid`, and `author.source` when rendering or interpreting message senders.
+
 Recommended JSON settings:
 
 - `JSONEncoder.dateEncodingStrategy = .iso8601`
@@ -106,6 +109,8 @@ print(jsonString)
 ```
 
 The formal JSON contract is documented in [Docs/JSONContract.md](./Docs/JSONContract.md).
+
+If you maintain an app that consumes this package, read the migration guide in [Docs/AppMigration-MessageAuthor.md](./Docs/AppMigration-MessageAuthor.md) before updating integration code.
 
 ## Media And Profile Images
 

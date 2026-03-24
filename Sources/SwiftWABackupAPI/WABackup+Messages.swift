@@ -96,11 +96,11 @@ extension WABackup {
             throw DomainError.unexpected(reason: "Unsupported message type")
         }
 
-        let senderInfo = try fetchSenderInfo(for: message, chatType: chatType, from: db)
+        let author = try resolveAuthor(for: message, chatType: chatType, from: db)
         let messageText = resolveMessageText(
             for: message,
             messageType: messageType,
-            senderInfo: senderInfo
+            author: author
         )
 
         var messageInfo = MessageInfo(
@@ -109,13 +109,9 @@ extension WABackup {
             message: messageText,
             date: message.date,
             isFromMe: message.isFromMe,
-            messageType: messageType.description
+            messageType: messageType.description,
+            author: author
         )
-
-        if let senderInfo {
-            messageInfo.senderName = senderInfo.senderName
-            messageInfo.senderPhone = senderInfo.senderPhone
-        }
 
         if let replyMessageId = try fetchReplyMessageId(for: message, from: db) {
             messageInfo.replyTo = Int(replyMessageId)
@@ -139,25 +135,54 @@ extension WABackup {
         return messageInfo
     }
 
-    func fetchSenderInfo(
+    func resolveAuthor(
         for message: Message,
         chatType: ChatInfo.ChatType,
         from db: Database
-    ) throws -> (senderName: String?, senderPhone: String?)? {
+    ) throws -> MessageAuthor? {
         if message.isFromMe {
-            return nil
+            return MessageAuthor(
+                kind: .me,
+                displayName: "Me",
+                phone: normalizedAuthorField(ownerJid?.extractedPhone),
+                jid: normalizedAuthorField(ownerJid),
+                source: .owner
+            )
         }
 
         switch chatType {
         case .group:
-            if let memberId = message.groupMemberId {
-                return try fetchGroupMemberInfo(memberId: memberId, from: db)
+            if let memberId = message.groupMemberId,
+               let groupMember = try GroupMember.fetchGroupMember(byId: memberId, from: db) {
+                return try makeParticipantAuthor(
+                    jid: groupMember.memberJid,
+                    contactNameGroupMember: groupMember.contactName,
+                    fallbackSource: .groupMember,
+                    from: db
+                )
             }
-        case .individual:
-            return try fetchIndividualChatSenderInfo(chatSessionId: message.chatSessionId, from: db)
-        }
 
-        return nil
+            if let fromJid = normalizedAuthorField(message.fromJid) {
+                return try makeParticipantAuthor(
+                    jid: fromJid,
+                    contactNameGroupMember: nil,
+                    fallbackSource: .messageJid,
+                    from: db
+                )
+            }
+
+            return nil
+
+        case .individual:
+            let chatSession = try ChatSession.fetchChat(byId: Int(message.chatSessionId), from: db)
+            return MessageAuthor(
+                kind: .participant,
+                displayName: normalizedAuthorField(chatSession.partnerName),
+                phone: normalizedAuthorField(chatSession.contactJid.extractedPhone),
+                jid: normalizedAuthorField(chatSession.contactJid),
+                source: .chatSession
+            )
+        }
     }
 
     func fetchReplyMessageId(for message: Message, from db: Database) throws -> Int64? {
@@ -251,14 +276,6 @@ extension WABackup {
         return nil
     }
 
-    func fetchIndividualChatSenderInfo(
-        chatSessionId: Int64,
-        from db: Database
-    ) throws -> (senderName: String?, senderPhone: String?) {
-        let chatSession = try ChatSession.fetchChat(byId: Int(chatSessionId), from: db)
-        return (chatSession.partnerName, chatSession.contactJid.extractedPhone)
-    }
-
     func fetchDuration(mediaItemId: Int64, from db: Database) throws -> Int? {
         if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
            let duration = mediaItem.movieDuration {
@@ -279,18 +296,18 @@ extension WABackup {
 
     func describeStatusSync(
         for message: Message,
-        senderInfo: (senderName: String?, senderPhone: String?)?
+        author: MessageAuthor?
     ) -> String {
         if message.isFromMe {
             return "Status sync from me"
         }
 
-        if let name = senderInfo?.senderName?.trimmingCharacters(in: .whitespacesAndNewlines),
+        if let name = author?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
            !name.isEmpty {
             return "Status sync from \(name)"
         }
 
-        if let phone = senderInfo?.senderPhone, !phone.isEmpty {
+        if let phone = author?.phone, !phone.isEmpty {
             return "Status sync from \(phone)"
         }
 
@@ -311,7 +328,7 @@ extension WABackup {
     func resolveMessageText(
         for message: Message,
         messageType: SupportedMessageType,
-        senderInfo: (senderName: String?, senderPhone: String?)?
+        author: MessageAuthor?
     ) -> String? {
         switch messageType {
         case .status:
@@ -328,7 +345,7 @@ extension WABackup {
                     return current
                 }
 
-                return describeStatusSync(for: message, senderInfo: senderInfo)
+                return describeStatusSync(for: message, author: author)
             default:
                 return message.text
             }
@@ -369,5 +386,54 @@ extension WABackup {
         } else {
             return (contactNameGroupMember, senderPhone)
         }
+    }
+
+    func makeParticipantAuthor(
+        jid: String,
+        contactNameGroupMember: String?,
+        fallbackSource: MessageAuthor.Source,
+        from db: Database
+    ) throws -> MessageAuthor {
+        let normalizedJid = normalizedAuthorField(jid)
+        let phone = normalizedAuthorField(jid.extractedPhone)
+
+        if let senderName = try ChatSession.fetchChatSessionName(for: jid, from: db)
+            .flatMap(normalizedAuthorField) {
+            return MessageAuthor(
+                kind: .participant,
+                displayName: senderName,
+                phone: phone,
+                jid: normalizedJid,
+                source: .chatSession
+            )
+        }
+
+        if let pushName = try ProfilePushName.pushName(for: jid, from: db)
+            .flatMap(normalizedAuthorField) {
+            return MessageAuthor(
+                kind: .participant,
+                displayName: "~" + pushName,
+                phone: phone,
+                jid: normalizedJid,
+                source: .pushName
+            )
+        }
+
+        return MessageAuthor(
+            kind: .participant,
+            displayName: normalizedAuthorField(contactNameGroupMember),
+            phone: phone,
+            jid: normalizedJid,
+            source: fallbackSource
+        )
+    }
+
+    func normalizedAuthorField(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
