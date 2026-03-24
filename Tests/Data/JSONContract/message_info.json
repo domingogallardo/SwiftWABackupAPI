@@ -1,0 +1,22 @@
+{
+  "caption" : "Example caption",
+  "chatId" : 44,
+  "date" : "2024-04-03T11:24:16Z",
+  "id" : 125482,
+  "isFromMe" : false,
+  "latitude" : 38.3456,
+  "longitude" : -0.4815,
+  "mediaFilename" : "example.jpg",
+  "message" : "Claro, cada vez que vaya a la UA te aviso.",
+  "messageType" : "Text",
+  "reactions" : [
+    {
+      "emoji" : "👍",
+      "senderPhone" : "Me"
+    }
+  ],
+  "replyTo" : 125479,
+  "seconds" : 12,
+  "senderName" : "Aitor Medrano",
+  "senderPhone" : "34636104084"
+}

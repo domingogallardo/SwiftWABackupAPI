@@ -3,7 +3,7 @@
 //  SwiftWABackupAPI
 //
 //  Created by Domingo Gallardo on 3/10/24.
-//  Refactor: adopta GRDBSchemaCheckable + FetchableByID
+//  Refactor: adopts GRDBSchemaCheckable + FetchableByID
 //
 
 import GRDB
@@ -28,16 +28,16 @@ struct GroupMember: FetchableByID {
     }
 }
 
-// MARK: - Convenience API (mantiene firmas usadas en WABackup)
+// MARK: - Convenience API
 extension GroupMember {
 
-    /// Devuelve el miembro por id o `nil`.
+    /// Returns the group member by id, or `nil` when it does not exist.
     static func fetchGroupMember(byId id: Int64,
                                  from db: Database) throws -> GroupMember? {
         try fetch(by: id, from: db)
     }
 
-    /// Ids únicos de miembros de un chat que envían mensajes soportados.
+    /// Returns distinct member ids that appear in supported messages for a chat.
     static func fetchGroupMemberIds(forChatId chatId: Int,
                                     from db: Database) throws -> [Int64] {
 
@@ -56,7 +56,7 @@ extension GroupMember {
                       .compactMap { $0["ZGROUPMEMBER"] as? Int64 }
     }
 
-    // MARK: Sender‑info “raw” acceso conservado
+    // MARK: - Raw Sender Info
     struct GroupMemberSenderInfo {
         let memberJid: String
         let contactName: String?

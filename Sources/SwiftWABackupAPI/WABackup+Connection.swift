@@ -1,0 +1,49 @@
+//
+//  WABackup+Connection.swift
+//  SwiftWABackupAPI
+//
+
+import Foundation
+import GRDB
+
+public extension WABackup {
+    /// Discovers iPhone backups under the configured backup path.
+    func getBackups() throws -> BackupFetchResult {
+        do {
+            return try phoneBackup.getBackups()
+        } catch {
+            throw BackupError.directoryAccess(error)
+        }
+    }
+
+    /// Connects the API to the WhatsApp `ChatStorage.sqlite` database contained in a backup.
+    func connectChatStorageDb(from backup: IPhoneBackup) throws {
+        let chatStorageHash = try backup.fetchWAFileHash(endsWith: "ChatStorage.sqlite")
+        let chatStorageUrl = backup.getUrl(fileHash: chatStorageHash)
+        let dbQueue = try DatabaseQueue(path: chatStorageUrl.path)
+
+        try checkSchema(of: dbQueue)
+
+        chatDatabase = dbQueue
+        iPhoneBackup = backup
+        ownerJid = try dbQueue.performRead { try Message.fetchOwnerJid(from: $0) }
+        mediaCopier = MediaCopier(backup: backup, delegate: delegate)
+    }
+}
+
+extension WABackup {
+    func checkSchema(of dbQueue: DatabaseQueue) throws {
+        do {
+            try dbQueue.performRead { db in
+                try Message.checkSchema(in: db)
+                try ChatSession.checkSchema(in: db)
+                try GroupMember.checkSchema(in: db)
+                try ProfilePushName.checkSchema(in: db)
+                try MediaItem.checkSchema(in: db)
+                try MessageInfoTable.checkSchema(in: db)
+            }
+        } catch {
+            throw DatabaseErrorWA.unsupportedSchema(reason: "Incorrect WA Database Schema")
+        }
+    }
+}

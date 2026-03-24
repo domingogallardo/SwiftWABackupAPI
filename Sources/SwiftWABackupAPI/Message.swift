@@ -3,7 +3,7 @@
 //  SwiftWABackupAPI
 //
 //  Created by Domingo Gallardo on 3/10/24.
-//  Refactor: adopta GRDBSchemaCheckable + FetchableByID
+//  Refactor: adopts GRDBSchemaCheckable + FetchableByID
 //
 
 import Foundation
@@ -52,15 +52,15 @@ struct Message: FetchableByID {
     }
 }
 
-// MARK: - Convenience API (preserva firmas previas usadas por WABackup)
+// MARK: - Convenience API
 extension Message {
 
-    /// Mensajes de un chat filtrados por tipos soportados.
+    /// Returns chat messages filtered to the set of supported WhatsApp types.
     static func fetchMessages(forChatId chatId: Int,
                               from db: Database) throws -> [Message] {
 
         let supported = SupportedMessageType.allValues
-        let placeholders = supported.count.questionMarks           // Int extension
+        let placeholders = supported.count.questionMarks
         let sql = """
             SELECT * FROM \(tableName)
             WHERE ZCHATSESSION = ? AND ZMESSAGETYPE IN (\(placeholders))
@@ -71,7 +71,7 @@ extension Message {
                      .map(Self.init(row:))
     }
 
-    /// Devuelve el primer `ZTOJID` que identifica al owner (perfil propio).
+    /// Returns the first `ZTOJID` that identifies the owner profile.
     static func fetchOwnerJid(from db: Database) throws -> String? {
         try Row.fetchOne(
             db,
@@ -83,7 +83,7 @@ extension Message {
         )?["ZTOJID"]
     }
 
-    /// Obtiene el `Z_PK` de un mensaje a partir de su `stanzaId`.
+    /// Resolves a message primary key from its `stanzaId`.
     static func fetchMessageId(byStanzaId stanzaId: String,
                                from db: Database) throws -> Int64? {
         try Row.fetchOne(

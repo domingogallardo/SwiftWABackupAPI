@@ -1,0 +1,38 @@
+{
+  "chatInfo" : {
+    "chatType" : "individual",
+    "contactJid" : "34636104084@s.whatsapp.net",
+    "id" : 44,
+    "isArchived" : false,
+    "lastMessageDate" : "2024-04-03T11:24:16Z",
+    "name" : "Aitor Medrano",
+    "numberMessages" : 1,
+    "photoFilename" : "chat_44.jpg"
+  },
+  "contacts" : [
+    {
+      "name" : "Aitor Medrano",
+      "phone" : "34636104084",
+      "photoFilename" : "34636104084.jpg"
+    }
+  ],
+  "messages" : [
+    {
+      "chatId" : 44,
+      "date" : "2024-04-03T11:24:16Z",
+      "id" : 125482,
+      "isFromMe" : false,
+      "message" : "Claro, cada vez que vaya a la UA te aviso.",
+      "messageType" : "Text",
+      "reactions" : [
+        {
+          "emoji" : "👍",
+          "senderPhone" : "Me"
+        }
+      ],
+      "replyTo" : 125479,
+      "senderName" : "Aitor Medrano",
+      "senderPhone" : "34636104084"
+    }
+  ]
+}

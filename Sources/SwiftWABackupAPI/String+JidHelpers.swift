@@ -11,22 +11,22 @@ import Foundation
 
 public extension String {
 
-    /// Parte *user* antes de la “@”.
+    /// User portion before the `@`.
     var jidUser: String { components(separatedBy: "@").first ?? self }
 
-    /// Parte *domain* después de la “@”, en minúsculas.
+    /// Domain portion after the `@`, lowercased.
     var jidDomain: String {
         guard let idx = firstIndex(of: "@") else { return "" }
         let dom = self[index(after: idx)...]
         return dom.lowercased()
     }
 
-    /// `true` si es un chat de grupo (“…@g.us”).
+    /// Returns `true` for group chats (`...@g.us`).
     var isGroupJid: Bool { jidDomain == "g.us" }
 
-    /// `true` si es un chat individual (“…@s.whatsapp.net”).
+    /// Returns `true` for individual chats (`...@s.whatsapp.net`).
     var isIndividualJid: Bool { jidDomain == "s.whatsapp.net" }
 
-    /// Alias del helper existente para coherencia.
+    /// Convenience alias for the extracted JID user portion.
     var extractedPhone: String { jidUser }
 }

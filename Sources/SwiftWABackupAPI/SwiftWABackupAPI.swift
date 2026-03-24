@@ -6,30 +6,55 @@
 //  This module provides an API for accessing and processing WhatsApp databases
 //  extracted from iOS backups. It includes functionality for reading chats,
 //  messages, contacts, and associated media files.
+//
 
 import Foundation
 import GRDB
 
-/// Represents information about a WhatsApp chat.
+/// Represents a WhatsApp chat returned by the public API.
 public struct ChatInfo: CustomStringConvertible, Encodable {
-    /// The type of chat (group or individual)
+    /// The supported chat categories exposed by the API.
     public enum ChatType: String, Codable {
+        /// A multi-participant WhatsApp group.
         case group
+
+        /// A one-to-one WhatsApp conversation.
         case individual
     }
 
+    /// Stable identifier of the chat session in `ZWACHATSESSION`.
     public let id: Int
+
+    /// Raw WhatsApp JID associated with the chat.
     public let contactJid: String
+
+    /// Display name resolved for the chat.
     public let name: String
+
+    /// Number of supported messages available through the API.
     public let numberMessages: Int
+
+    /// Date of the latest supported message in the chat.
     public let lastMessageDate: Date
+
+    /// The chat category derived from the contact JID.
     public let chatType: ChatType
+
+    /// Indicates whether the chat is archived in WhatsApp.
     public let isArchived: Bool
+
+    /// Copied profile image filename when `directoryToSavePhotos` is provided.
     public var photoFilename: String?
-    
-    /// Initializes a new `ChatInfo` instance.
-    init(id: Int, contactJid: String, name: String,
-         numberMessages: Int, lastMessageDate: Date, isArchived: Bool, photoFilename: String? = nil) {
+
+    init(
+        id: Int,
+        contactJid: String,
+        name: String,
+        numberMessages: Int,
+        lastMessageDate: Date,
+        isArchived: Bool,
+        photoFilename: String? = nil
+    ) {
         self.id = id
         self.contactJid = contactJid
         self.name = name
@@ -38,10 +63,10 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
         self.isArchived = isArchived
         self.chatType = contactJid.isGroupJid ? .group : .individual
         self.photoFilename = photoFilename
-        }
+    }
 
+    /// A human-readable description intended for debugging.
     public var description: String {
-        // Provides a human-readable description of the chat.
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
         dateFormatter.timeStyle = .medium
@@ -53,16 +78,18 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
             + "Chat Type - \(chatType.rawValue), "
             + "Is Archived - \(isArchived), "
             + "Photo Filename - \(photoFilename ?? "None")"
-        }
+    }
 }
 
-/// Represents a reaction to a message.
+/// Represents a reaction attached to a message.
 public struct Reaction: Encodable {
+    /// Emoji chosen by the reactor.
     public let emoji: String
+
+    /// Phone number extracted from the reacting JID, or `"Me"` for the owner.
     public let senderPhone: String
 }
 
-/// Supported message types in WhatsApp.
 enum SupportedMessageType: Int64, CaseIterable {
     case text = 0
     case image = 1
@@ -77,7 +104,6 @@ enum SupportedMessageType: Int64, CaseIterable {
     case sticker = 15
 
     var description: String {
-        // Provides a string representation of the message type.
         switch self {
         case .text: return "Text"
         case .image: return "Image"
@@ -95,31 +121,62 @@ enum SupportedMessageType: Int64, CaseIterable {
 
     /// Returns all supported message types as an array of raw values.
     static var allValues: [Int64] {
-        return Self.allCases.map { $0.rawValue }
+        Self.allCases.map(\.rawValue)
     }
 }
 
-/// Represents information about a WhatsApp message.
+/// Represents a WhatsApp message returned by the public API.
 public struct MessageInfo: CustomStringConvertible, Encodable {
+    /// Stable identifier of the message in `ZWAMESSAGE`.
     public let id: Int
+
+    /// Identifier of the parent chat session.
     public let chatId: Int
+
+    /// Message text or event text resolved by the API.
     public let message: String?
+
+    /// Message timestamp.
     public let date: Date
+
+    /// Indicates whether the message was sent by the owner.
     public let isFromMe: Bool
+
+    /// Human-readable message type name.
     public let messageType: String
+
+    /// Resolved sender display name for incoming messages.
     public var senderName: String?
+
+    /// Sender phone number resolved from the sender JID.
     public var senderPhone: String?
+
+    /// Caption or title associated with linked media.
     public var caption: String?
+
+    /// Identifier of the replied-to message when it can be resolved.
     public var replyTo: Int?
+
+    /// Filename of copied media when export is requested.
     public var mediaFilename: String?
+
+    /// Parsed reactions for this message.
     public var reactions: [Reaction]?
+
+    /// Optional textual warning associated with media processing.
     public var error: String?
+
+    /// Duration in seconds for audio and video messages.
     public var seconds: Int?
+
+    /// Latitude for location messages.
     public var latitude: Double?
+
+    /// Longitude for location messages.
     public var longitude: Double?
 
+    /// A human-readable description intended for debugging.
     public var description: String {
-        // Provides a human-readable description of the message.
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
         dateFormatter.timeStyle = .medium
@@ -132,605 +189,103 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     }
 }
 
-/// Represents a contact's information.
+/// Represents a contact returned alongside a chat export.
 public struct ContactInfo: CustomStringConvertible, Encodable, Hashable {
+    /// Resolved display name for the contact.
     public let name: String
+
+    /// Phone number derived from the contact JID.
     public let phone: String
+
+    /// Copied profile image filename when available.
     public var photoFilename: String?
 
+    /// A human-readable description intended for debugging.
     public var description: String {
-        return "Contact: Phone - \(phone), Name - \(name)"
+        "Contact: Phone - \(phone), Name - \(name)"
     }
 
-    // Hashable conformance to use in sets or as dictionary keys.
+    /// Hashes the contact by phone number so contact sets remain stable.
     public func hash(into hasher: inout Hasher) {
         hasher.combine(phone)
     }
 
+    /// Contacts are considered equal when they refer to the same phone number.
     public static func == (lhs: ContactInfo, rhs: ContactInfo) -> Bool {
-        return lhs.phone == rhs.phone
+        lhs.phone == rhs.phone
     }
 }
 
+/// Legacy tuple returned by `getChat(chatId:directoryToSaveMedia:)`.
 public typealias ChatDump = (chatInfo: ChatInfo, messages: [MessageInfo], contacts: [ContactInfo])
 
-/// Protocol to notify delegate about media file operations.
+/// Encodable wrapper around a full chat export.
+public struct ChatDumpPayload: CustomStringConvertible, Encodable {
+    /// Chat metadata for the exported conversation.
+    public let chatInfo: ChatInfo
+
+    /// Messages returned for the chat.
+    public let messages: [MessageInfo]
+
+    /// Contacts resolved for the chat.
+    public let contacts: [ContactInfo]
+
+    /// Creates a payload from its individual components.
+    public init(chatInfo: ChatInfo, messages: [MessageInfo], contacts: [ContactInfo]) {
+        self.chatInfo = chatInfo
+        self.messages = messages
+        self.contacts = contacts
+    }
+
+    /// Creates a payload from the legacy `ChatDump` tuple.
+    public init(_ chatDump: ChatDump) {
+        self.init(
+            chatInfo: chatDump.chatInfo,
+            messages: chatDump.messages,
+            contacts: chatDump.contacts
+        )
+    }
+
+    /// A human-readable description intended for debugging.
+    public var description: String {
+        "ChatDumpPayload(chatId: \(chatInfo.id), messages: \(messages.count), contacts: \(contacts.count))"
+    }
+}
+
+/// Receives callbacks when media files are copied to disk.
 public protocol WABackupDelegate: AnyObject {
-    /// Called when a media file has been written.
+    /// Called after a media file is copied or already exists in the output directory.
     func didWriteMediaFile(fileName: String)
 }
 
-/// Extension to safely perform read operations on the database queue.
 extension DatabaseQueue {
     func performRead<T>(_ block: (Database) throws -> T) throws -> T {
         do {
-            return try self.read(block)
+            return try read(block)
         } catch {
             throw DatabaseErrorWA.connection(error)
         }
     }
 }
 
-/// Main class to interact with WhatsApp backups.
+/// Main entry point for exploring a WhatsApp iPhone backup.
 public class WABackup {
-    var phoneBackup = BackupManager()
-    public weak var delegate: WABackupDelegate?
-    
-    private var chatDatabase: DatabaseQueue?
-    private var iPhoneBackup: IPhoneBackup?
-    private var ownerJid: String?
-    
-    private var mediaCopier: MediaCopier?
-    
-    /// Initializes the backup manager with an optional custom backup path.
+    var phoneBackup: BackupManager
+
+    /// Delegate used to observe media export events.
+    public weak var delegate: WABackupDelegate? {
+        didSet {
+            mediaCopier?.delegate = delegate
+        }
+    }
+
+    var chatDatabase: DatabaseQueue?
+    var iPhoneBackup: IPhoneBackup?
+    var ownerJid: String?
+    var mediaCopier: MediaCopier?
+
+    /// Creates a backup explorer rooted at the provided iPhone backup directory.
     public init(backupPath: String = "~/Library/Application Support/MobileSync/Backup/") {
         self.phoneBackup = BackupManager(backupPath: backupPath)
-    }
-    
-    /// Retrieves available iPhone backups.
-    /// - Throws: `directoryAccessError` if the backup directory cannot be accessed.
-    public func getBackups() throws -> BackupFetchResult {
-        do {
-            return try phoneBackup.getBackups()
-        } catch {
-            throw BackupError.directoryAccess(error)
-        }
-    }
-    
-    /// Connects to the ChatStorage.sqlite database from an iPhone backup.
-    /// - Throws: An error if the ChatStorage.sqlite file is not found or the database cannot be connected.
-    public func connectChatStorageDb(from backup: IPhoneBackup) throws {
-        let chatStorageHash = try backup.fetchWAFileHash(endsWith: "ChatStorage.sqlite")
-        let chatStorageUrl = backup.getUrl(fileHash: chatStorageHash)
-        let dbQueue = try DatabaseQueue(path: chatStorageUrl.path)
-
-        try checkSchema(of: dbQueue)
-
-        self.chatDatabase = dbQueue
-        self.iPhoneBackup = backup
-        self.ownerJid = try dbQueue.performRead { try Message.fetchOwnerJid(from: $0) }
-        self.mediaCopier = MediaCopier(backup: backup, delegate: delegate)   // ← NUEVO
-    }
-    
-    /// Validates the schema of the WhatsApp database.
-    /// - Throws: An error if the schema is unsupported.
-    private func checkSchema(of dbQueue: DatabaseQueue) throws {
-        do {
-            try dbQueue.performRead { db in
-                // Check the schema for each relevant table.
-                try Message.checkSchema(in: db)
-                try ChatSession.checkSchema(in: db)
-                try GroupMember.checkSchema(in: db)
-                try ProfilePushName.checkSchema(in: db)
-                try MediaItem.checkSchema(in: db)
-                try MessageInfoTable.checkSchema(in: db)
-            }
-        } catch {
-            throw DatabaseErrorWA.unsupportedSchema(reason: "Incorrect WA Database Schema")
-        }
-    }
-
-// MARK: - Chat-Related Methods
-
-    /// Retrieves all chats from the connected WhatsApp database.
-    /// - Returns: An array of `ChatInfo` objects.
-    /// - Throws: An error if the database is not connected.
-    public func getChats(directoryToSavePhotos directory: URL? = nil) throws -> [ChatInfo] {
-        guard let dbQueue = chatDatabase,
-              let iPhoneBackup = iPhoneBackup else {
-            throw DatabaseErrorWA.connection(DatabaseError(message: "Database not connected"))
-        }
-
-        let chatInfos = try dbQueue.performRead { db -> [ChatInfo] in
-            let chatSessions = try ChatSession.fetchAllChats(from: db)
-
-            return chatSessions.compactMap { chatSession  -> ChatInfo? in
-                guard chatSession.sessionType != 5 else {
-                    return nil
-                }
-
-                var chatName = chatSession.partnerName
-                if let userJid = ownerJid, chatSession.contactJid == userJid {
-                    chatName = "Me"
-                }
-
-                var photoFilename: String? = nil
-                if let directory = directory {
-                    photoFilename = try? fetchChatPhotoFilename(
-                        for: chatSession.contactJid,
-                        chatId: Int(chatSession.id),
-                        to: directory,
-                        from: iPhoneBackup
-                    )                }
-                
-                return ChatInfo(
-                    id: Int(chatSession.id),
-                    contactJid: chatSession.contactJid,
-                    name: chatName,
-                    numberMessages: Int(chatSession.messageCounter),
-                    lastMessageDate: chatSession.lastMessageDate,
-                    isArchived: chatSession.isArchived,
-                    photoFilename: photoFilename
-                )
-            }
-        }
-
-        return sortChatsByDate(chatInfos)
-    }
-    
-    /// Sorts chats by their last message date in descending order.
-    private func sortChatsByDate(_ chats: [ChatInfo]) -> [ChatInfo] {
-        return chats.sorted { $0.lastMessageDate > $1.lastMessageDate }
-    }
-
-// MARK: - Message-Related Methods
-
-    /// Retrieves messages for a specific chat.
-    /// - Parameters:
-    ///   - chatId: The chat identifier.
-    ///   - directory: Optional directory to save media files.
-    /// - Returns: An array of `MessageInfo` objects.
-    /// - Throws: An error if messages cannot be fetched or processed.
-    public func getChat(chatId: Int, directoryToSaveMedia directory: URL?) throws -> ChatDump {
-        guard let dbQueue = chatDatabase,
-              let iPhoneBackup = iPhoneBackup else {
-            throw DatabaseErrorWA.connection(DatabaseError(message: "Database or backup not found"))
-        }
-
-        let chatInfo = try fetchChatInfo(id: chatId, from: dbQueue)
-        let messages = try fetchMessagesFromDatabase(chatId: chatId, from: dbQueue)
-        
-        let processedMessages = try processMessages(
-            messages,
-            chatType: chatInfo.chatType,
-            directoryToSaveMedia: directory,
-            iPhoneBackup: iPhoneBackup,
-            from: dbQueue
-        )
-
-        let contacts = try buildContactList(
-            for: chatInfo,
-            from: dbQueue,
-            iPhoneBackup: iPhoneBackup,
-            directory: directory
-        )
-        
-        return (chatInfo, processedMessages, contacts)
-    }
-    
-    /// Fetches chat information by ID.
-    private func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) throws -> ChatInfo {
-        return try dbQueue.performRead { db in
-            let chatSession = try ChatSession.fetchChat(byId: id, from: db)
-            
-            return ChatInfo(
-                id: Int(chatSession.id),
-                contactJid: chatSession.contactJid,
-                name: chatSession.partnerName,
-                numberMessages: Int(chatSession.messageCounter),
-                lastMessageDate: chatSession.lastMessageDate,
-                isArchived: chatSession.isArchived)
-        }
-    }
-    
-    /// Fetches messages for a specific chat from the database.
-    private func fetchMessagesFromDatabase(chatId: Int, from dbQueue: DatabaseQueue) throws -> [Message] {
-        return try dbQueue.performRead { db in
-            return try Message.fetchMessages(forChatId: chatId, from: db)
-        }
-    }
-    
-    /// Processes messages to create `MessageInfo` objects.
-    private func processMessages(
-        _ messages: [Message],
-        chatType: ChatInfo.ChatType,
-        directoryToSaveMedia: URL?,
-        iPhoneBackup: IPhoneBackup,
-        from dbQueue: DatabaseQueue
-    ) throws -> [MessageInfo] {
-        var messagesInfo: [MessageInfo] = []
-        try dbQueue.read { db in
-            for message in messages {
-                let messageInfo = try processSingleMessage(
-                    message,
-                    chatType: chatType,
-                    directoryToSaveMedia: directoryToSaveMedia,
-                    iPhoneBackup: iPhoneBackup,
-                    from: db
-                )
-                messagesInfo.append(messageInfo)
-            }
-        }
-        return messagesInfo
-    }
-    
-    /// Processes a single message to create a `MessageInfo` object.
-    private func processSingleMessage(_ message: Message, chatType: ChatInfo.ChatType, directoryToSaveMedia: URL?, iPhoneBackup: IPhoneBackup, from db: Database) throws -> MessageInfo {
-        guard let messageType = SupportedMessageType(rawValue: message.messageType) else {
-            throw DomainError.unexpected(reason: "Unsupported message type")
-        }
-        
-        let senderInfo = try fetchSenderInfo(for: message, chatType: chatType, from: db)
-
-        let messageText = resolveMessageText(for: message,
-                                             messageType: messageType,
-                                             senderInfo: senderInfo)
-        
-        var messageInfo = MessageInfo(
-            id: Int(message.id),
-            chatId: Int(message.chatSessionId),
-            message: messageText,
-            date: message.date,
-            isFromMe: message.isFromMe,
-            messageType: messageType.description
-        )
-        
-        // Fetch sender info if the message is not from the user.
-        if let senderInfo = senderInfo {
-            messageInfo.senderName = senderInfo.senderName
-            messageInfo.senderPhone = senderInfo.senderPhone
-        }
-        
-        // Handle replies.
-        if let replyMessageId = try fetchReplyMessageId(for: message, from: db) {
-            messageInfo.replyTo = Int(replyMessageId)
-        }
-        
-        // Handle media content.
-        if let mediaInfo = try handleMedia(for: message, directoryToSaveMedia: directoryToSaveMedia, iPhoneBackup: iPhoneBackup, from: db) {
-            messageInfo.mediaFilename = mediaInfo.mediaFilename
-            messageInfo.caption = mediaInfo.caption
-            messageInfo.seconds = mediaInfo.seconds
-            messageInfo.latitude = mediaInfo.latitude
-            messageInfo.longitude = mediaInfo.longitude
-            messageInfo.error = mediaInfo.error
-        }
-        
-        // Fetch reactions to the message.
-        messageInfo.reactions = try fetchReactions(forMessageId: Int(message.id), from: db)
-        
-        return messageInfo
-    }
-    
-    /// Sender name and sender phone
-    typealias SenderInfo = (senderName: String?, senderPhone: String?)
-    
-    /// Fetches sender information for a message.
-    private func fetchSenderInfo(for message: Message, chatType: ChatInfo.ChatType, from db: Database) throws -> SenderInfo? {
-        if message.isFromMe {
-            return nil
-        }
-        
-        switch chatType {
-        case .group:
-            if let memberId = message.groupMemberId {
-                return try fetchGroupMemberInfo(memberId: memberId, from: db)
-            }
-        case .individual:
-            return try fetchIndividualChatSenderInfo(chatSessionId: message.chatSessionId, from: db)
-        }
-        return nil
-    }
-    
-    /// Fetches the message ID that the current message is replying to.
-    private func fetchReplyMessageId(for message: Message, from db: Database) throws -> Int64? {
-        if let mediaItemId = message.mediaItemId,
-           let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
-           let stanzaId = mediaItem.extractReplyStanzaId() {
-            return try Message.fetchMessageId(byStanzaId: stanzaId, from: db)
-        }
-        return nil
-    }
-    
-    /// Handles media content associated with a message.
-    private func handleMedia(for message: Message, directoryToSaveMedia: URL?, iPhoneBackup: IPhoneBackup, from db: Database) throws -> (mediaFilename: String?, caption: String?, seconds: Int?, latitude: Double?, longitude: Double?, error: String?)? {
-        guard let mediaItemId = message.mediaItemId else { return nil }
-        
-        var mediaFilename: String?
-        var caption: String?
-        var seconds: Int?
-        var latitude: Double?
-        var longitude: Double?
-        var error: String?
-        
-        // Fetch and copy media file if needed.
-        if let mediaResult = try fetchMediaFilename(forMediaItem: mediaItemId, from: iPhoneBackup, toDirectory: directoryToSaveMedia, from: db) {
-            switch mediaResult {
-            case .fileName(let fileName):
-                mediaFilename = fileName
-            case .error(let errMsg):
-                error = errMsg
-            }
-        }
-        
-        // Fetch caption if available.
-        caption = try fetchCaption(mediaItemId: mediaItemId, from: db)
-        
-        // Fetch duration for audio/video messages.
-        if let messageType = SupportedMessageType(rawValue: message.messageType), messageType == .video || messageType == .audio {
-            seconds = try fetchDuration(mediaItemId: mediaItemId, from: db)
-        }
-        
-        // Fetch location data for location messages.
-        if let messageType = SupportedMessageType(rawValue: message.messageType), messageType == .location {
-            (latitude, longitude) = try fetchLocation(mediaItemId: mediaItemId, from: db)
-        }
-        
-        return (mediaFilename, caption, seconds, latitude, longitude, error)
-    }
-    
-    private func fetchMediaFilename(forMediaItem mediaItemId: Int64,
-                                    from iPhoneBackup: IPhoneBackup,
-                                    toDirectory directoryURL: URL?,
-                                    from db: Database) throws -> MediaFilename? {
-        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
-           let mediaLocalPath = mediaItem.localPath,
-           let hashFile = try? iPhoneBackup.fetchWAFileHash(endsWith: mediaLocalPath) {
-
-            let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
-            try mediaCopier?.copy(hash: hashFile,
-                                  named: fileName,
-                                  to: directoryURL)
-            return .fileName(fileName)
-        }
-        return nil
-    }
-    
-    /// Fetches group member information by member ID.
-    private func fetchGroupMemberInfo(memberId: Int64, from db: Database) throws -> SenderInfo? {
-        if let groupMember = try GroupMember.fetchGroupMember(byId: memberId, from: db) {
-            return try obtainSenderInfo(jid: groupMember.memberJid, contactNameGroupMember: groupMember.contactName, from: db)
-        }
-        return nil
-    }
-    
-    /// Fetches sender information for individual chats.
-    private func fetchIndividualChatSenderInfo(chatSessionId: Int64, from db: Database) throws -> SenderInfo {
-        let chatSession = try ChatSession.fetchChat(byId: Int(chatSessionId), from: db)
-        let senderPhone = chatSession.contactJid.extractedPhone
-        let senderName = chatSession.partnerName
-        return (senderName, senderPhone)
-    }
-    
-    /// Fetches the duration of media content.
-    private func fetchDuration(mediaItemId: Int64, from db: Database) throws -> Int? {
-        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
-           let duration = mediaItem.movieDuration {
-            return Int(duration)
-        }
-        return nil
-    }
-    
-    /// Fetches reactions to a message.
-    private func fetchReactions(forMessageId messageId: Int,
-                                from db: Database) throws -> [Reaction]? {
-        // Tras la refactorización, MessageInfoTable adoptó FetchableByID,
-        // por lo que el método adecuado es `fetch(by:from:)`.
-        if let messageInfo = try MessageInfoTable.fetch(by: messageId, from: db),
-           let reactionsData = messageInfo.receiptInfo {
-            return ReactionParser.parse(reactionsData)
-        }
-        return nil
-    }
-    
-    private func describeStatusSync(for message: Message,
-                                    senderInfo: SenderInfo?) -> String {
-        if message.isFromMe {
-            return "Status sync from me"
-        }
-
-        if let name = senderInfo?.senderName?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !name.isEmpty {
-            return "Status sync from \(name)"
-        }
-
-        if let phone = senderInfo?.senderPhone, !phone.isEmpty {
-            return "Status sync from \(phone)"
-        }
-
-        if let fromJid = message.fromJid, !fromJid.isEmpty {
-            if fromJid.isIndividualJid || fromJid.isGroupJid {
-                let identifier = fromJid.extractedPhone
-                if !identifier.isEmpty {
-                    return "Status sync from \(identifier)"
-                }
-            }
-            return "Status sync from \(fromJid)"
-        }
-
-        return "Status sync notification"
-    }
-
-    private func resolveMessageText(for message: Message,
-                                    messageType: SupportedMessageType,
-                                    senderInfo: SenderInfo?) -> String? {
-        switch messageType {
-        case .status:
-            guard let eventType = message.groupEventType else { return message.text }
-            switch eventType {
-            case 38:
-                return "This is a business chat"
-            case 2:
-                if let current = message.text,
-                   !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return current
-                }
-                return describeStatusSync(for: message, senderInfo: senderInfo)
-            default:
-                return message.text
-            }
-        default:
-            return message.text
-        }
-    }
-    
-
-    
-    /// Fetches the caption for a media item.
-    private func fetchCaption(mediaItemId: Int64, from db: Database) throws -> String? {
-        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
-           let caption = mediaItem.title, !caption.isEmpty {
-            return caption
-        }
-        return nil
-    }
-    
-    /// Fetches location data for a media item.
-    private func fetchLocation(mediaItemId: Int64, from db: Database) throws -> (Double, Double) {
-        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db) {
-            let latitude = mediaItem.latitude ?? 0.0
-            let longitude = mediaItem.longitude ?? 0.0
-            return (latitude, longitude)
-        }
-        return (0.0, 0.0)
-    }
-    
-    /// Enum representing the result of fetching a media filename.
-    enum MediaFilename {
-        case fileName(String)
-        case error(String)
-    }
-    
-    /// Obtains sender information based on the JID.
-    private func obtainSenderInfo(jid: String,
-                                  contactNameGroupMember: String?,
-                                  from db: Database) throws -> SenderInfo {
-        let senderPhone = jid.extractedPhone
-        if let senderName = try ChatSession.fetchChatSessionName(for: jid, from: db) {
-            return (senderName, senderPhone)
-        } else if let pushName =  try ProfilePushName.pushName(for: jid, from: db) {
-            return ("~" + pushName, senderPhone)
-        } else {
-            return (contactNameGroupMember, senderPhone)
-        }
-    }
-    
-    /// Sorts messages by date in descending order.
-    private func sortMessagesByDate(_ messages: [MessageInfo]) -> [MessageInfo] {
-        return messages.sorted { $0.date > $1.date }
-    }
-
-// MARK: - Contact-Related Methods
-
-    /// Devuelve el nombre de archivo de la foto del chat y lo copia al directorio indicado.
-    private func fetchChatPhotoFilename(for contactJid: String,
-                                        chatId: Int,
-                                        to directory: URL,
-                                        from backup: IPhoneBackup) throws -> String? {
-
-        // 1. Construir la ruta base según tipo de JID
-        let basePath: String
-        if contactJid.isIndividualJid  {
-            basePath = "Media/Profile/\(contactJid.extractedPhone)"
-        } else if contactJid.isGroupJid {
-            let groupId = contactJid.components(separatedBy: "@").first ?? contactJid
-            basePath = "Media/Profile/\(groupId)"
-        } else {
-            print("⚠️  ContactJid '\(contactJid)' has unsupported format. No image will be retrieved.")
-            return nil
-        }
-
-        // 2. Localizar el fichero más reciente (.jpg o .thumb)
-        let files = backup.fetchWAFileDetails(contains: basePath)
-        guard let latest = FileUtils.latestFile(for: basePath, fileExtension: "jpg", in: files)
-            ?? FileUtils.latestFile(for: basePath, fileExtension: "thumb", in: files) else {
-            let type = contactJid.isGroupJid ? "Group" : "Individual"
-            print("📭 No image found for \(type) chat [ID: \(chatId), JID: \(contactJid)]")
-            return nil
-        }
-
-        // 3. Nombre destino “chat_<id>.ext” y copia mediante MediaCopier
-        let ext       = latest.filename.hasSuffix(".jpg") ? ".jpg" : ".thumb"
-        let fileName  = "chat_\(chatId)\(ext)"
-
-        try mediaCopier?.copy(hash: latest.fileHash,
-                              named: fileName,
-                              to: directory) 
-
-        return fileName
-    }
-    
-    private func buildContactList(for chatInfo: ChatInfo,
-                                  from dbQueue: DatabaseQueue,
-                                  iPhoneBackup: IPhoneBackup,
-                                  directory: URL?) throws -> [ContactInfo] {
-        var contacts: [ContactInfo] = []
-
-        // Añadir el usuario (owner)
-        let ownerPhone: String = ownerJid?.extractedPhone ?? ""
-        var ownerContact = ContactInfo(name: "Me", phone: ownerPhone)
-        if let directory = directory {
-            ownerContact = try copyContactMedia(for: ownerContact, from: iPhoneBackup, to: directory)
-        }
-        contacts.append(ownerContact)
-
-        try dbQueue.read { db in
-            switch chatInfo.chatType {
-            case .individual:
-                let otherPhone = chatInfo.contactJid.extractedPhone
-                if otherPhone != ownerPhone {
-                    var otherContact = ContactInfo(name: chatInfo.name, phone: otherPhone)
-                    if let directory = directory {
-                        otherContact = try copyContactMedia(for: otherContact, from: iPhoneBackup, to: directory)
-                    }
-                    contacts.append(otherContact)
-                }
-
-            case .group:
-                let memberIds = try GroupMember.fetchGroupMemberIds(forChatId: chatInfo.id, from: db)
-                for memberId in memberIds {
-                    if let senderInfo = try fetchGroupMemberInfo(memberId: memberId, from: db),
-                       let phone = senderInfo.senderPhone,
-                       phone != ownerPhone {
-                        var contact = ContactInfo(name: senderInfo.senderName ?? "", phone: phone)
-                        if let directory = directory {
-                            contact = try copyContactMedia(for: contact, from: iPhoneBackup, to: directory)
-                        }
-                        contacts.append(contact)
-                    }
-                }
-            }
-        }
-
-        return contacts
-    }
-    
-    /// Copies contact media files if available.
-    private func copyContactMedia(for contact: ContactInfo,
-                                  from iPhoneBackup: IPhoneBackup,
-                                  to directory: URL?) throws -> ContactInfo {
-
-        var updated = contact
-        let prefix  = "Media/Profile/\(contact.phone)"
-        let files   = iPhoneBackup.fetchWAFileDetails(contains: prefix)
-
-        let latest = FileUtils.latestFile(for: prefix, fileExtension: "jpg", in: files)
-                ??  FileUtils.latestFile(for: prefix,  fileExtension: "thumb", in: files)
-        if let (fileName, hash) = latest {
-            let targetFileName = contact.phone + (fileName.hasSuffix(".jpg") ? ".jpg" : ".thumb")
-            try mediaCopier?.copy(hash: hash, named: targetFileName, to: directory)
-            updated.photoFilename = targetFileName
-        }
-        return updated
     }
 }

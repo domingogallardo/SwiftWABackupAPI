@@ -1,0 +1,22 @@
+name: Full Regression
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * 1"
+
+jobs:
+  full-fixture-regression:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: swift build
+
+      - name: Run full regression suite
+        env:
+          SWIFT_WA_RUN_FULL_FIXTURE_TESTS: "1"
+        run: swift test

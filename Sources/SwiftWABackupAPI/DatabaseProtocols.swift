@@ -12,7 +12,7 @@
 import GRDB
 
 // MARK: - GRDBSchemaCheckable
-/// Con‑forma cualquier modelo que necesite validar su esquema.
+/// Conform models that need to validate their backing SQLite schema.
 public protocol GRDBSchemaCheckable {
     /// Exact table name in the SQLite schema.
     static var tableName: String { get }
@@ -21,7 +21,7 @@ public protocol GRDBSchemaCheckable {
 }
 
 public extension GRDBSchemaCheckable {
-    /// Default implementation that re‑uses the existing helper.
+    /// Default implementation backed by `checkTableSchema`.
     static func checkSchema(in db: Database) throws {
         try checkTableSchema(
             tableName: tableName,
@@ -32,19 +32,19 @@ public extension GRDBSchemaCheckable {
 }
 
 // MARK: - FetchableByID
-/// Generic fetch for rows addressed by a primary key.
+/// Generic fetch support for rows addressed by a primary key.
 public protocol FetchableByID: GRDBSchemaCheckable {
-    /// Primary‑key type (usually `Int64` or `Int`).
+    /// Primary key type, usually `Int64`, `Int`, or `String`.
     associatedtype Key: DatabaseValueConvertible
-    /// Primary‑key column name (e.g. `"Z_PK"`).
+    /// Primary key column name, for example `"Z_PK"`.
     static var primaryKey: String { get }
     
-    /// Row‑based initializer required by GRDB.
+    /// Row-based initializer required by GRDB.
     init(row: Row)
 }
 
 public extension FetchableByID {
-    /// Returns the model instance with the given id or `nil`.
+    /// Returns the model instance with the given id, or `nil` if it does not exist.
     static func fetch(by id: Key, from db: Database) throws -> Self? {
         let sql = "SELECT * FROM \(tableName) WHERE \(primaryKey) = ?"
         if let row = try Row.fetchOne(db, sql: sql, arguments: [id]) {
@@ -53,7 +53,7 @@ public extension FetchableByID {
         return nil
     }
     
-    /// Convenience: throws if not found.
+    /// Convenience wrapper that throws when the record does not exist.
     static func require(by id: Key, from db: Database) throws -> Self {
         guard let value = try fetch(by: id, from: db) else {
             throw DatabaseErrorWA.recordNotFound(table: Self.tableName, id: Int64("\(id)") ?? -1)
