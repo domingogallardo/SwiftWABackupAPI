@@ -7,7 +7,7 @@ on:
       - main
 
 jobs:
-  quick-checks:
+  build:
     runs-on: macos-latest
 
     steps:
@@ -16,6 +16,3 @@ jobs:
 
       - name: Build
         run: swift build
-
-      - name: Run quick test suite with coverage
-        run: swift test --enable-code-coverage

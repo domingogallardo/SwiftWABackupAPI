@@ -9,7 +9,5 @@ DerivedData/
 .netrc
 Package.resolved
 .vscode
-Tests/Data/**
-!Tests/Data/JSONContract/
-!Tests/Data/JSONContract/**
+Tests/**
 complete_project.txt

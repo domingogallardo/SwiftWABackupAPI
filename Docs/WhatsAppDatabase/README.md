@@ -1,16 +1,15 @@
 # WhatsApp Database Reference
 
-This project works against the `ChatStorage.sqlite` database extracted from an iOS backup of WhatsApp. The behaviour described here is derived from the current implementation under `Sources/SwiftWABackupAPI` and is continuously verified by the XCTest suite in `Tests/SwiftWABackupAPITests`.
+This project works against the `ChatStorage.sqlite` database extracted from an iOS backup of WhatsApp. The behaviour described here is derived from the current implementation under `Sources/SwiftWABackupAPI` and is continuously verified by the local private regression suite maintained alongside the project.
 
 ## Source of Truth
 
-The observations below come from three places:
+The observations below come from two places:
 
 - Source files under `Sources/SwiftWABackupAPI`, particularly `SwiftWABackupAPI.swift`, `Message.swift`, `MediaItem.swift`, and supporting helpers.
-- The bundled fixture database `Tests/Data/ChatStorage.sqlite` plus ancillary test assets under `Tests/Data/`.
-- The XCTest targets in `Tests/SwiftWABackupAPITests`, which exercise the API end-to-end and assert expectations against the fixture.
+- A local private fixture database plus accompanying regression tests that exercise the API end-to-end.
 
-When upgrading WhatsApp versions or altering the fixture, re-run `swift test` and update this document with any schema or mapping changes you observe.
+When upgrading WhatsApp versions or altering the fixture, re-run the private regression suite and update this document with any schema or mapping changes you observe.
 
 ## Core Tables and Columns
 
@@ -23,7 +22,7 @@ When upgrading WhatsApp versions or altering the fixture, re-run `swift test` an
 | `ZWAMESSAGEINFO` | Reaction payloads (`ZRECEIPTINFO`). | `ZMESSAGE`, `ZRECEIPTINFO` |
 | `ZWAVCARDMENTION` | vCard contact references for contact messages. | `ZMEDIAITEM`, `ZWHATSAPPID`, `ZSENDERJID` |
 
-All schema checks live in `DatabaseHelpers.swift` and `DatabaseProtocols.swift`; each model declares the minimal column set that the tests expect to find.
+All schema checks live in `DatabaseHelpers.swift` and `DatabaseProtocols.swift`; each model declares the minimal column set that the package expects to find.
 
 ## Message Type Mapping
 
@@ -43,7 +42,7 @@ All schema checks live in `DatabaseHelpers.swift` and `DatabaseProtocols.swift`;
 | 11 | GIF | Treated like video, stored as MP4 in the backup. |
 | 15 | Sticker | Returns `.webp` filename. |
 
-`SwiftWABackupAPITests.testChatMessages` verifies that the counts for each supported type are stable against the fixture (currently 5281 images, 489 videos, and 264 status messages).
+The private regression suite verifies that the counts for each supported type are stable against the fixture (currently 5281 images, 489 videos, and 264 status messages).
 
 ### Status (`ZMESSAGETYPE = 10`) Subcodes (Fixture Snapshot)
 
@@ -69,7 +68,7 @@ When building `MessageInfo`, the API determines the sender identity with a casca
    - `String.extractedPhone` derives the phone number from the member JID.
 3. **Individual chats** – `ZCHATSESSION` points to `ZWACHATSESSION`; the partner name/JID there provide the sender name and phone when the message is not from the owner.
 
-This behaviour lives in `SwiftWABackupAPI.swift` (`fetchSenderInfo`, `fetchGroupMemberInfo`, `fetchIndividualChatSenderInfo`, `obtainSenderInfo`) and is verified by `SwiftWABackupAPITests.testMessageContentExtraction`.
+This behaviour lives in `SwiftWABackupAPI.swift` (`fetchSenderInfo`, `fetchGroupMemberInfo`, `fetchIndividualChatSenderInfo`, `obtainSenderInfo`) and is covered by the private regression suite.
 
 ## Reply Resolution
 

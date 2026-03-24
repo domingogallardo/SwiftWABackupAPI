@@ -153,16 +153,9 @@ do {
 
 ## Tests
 
-The repository now ships two testing modes:
+Comprehensive regression tests are maintained locally because they depend on sensitive private fixtures and should not be published in the public repository.
 
-- Quick verification: `swift test`
-- Full regression against the large bundled fixture:
-
-```bash
-SWIFT_WA_RUN_FULL_FIXTURE_TESTS=1 swift test
-```
-
-The quick suite covers smoke scenarios, JSON contract snapshots, helper behaviour, and failure handling. The full suite keeps the large regression checks for counts, fixtures, contacts, and message content.
+The public repository is validated in CI with `swift build`.
 
 ## Additional Documentation
 
