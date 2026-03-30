@@ -90,7 +90,10 @@ public struct Reaction: Encodable {
     public let senderPhone: String
 }
 
-/// Represents the structured author identity resolved for a message.
+/// Represents a structured participant identity resolved from WhatsApp data.
+///
+/// The same shape is reused both for real message authors and for participants
+/// associated with system/event rows.
 public struct MessageAuthor: Encodable {
     /// High-level category of message author.
     public enum Kind: String, Codable {
@@ -190,8 +193,16 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     /// Human-readable message type name.
     public let messageType: String
 
-    /// Structured author identity for the message when it can be resolved.
+    /// Structured author identity for a user-authored message when it can be resolved.
+    ///
+    /// System or event rows may leave this field `nil` and instead populate `eventActor`.
     public var author: MessageAuthor?
+
+    /// Participant associated with a system/event message when no real author exists.
+    ///
+    /// Examples include group status events or sync notifications that refer to a
+    /// participant but are not authored chat messages in the usual sense.
+    public var eventActor: MessageAuthor?
 
     /// Caption or title associated with linked media.
     public var caption: String?
@@ -224,7 +235,8 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
         date: Date,
         isFromMe: Bool,
         messageType: String,
-        author: MessageAuthor? = nil
+        author: MessageAuthor? = nil,
+        eventActor: MessageAuthor? = nil
     ) {
         self.id = id
         self.chatId = chatId
@@ -233,6 +245,7 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
         self.isFromMe = isFromMe
         self.messageType = messageType
         self.author = author
+        self.eventActor = eventActor
         self.caption = nil
         self.replyTo = nil
         self.mediaFilename = nil

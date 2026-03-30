@@ -11,6 +11,8 @@ The observations below come from two places:
 
 When upgrading WhatsApp versions or altering the fixture, re-run the private regression suite and update this document with any schema or mapping changes you observe.
 
+For an audit of which claims in this README are externally corroborated versus fixture-local, see [ExternalValidationMatrix.md](./ExternalValidationMatrix.md).
+
 ## Core Tables and Columns
 
 | Table | Purpose | Key Columns Used |
@@ -20,7 +22,6 @@ When upgrading WhatsApp versions or altering the fixture, re-run the private reg
 | `ZWAMEDIAITEM` | Metadata for media attached to messages. | `Z_PK`, `ZMEDIALOCALPATH`, `ZTITLE`, `ZMOVIEDURATION`, `ZLATITUDE`, `ZLONGITUDE`, `ZMETADATA` |
 | `ZWAGROUPMEMBER` | Group participant roster used to resolve sender info. | `Z_PK`, `ZMEMBERJID`, `ZCONTACTNAME` |
 | `ZWAMESSAGEINFO` | Reaction payloads (`ZRECEIPTINFO`). | `ZMESSAGE`, `ZRECEIPTINFO` |
-| `ZWAVCARDMENTION` | vCard contact references for contact messages. | `ZMEDIAITEM`, `ZWHATSAPPID`, `ZSENDERJID` |
 
 All schema checks live in `DatabaseHelpers.swift` and `DatabaseProtocols.swift`; each model declares the minimal column set that the package expects to find.
 
@@ -34,7 +35,7 @@ All schema checks live in `DatabaseHelpers.swift` and `DatabaseProtocols.swift`;
 | 1 | Image | Copies media to disk when requested and exposes filename. |
 | 2 | Video | Adds filename and duration (`ZMOVIEDURATION`). |
 | 3 | Audio | Adds filename and duration. |
-| 4 | Contact | Extracts vCard info from `ZWAVCARDMENTION`. |
+| 4 | Contact | Classified as `Contact`, but the current runtime does not expose a validated structured vCard payload. |
 | 5 | Location | Emits latitude/longitude (`ZLATITUDE`, `ZLONGITUDE`). |
 | 7 | Link | Keeps URL text and optional caption. |
 | 8 | Document | Exposes original file name and caption. |
@@ -43,6 +44,32 @@ All schema checks live in `DatabaseHelpers.swift` and `DatabaseProtocols.swift`;
 | 15 | Sticker | Returns `.webp` filename. |
 
 The private regression suite verifies that the counts for each supported type are stable against the fixture (currently 5281 images, 489 videos, and 264 status messages).
+
+## Type-By-Type Runtime Matrix
+
+This table focuses on what the current implementation actually validates and exports, not on hypotheses from older reverse-engineering notes.
+
+| Type | Primary discriminator | Extra fields consulted | Current API output | Notes / open questions |
+| --- | --- | --- | --- | --- |
+| `Text` | `ZMESSAGETYPE = 0` | `ZTEXT` | `message` text plus cross-cutting fields such as `author`, `replyTo`, and `reactions` | Straightforward case. |
+| `Image` | `ZMESSAGETYPE = 1` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZMEDIALOCALPATH`, `ZWAMEDIAITEM.ZTITLE` | `mediaFilename`, optional `caption` | Media copy depends on the backup manifest lookup succeeding. |
+| `Video` | `ZMESSAGETYPE = 2` | Image fields plus `ZWAMEDIAITEM.ZMOVIEDURATION` | `mediaFilename`, optional `caption`, optional `seconds` | Duration is only surfaced for `Video` and `Audio`. |
+| `Audio` | `ZMESSAGETYPE = 3` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZMEDIALOCALPATH`, `ZWAMEDIAITEM.ZMOVIEDURATION` | `mediaFilename`, optional `seconds` | Audio captions are rare, but `caption` may still be populated from `ZTITLE` if present. |
+| `Contact` | `ZMESSAGETYPE = 4` | `ZTEXT`, optional `ZMEDIAITEM` if present | Generic `MessageInfo` with `messageType = "Contact"` | No validated structured contact payload is currently exposed. |
+| `Location` | `ZMESSAGETYPE = 5` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZLATITUDE`, `ZWAMEDIAITEM.ZLONGITUDE` | `latitude`, `longitude`, optional media/caption fields | Missing coordinates currently fall back to `0.0`, which may hide absent data. |
+| `Link` | `ZMESSAGETYPE = 7` | Primarily `ZTEXT`; optional `ZMEDIAITEM` / `ZTITLE` | Link text in `message`, optional `caption` | URL, preview metadata, and preview image are not modeled separately. |
+| `Document` | `ZMESSAGETYPE = 8` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZMEDIALOCALPATH`, `ZWAMEDIAITEM.ZTITLE` | `mediaFilename`, optional `caption` | MIME type and document metadata are not currently surfaced. |
+| `Status` | `ZMESSAGETYPE = 10` | `ZGROUPEVENTTYPE`, `ZTEXT`, `ZFROMJID`, `ZISFROMME`, resolved participant identity | Normalized `message`, optional `eventActor`, and usually no `author` | This is the most heuristic-driven family and the one with the most unfinished subcodes. |
+| `GIF` | `ZMESSAGETYPE = 11` | Same media fields as `Video` | `mediaFilename`, optional `caption` | Stored like media, but no duration is currently exposed for GIFs. |
+| `Sticker` | `ZMESSAGETYPE = 15` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZMEDIALOCALPATH` | `mediaFilename` | Sticker-specific metadata is not modeled; output is essentially filename + common fields. |
+
+Cross-cutting enrichments that may apply to many rows regardless of their type:
+
+- `author` is reserved for real authored messages and combines `ZISFROMME`, `ZGROUPMEMBER`, `ZFROMJID`, `ZWAGROUPMEMBER`, `ZWACHATSESSION`, and `ZWAPROFILEPUSHNAME`.
+- `eventActor` is used for system/status rows that refer to a participant but do not represent a conventional authored message.
+- `replyTo` is inferred from `ZMEDIAITEM` plus the binary blob stored in `ZWAMEDIAITEM.ZMETADATA`.
+- `reactions` come from `ZWAMESSAGEINFO.ZRECEIPTINFO`.
+- `mediaFilename` always requires a second lookup into the iTunes backup manifest to resolve the hashed file path.
 
 ### Status (`ZMESSAGETYPE = 10`) Subcodes (Fixture Snapshot)
 
@@ -58,17 +85,36 @@ The private regression suite verifies that the counts for each supported type ar
 
 Subcodes `5, 6, 13, 14, 25, 29, 30, 31, 34` also exist but with very low counts. Mapping these to descriptive messages would be a useful future enhancement.
 
-## Sender Name Resolution
+## Message Identity Resolution
 
-When building `MessageInfo`, the API determines the sender identity with a cascading strategy:
+When building `MessageInfo`, the API first resolves a participant identity candidate and then decides whether that identity belongs in `author` or `eventActor`.
 
-1. **Outgoing messages (`ZISFROMME = 1`)** – Treated as authored by the owner, so `senderName`/`senderPhone` remain `nil`; callers can display "Me".
-2. **Group chats** – `ZWAMESSAGE.ZGROUPMEMBER` links to `ZWAGROUPMEMBER.Z_PK`:
-   - `obtainSenderInfo` tries `ZWACHATSESSION.ZPARTNERNAME` first, then `ZWAPROFILEPUSHNAME`, and finally `ZWAGROUPMEMBER.ZCONTACTNAME`.
-   - `String.extractedPhone` derives the phone number from the member JID.
-3. **Individual chats** – `ZCHATSESSION` points to `ZWACHATSESSION`; the partner name/JID there provide the sender name and phone when the message is not from the owner.
+### Real Author (`author`)
 
-This behaviour lives in `SwiftWABackupAPI.swift` (`fetchSenderInfo`, `fetchGroupMemberInfo`, `fetchIndividualChatSenderInfo`, `obtainSenderInfo`) and is covered by the private regression suite.
+`author` is used only for rows treated as real user-authored messages:
+
+1. **Outgoing messages (`ZISFROMME = 1`)** – Exposed as `MessageAuthor(kind: .me, displayName: "Me", source: .owner)`.
+2. **Group chats** – `ZWAMESSAGE.ZGROUPMEMBER` is used first:
+   - `ZWAGROUPMEMBER.ZMEMBERJID` provides the strongest participant identifier.
+   - The display name is resolved in priority order from `ZWACHATSESSION.ZPARTNERNAME`, `ZWAPROFILEPUSHNAME`, and finally `ZWAGROUPMEMBER.ZCONTACTNAME`.
+   - If `ZGROUPMEMBER` is missing, the runtime falls back to `ZWAMESSAGE.ZFROMJID`.
+3. **Individual chats** – `ZCHATSESSION` points to `ZWACHATSESSION`, which supplies the participant JID and display name for incoming messages.
+
+For non-status rows, that resolved identity becomes `MessageInfo.author`.
+
+### Event Participant (`eventActor`)
+
+For status/system rows (`ZMESSAGETYPE = 10`), the same participant-resolution machinery may instead populate `MessageInfo.eventActor`.
+
+This is used when the row appears to be an event associated with a participant, rather than a conventional authored chat message. Examples include sync-style notifications or group-status events.
+
+Important consequences:
+
+- `author` is commonly `nil` for `Status` rows, even when a participant can still be associated with the event.
+- `eventActor` is only exposed when the resolved identity appears meaningful as a participant identity.
+- If the only fallback identity is a group JID, the runtime currently suppresses `eventActor` instead of pretending that the group identifier is a creator phone.
+
+This behaviour lives in `WABackup+Messages.swift` (`resolveParticipantIdentity`, `resolvedAuthor`, `resolvedEventActor`, `makeParticipantAuthor`) and is covered by the invariant and regression suites.
 
 ## Reply Resolution
 
@@ -116,4 +162,4 @@ Key tests that exercise the database assumptions:
 - `testGetChats` – Validates counts of active/archived sessions read from `ZWACHATSESSION`.
 - `testChatMessages` – Iterates every chat, asserting message totals per type and confirming that `MessageInfo` mirrors `ZWAMESSAGE` counters.
 - `testMessageContentExtraction` – Spot-checks individual messages (text, link, document, status) to confirm sender resolution, reply chains, filenames, reactions, and status-sync wording.
-- `testChatContacts` – Uses `ZWAVCARDMENTION` and profile media lookups to ensure contact export logic matches the fixture (current expectation failures highlight when the dataset evolves).
+- `testChatContacts` – Validates aggregate contact counts and profile media lookups against the fixture.

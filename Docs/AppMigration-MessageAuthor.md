@@ -1,4 +1,4 @@
-# App Migration Guide: `MessageInfo.author`
+# App Migration Guide: Message Identity
 
 This document is intended for the agent or developer updating an app that consumes `SwiftWABackupAPI`.
 
@@ -6,14 +6,18 @@ This document is intended for the agent or developer updating an app that consum
 
 `MessageInfo.senderName` and `MessageInfo.senderPhone` have been removed from the public API.
 
-Use `MessageInfo.author` instead.
+Use the structured identity fields instead:
+
+- `MessageInfo.author` for real user-authored chat messages
+- `MessageInfo.eventActor` for status/system rows that refer to a participant but do not represent a normal authored message
 
 ## Old To New Mapping
 
 | Old field | New field |
 | --- | --- |
-| `message.senderName` | `message.author?.displayName` |
-| `message.senderPhone` | `message.author?.phone` |
+| `message.senderName` on a normal chat message | `message.author?.displayName` |
+| `message.senderPhone` on a normal chat message | `message.author?.phone` |
+| sender label on a system/status row | `message.eventActor?.displayName ?? message.eventActor?.phone` |
 | outgoing message detection with missing sender fields | `message.author?.kind == .me` |
 
 ## Recommended Rendering Rules
@@ -21,9 +25,9 @@ Use `MessageInfo.author` instead.
 For most UI code, use this order:
 
 1. If `message.author?.kind == .me`, render the message as sent by the owner.
-2. Else use `message.author?.displayName` if present.
-3. Else use `message.author?.phone` if present.
-4. Else fall back to a generic label such as `"Unknown sender"`.
+2. Else if `message.author` exists, use `message.author?.displayName` and then `message.author?.phone`.
+3. Else if `message.eventActor` exists, render the row as an event associated with that participant.
+4. Else fall back to a generic label such as `"System event"` or `"Unknown sender"`, depending on the UI.
 
 ## Important Behavioral Notes
 
@@ -41,8 +45,10 @@ For most UI code, use this order:
   - `.pushName`
   - `.groupMember`
   - `.messageJid`
+- Status/system rows may leave `author == nil` and populate `eventActor` instead.
+- Some status rows have neither a real author nor a meaningful participant phone, because WhatsApp stores them as chat-level events rather than authored messages.
 
-`author.source` is useful when the app wants to explain where a display name came from or debug unexpected sender labels.
+`author.source` and `eventActor.source` are useful when the app wants to explain where a display name came from or debug unexpected sender labels.
 
 ## Search And Replace Checklist
 
@@ -58,13 +64,20 @@ message.author?.displayName
 message.author?.phone
 ```
 
+For status/system rows, also consider:
+
+```swift
+message.eventActor?.displayName
+message.eventActor?.phone
+```
+
 If the app used the old `nil senderName/nil senderPhone` pattern to detect owner messages, replace that with:
 
 ```swift
 message.author?.kind == .me
 ```
 
-## Example
+## Example: Message Bubble Label
 
 Old:
 
@@ -79,10 +92,27 @@ let label: String
 
 if message.author?.kind == .me {
     label = "Me"
-} else {
-    label = message.author?.displayName
-        ?? message.author?.phone
+} else if let author = message.author {
+    label = author.displayName
+        ?? author.phone
         ?? "Unknown sender"
+} else if let actor = message.eventActor {
+    label = actor.displayName
+        ?? actor.phone
+        ?? "System event"
+} else {
+    label = "System event"
+}
+```
+
+## Example: Status/Event Copy
+
+When the row is a status or group event, treat `eventActor` as the participant associated with the event, not as a conventional message author:
+
+```swift
+if message.messageType == "Status", let actor = message.eventActor {
+    let name = actor.displayName ?? actor.phone ?? "Someone"
+    print("Event associated with \(name)")
 }
 ```
 
@@ -92,6 +122,7 @@ If the app reads encoded JSON instead of Swift models:
 
 - remove support for `senderName`
 - remove support for `senderPhone`
-- read the `author` object instead
+- read `author` for real authored messages
+- read `eventActor` for status/system rows
 
 See [JSONContract.md](./JSONContract.md) for the exact payload shape.

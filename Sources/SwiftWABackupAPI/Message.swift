@@ -73,7 +73,19 @@ extension Message {
 
     /// Returns the first `ZTOJID` that identifies the owner profile.
     static func fetchOwnerJid(from db: Database) throws -> String? {
-        try Row.fetchOne(
+        if let individualOwnerJid: String = try Row.fetchOne(
+            db,
+            sql: """
+                 SELECT ZTOJID FROM \(tableName)
+                 WHERE ZMESSAGETYPE IN (6, 10)
+                   AND ZTOJID LIKE '%@s.whatsapp.net'
+                 LIMIT 1
+                 """
+        )?["ZTOJID"] {
+            return individualOwnerJid
+        }
+
+        return try Row.fetchOne(
             db,
             sql: """
                  SELECT ZTOJID FROM \(tableName)

@@ -87,7 +87,13 @@ let payload = try backupAPI.getChatPayload(chatId: chats[0].id, directoryToSaveM
 
 `ChatDumpPayload` exists specifically so consumers can serialize a full export without depending on the legacy tuple-based `ChatDump`.
 
-`MessageInfo.author` is now the only public authorship model exposed by `MessageInfo`. Use `author.kind`, `author.displayName`, `author.phone`, `author.jid`, and `author.source` when rendering or interpreting message senders.
+`MessageInfo.author` is reserved for real message authorship. System or event rows may instead populate `MessageInfo.eventActor` when a participant is associated with the event but there is no real authored message.
+
+For UI and exports:
+
+- use `author` for normal user-authored messages
+- use `eventActor` for status/system rows such as sync or group-event notifications
+- do not assume that every message has a phone-bearing real author
 
 Recommended JSON settings:
 

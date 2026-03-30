@@ -96,11 +96,21 @@ extension WABackup {
             throw DomainError.unexpected(reason: "Unsupported message type")
         }
 
-        let author = try resolveAuthor(for: message, chatType: chatType, from: db)
+        let participantIdentity = try resolveParticipantIdentity(for: message, chatType: chatType, from: db)
+        let author = resolvedAuthor(
+            for: message,
+            messageType: messageType,
+            participantIdentity: participantIdentity
+        )
+        let eventActor = resolvedEventActor(
+            for: message,
+            messageType: messageType,
+            participantIdentity: participantIdentity
+        )
         let messageText = resolveMessageText(
             for: message,
             messageType: messageType,
-            author: author
+            eventActor: eventActor
         )
 
         var messageInfo = MessageInfo(
@@ -110,7 +120,8 @@ extension WABackup {
             date: message.date,
             isFromMe: message.isFromMe,
             messageType: messageType.description,
-            author: author
+            author: author,
+            eventActor: eventActor
         )
 
         if let replyMessageId = try fetchReplyMessageId(for: message, from: db) {
@@ -135,7 +146,7 @@ extension WABackup {
         return messageInfo
     }
 
-    func resolveAuthor(
+    func resolveParticipantIdentity(
         for message: Message,
         chatType: ChatInfo.ChatType,
         from db: Database
@@ -182,6 +193,63 @@ extension WABackup {
                 jid: normalizedAuthorField(chatSession.contactJid),
                 source: .chatSession
             )
+        }
+    }
+
+    func resolvedAuthor(
+        for message: Message,
+        messageType: SupportedMessageType,
+        participantIdentity: MessageAuthor?
+    ) -> MessageAuthor? {
+        switch messageType {
+        case .status:
+            return nil
+        default:
+            return participantIdentity
+        }
+    }
+
+    func resolvedEventActor(
+        for message: Message,
+        messageType: SupportedMessageType,
+        participantIdentity: MessageAuthor?
+    ) -> MessageAuthor? {
+        guard messageType == .status else {
+            return nil
+        }
+
+        guard let participantIdentity else {
+            return nil
+        }
+
+        guard statusEventShouldExposeEventActor(message: message, participantIdentity: participantIdentity) else {
+            return nil
+        }
+
+        return participantIdentity
+    }
+
+    func statusEventShouldExposeEventActor(
+        message: Message,
+        participantIdentity: MessageAuthor
+    ) -> Bool {
+        guard let eventType = message.groupEventType else {
+            return false
+        }
+
+        switch eventType {
+        case 2:
+            if let jid = participantIdentity.jid, jid.isGroupJid {
+                return false
+            }
+            return true
+        case 40, 41, 58:
+            if let jid = participantIdentity.jid, jid.isGroupJid {
+                return false
+            }
+            return true
+        default:
+            return false
         }
     }
 
@@ -296,18 +364,18 @@ extension WABackup {
 
     func describeStatusSync(
         for message: Message,
-        author: MessageAuthor?
+        eventActor: MessageAuthor?
     ) -> String {
         if message.isFromMe {
             return "Status sync from me"
         }
 
-        if let name = author?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+        if let name = eventActor?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
            !name.isEmpty {
             return "Status sync from \(name)"
         }
 
-        if let phone = author?.phone, !phone.isEmpty {
+        if let phone = eventActor?.phone, !phone.isEmpty {
             return "Status sync from \(phone)"
         }
 
@@ -328,7 +396,7 @@ extension WABackup {
     func resolveMessageText(
         for message: Message,
         messageType: SupportedMessageType,
-        author: MessageAuthor?
+        eventActor: MessageAuthor?
     ) -> String? {
         switch messageType {
         case .status:
@@ -345,7 +413,7 @@ extension WABackup {
                     return current
                 }
 
-                return describeStatusSync(for: message, author: author)
+                return describeStatusSync(for: message, eventActor: eventActor)
             default:
                 return message.text
             }

@@ -94,7 +94,8 @@ The contract is verified by the local private regression suite that accompanies 
 | `date` | `String` | Yes | ISO 8601 timestamp for the message. |
 | `isFromMe` | `Bool` | Yes | Whether the message was sent by the owner. |
 | `messageType` | `String` | Yes | Human-readable message type name. |
-| `author` | `MessageAuthor` | No | Structured author identity for the message. |
+| `author` | `MessageAuthor` | No | Structured identity for a real user-authored message. |
+| `eventActor` | `MessageAuthor` | No | Participant associated with a status/system row when there is no real authored message. |
 | `caption` | `String` | No | Media caption or title. |
 | `replyTo` | `Int` | No | Identifier of the replied-to message when it can be resolved. |
 | `mediaFilename` | `String` | No | Exported media filename when media is copied or resolved. |
@@ -122,7 +123,27 @@ The contract is verified by the local private regression suite that accompanies 
 | `displayName` | `String` | No | Best-effort display name selected by the API. |
 | `phone` | `String` | No | Phone-like user portion derived from the author JID. |
 | `jid` | `String` | No | Raw WhatsApp JID when it can be determined. |
-| `source` | `"owner" | "chatSession" | "pushName" | "groupMember" | "messageJid"` | Yes | Data source used by the API to resolve the author. |
+| `source` | `"owner" | "chatSession" | "pushName" | "groupMember" | "messageJid"` | Yes | Data source used by the API to resolve the identity. |
+
+## `MessageInfo` Example For Status/System Rows
+
+```json
+{
+  "chatId": 44,
+  "date": "2024-04-03T11:24:16Z",
+  "eventActor": {
+    "displayName": "Sample Contact",
+    "jid": "15550000001@s.whatsapp.net",
+    "kind": "participant",
+    "phone": "15550000001",
+    "source": "chatSession"
+  },
+  "id": 125600,
+  "isFromMe": false,
+  "message": "Status sync from Sample Contact",
+  "messageType": "Status"
+}
+```
 
 ## `ContactInfo`
 
@@ -164,5 +185,7 @@ The contract is verified by the local private regression suite that accompanies 
 
 - `ChatDump` remains available as the legacy tuple returned by `getChat(...)`.
 - `ChatDumpPayload` is the recommended type for JSON export because it is stable, explicit, and directly `Encodable`.
-- `MessageInfo.author` is the canonical authorship model for new integrations.
+- `MessageInfo.author` is reserved for real authored messages.
+- `MessageInfo.eventActor` is used for status/system rows that refer to a participant but are not authored chat messages in the usual sense.
+- Consumers should not assume that every message has a phone-bearing real author.
 - `senderName` and `senderPhone` are no longer part of the public `MessageInfo` contract.
