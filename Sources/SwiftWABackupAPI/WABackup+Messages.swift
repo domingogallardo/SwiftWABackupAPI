@@ -268,6 +268,10 @@ extension WABackup {
     }
 
     func fetchReplyMessageId(for message: Message, from db: Database) throws -> Int64? {
+        if let parentMessageId = message.parentMessageId {
+            return parentMessageId
+        }
+
         if let mediaItemId = message.mediaItemId,
            let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
            let stanzaId = mediaItem.extractReplyStanzaId() {

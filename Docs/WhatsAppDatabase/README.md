@@ -26,7 +26,7 @@ So, in the API model:
 
 | Table | Purpose | Key Columns Used |
 | --- | --- | --- |
-| `ZWAMESSAGE` | Stores every chat message and system event. | `Z_PK`, `ZCHATSESSION`, `ZMESSAGETYPE`, `ZGROUPEVENTTYPE`, `ZTEXT`, `ZMEDIAITEM`, `ZISFROMME`, `ZGROUPMEMBER`, `ZMESSAGEDATE`, `ZFROMJID`, `ZTOJID` |
+| `ZWAMESSAGE` | Stores every chat message and system event. | `Z_PK`, `ZCHATSESSION`, `ZMESSAGETYPE`, `ZGROUPEVENTTYPE`, `ZTEXT`, `ZMEDIAITEM`, `ZPARENTMESSAGE`, `ZISFROMME`, `ZGROUPMEMBER`, `ZMESSAGEDATE`, `ZFROMJID`, `ZTOJID` |
 | `ZWACHATSESSION` | Metadata for each chat thread. | `Z_PK`, `ZCONTACTJID`, `ZPARTNERNAME`, `ZLASTMESSAGEDATE`, `ZMESSAGECOUNTER`, `ZSESSIONTYPE`, `ZARCHIVED` |
 | `ZWAMEDIAITEM` | Metadata for media attached to messages. | `Z_PK`, `ZMEDIALOCALPATH`, `ZTITLE`, `ZMOVIEDURATION`, `ZLATITUDE`, `ZLONGITUDE`, `ZMETADATA` |
 | `ZWAGROUPMEMBER` | Group participant roster used to resolve sender info. | `Z_PK`, `ZMEMBERJID`, `ZCONTACTNAME` |
@@ -76,7 +76,7 @@ Cross-cutting enrichments that may apply to many rows regardless of their type:
 
 - `author` is reserved for real authored messages and combines `ZISFROMME`, `ZGROUPMEMBER`, `ZFROMJID`, `ZWAGROUPMEMBER`, `ZWACHATSESSION`, `ZWAPROFILEPUSHNAME`, and, when available, the WhatsApp `LID.sqlite` account cache.
 - `eventActor` is used for system/status rows that refer to a participant but do not represent a conventional authored message.
-- `replyTo` is inferred from `ZMEDIAITEM` plus the binary blob stored in `ZWAMEDIAITEM.ZMETADATA`.
+- `replyTo` is resolved from `ZWAMESSAGE.ZPARENTMESSAGE` when present, otherwise from `ZMEDIAITEM` plus the binary blob stored in `ZWAMEDIAITEM.ZMETADATA`.
 - `reactions` come from `ZWAMESSAGEINFO.ZRECEIPTINFO`.
 - `mediaFilename` always requires a second lookup into the iTunes backup manifest to resolve the hashed file path.
 
@@ -142,12 +142,13 @@ Real WhatsApp Web screenshots were used to validate the current display-name str
 
 Replies are encoded through media metadata rather than a direct foreign key:
 
-1. `ZWAMESSAGE.ZMEDIAITEM` references a `ZWAMEDIAITEM` row whose `ZMETADATA` holds a protobuf-style blob. Messages without a media item cannot resolve replies and keep `replyTo = nil`.
-2. `MediaItem.extractReplyStanzaId()` scans that blob for reply markers (`0x32 0x1A` or `0x9A 0x01`) and extracts the original stanza ID.
-3. `WABackup.fetchReplyMessageId` uses `Message.fetchMessageId(byStanzaId:)` to locate the original `ZWAMESSAGE.Z_PK`.
-4. If found, `MessageInfo.replyTo` contains the target message ID; otherwise it remains `nil`.
+1. If `ZWAMESSAGE.ZPARENTMESSAGE` is populated, the runtime uses it directly as the replied-to message ID.
+2. Otherwise, `ZWAMESSAGE.ZMEDIAITEM` may reference a `ZWAMEDIAITEM` row whose `ZMETADATA` holds a protobuf-style blob. Messages without either source keep `replyTo = nil`.
+3. `MediaItem.extractReplyStanzaId()` first parses the modern top-level protobuf field that carries the quoted message stanza ID. The historical marker-based heuristic is kept as a backward-compatible fallback for older fixture blobs.
+4. `WABackup.fetchReplyMessageId` uses `Message.fetchMessageId(byStanzaId:)` to locate the original `ZWAMESSAGE.Z_PK`.
+5. If found, `MessageInfo.replyTo` contains the target message ID; otherwise it remains `nil`.
 
-`SwiftWABackupAPITests.testMessageContentExtraction` asserts this behaviour (e.g. message 125482 replying to 125479 in the fixture). Parsing failures are tolerated, resulting in a `nil` reply.
+`SwiftWABackupAPITests.testMessageContentExtraction` and the local WhatsApp Web validation workflow both exercise this behaviour. The current implementation now resolves modern quoted replies that are visibly rendered by WhatsApp Web in recent chats, while still preserving compatibility with the older fixture format.
 
 ## Reaction Storage
 

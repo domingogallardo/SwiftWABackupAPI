@@ -47,11 +47,70 @@ struct MediaItem: FetchableByID {
     // MARK:‑ Reply‑metadata helpers (lógica previa intacta)
     func extractReplyStanzaId() -> String? {
         guard let metadata else { return nil }
-        return parseReplyMetadata(blob: metadata)
+        if let stanzaId = parseProtobufReplyMetadata(blob: metadata) {
+            return stanzaId
+        }
+
+        return parseLegacyReplyMetadata(blob: metadata)
     }
 
-    /// Parses WA protobuf‑style metadata blob to obtain the replied‑to `stanzaId`.
-    private func parseReplyMetadata(blob: Data) -> String? {
+    /// Parses modern WA protobuf-like metadata blobs and extracts the replied-to `stanzaId`.
+    private func parseProtobufReplyMetadata(blob: Data) -> String? {
+        let bytes = [UInt8](blob)
+        var index = 0
+
+        while index < bytes.count {
+            guard let key = readVarint(from: bytes, index: &index) else {
+                return nil
+            }
+
+            let fieldNumber = Int(key >> 3)
+            let wireType = Int(key & 0x07)
+
+            switch wireType {
+            case 0:
+                guard readVarint(from: bytes, index: &index) != nil else {
+                    return nil
+                }
+
+            case 1:
+                guard index + 8 <= bytes.count else {
+                    return nil
+                }
+                index += 8
+
+            case 2:
+                guard let lengthValue = readVarint(from: bytes, index: &index),
+                      let length = Int(exactly: lengthValue),
+                      index + length <= bytes.count else {
+                    return nil
+                }
+
+                let payload = Array(bytes[index..<(index + length)])
+                index += length
+
+                if fieldNumber == 5,
+                   let stanzaId = String(bytes: payload, encoding: .utf8),
+                   stanzaId.looksLikeReplyStanzaId {
+                    return stanzaId
+                }
+
+            case 5:
+                guard index + 4 <= bytes.count else {
+                    return nil
+                }
+                index += 4
+
+            default:
+                return nil
+            }
+        }
+
+        return nil
+    }
+
+    /// Parses the historical heuristic blob shape used by older fixtures.
+    private func parseLegacyReplyMetadata(blob: Data) -> String? {
         let start = blob.startIndex.advanced(by: 2)
         let endMarker      = [UInt8(0x32), 0x1A]
         let endMarkerMe    = [UInt8(0x9A), 0x01]
@@ -72,5 +131,36 @@ struct MediaItem: FetchableByID {
         }
         let range = stanzaIDStart..<endIndex
         return String(data: blob.subdata(in: range), encoding: .utf8)
+    }
+
+    private func readVarint(from bytes: [UInt8], index: inout Int) -> UInt64? {
+        var result: UInt64 = 0
+        var shift: UInt64 = 0
+
+        while index < bytes.count, shift <= 63 {
+            let byte = bytes[index]
+            index += 1
+            result |= UInt64(byte & 0x7F) << shift
+
+            if byte & 0x80 == 0 {
+                return result
+            }
+
+            shift += 7
+        }
+
+        return nil
+    }
+}
+
+private extension String {
+    var looksLikeReplyStanzaId: Bool {
+        guard !isEmpty, count <= 128, !contains("@") else {
+            return false
+        }
+
+        return unicodeScalars.allSatisfy { scalar in
+            !CharacterSet.whitespacesAndNewlines.contains(scalar) && !CharacterSet.controlCharacters.contains(scalar)
+        }
     }
 }

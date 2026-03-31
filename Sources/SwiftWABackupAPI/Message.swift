@@ -16,7 +16,7 @@ struct Message: FetchableByID {
         "Z_PK", "ZTOJID", "ZMESSAGETYPE", "ZGROUPMEMBER",
         "ZCHATSESSION", "ZTEXT", "ZMESSAGEDATE",
         "ZFROMJID", "ZMEDIAITEM", "ZISFROMME",
-        "ZGROUPEVENTTYPE", "ZSTANZAID"
+        "ZGROUPEVENTTYPE", "ZSTANZAID", "ZPARENTMESSAGE"
     ]
     static let primaryKey = "Z_PK"
     typealias Key = Int64
@@ -34,6 +34,7 @@ struct Message: FetchableByID {
     let fromJid: String?
     let toJid: String?
     let stanzaId: String?
+    let parentMessageId: Int64?
 
     // MARK: - Row → Struct
     init(row: Row) {
@@ -49,6 +50,7 @@ struct Message: FetchableByID {
         fromJid       = row["ZFROMJID"]
         toJid         = row["ZTOJID"]
         stanzaId      = row["ZSTANZAID"]
+        parentMessageId = row["ZPARENTMESSAGE"]
     }
 }
 
