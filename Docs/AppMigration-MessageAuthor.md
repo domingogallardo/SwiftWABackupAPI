@@ -42,9 +42,26 @@ For most UI code, use this order:
   - `author.source = .chatSession`
 - Incoming group messages may resolve from different sources:
   - `.chatSession`
+  - `.addressBook`
+  - `.lidAccount`
   - `.pushName`
+  - `.pushNamePhoneJid`
   - `.groupMember`
   - `.messageJid`
+- When `author.source` is `.pushName` or `.pushNamePhoneJid`, `author.displayName`
+  is intentionally rendered as `~ Name` to match WhatsApp Web's sender label style
+  inside group conversations.
+- In group chats, a `.chatSession` label that is only a formatted phone number is now
+  treated as weaker than a human-readable push name. This matches WhatsApp Web cases
+  where the visible sender label is a `~ Name` push-name label rather than a
+  formatted phone number.
+- When `author.source` is `.lidAccount`, `author.displayName` may still use that
+  same `~ Name` style, but the phone and JID were recovered from WhatsApp's
+  `LID.sqlite` account cache instead of being inferred from the visible `@lid`.
+- `author.phone` is now intentionally conservative:
+  - for `.addressBook`, `.chatSession`, `.lidAccount`, and `.pushNamePhoneJid`, it usually contains a real phone number
+  - for ambiguous `@lid` identities resolved only through `.pushName`, it may be `nil`
+  - the API no longer treats raw LID digits as if they were a phone number
 - Status/system rows may leave `author == nil` and populate `eventActor` instead.
 - Some status rows have neither a real author nor a meaningful participant phone, because WhatsApp stores them as chat-level events rather than authored messages.
 

@@ -94,6 +94,8 @@ For UI and exports:
 - use `author` for normal user-authored messages
 - use `eventActor` for status/system rows such as sync or group-event notifications
 - do not assume that every message has a phone-bearing real author
+- when `author.source == .lidAccount`, the visible `~ Name` label still comes from WhatsApp identity data, but the phone and JID were recovered from WhatsApp's `LID.sqlite` cache
+- in group chats, a direct-chat label that is only a formatted phone number is treated as fallback, so a human-readable push name may be rendered instead to stay aligned with WhatsApp Web
 
 Recommended JSON settings:
 

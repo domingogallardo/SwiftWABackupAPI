@@ -120,10 +120,10 @@ The contract is verified by the local private regression suite that accompanies 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `kind` | `"me" | "participant"` | Yes | Whether the author is the owner or another participant. |
-| `displayName` | `String` | No | Best-effort display name selected by the API. |
-| `phone` | `String` | No | Phone-like user portion derived from the author JID. |
+| `displayName` | `String` | No | Best-effort display name selected by the API. Names derived from WhatsApp profile push names are prefixed with `~ ` to match WhatsApp Web's group-message rendering. In groups, a phone-only direct-chat label is treated as fallback and does not outrank a human-readable push name. |
+| `phone` | `String` | No | Real phone number when the API can resolve one confidently. Ambiguous `@lid` identities intentionally leave this field unset instead of exposing the raw LID digits as if they were a phone number. |
 | `jid` | `String` | No | Raw WhatsApp JID when it can be determined. |
-| `source` | `"owner" | "chatSession" | "pushName" | "groupMember" | "messageJid"` | Yes | Data source used by the API to resolve the identity. |
+| `source` | `"owner" | "chatSession" | "addressBook" | "lidAccount" | "pushName" | "pushNamePhoneJid" | "groupMember" | "messageJid"` | Yes | Data source used by the API to resolve the identity. |
 
 ## `MessageInfo` Example For Status/System Rows
 
@@ -188,4 +188,6 @@ The contract is verified by the local private regression suite that accompanies 
 - `MessageInfo.author` is reserved for real authored messages.
 - `MessageInfo.eventActor` is used for status/system rows that refer to a participant but are not authored chat messages in the usual sense.
 - Consumers should not assume that every message has a phone-bearing real author.
+- `MessageAuthor.source = "lidAccount"` means the visible sender label still comes from WhatsApp identity data such as push names, while the real phone number was recovered from WhatsApp's `LID.sqlite` account cache.
+- `MessageAuthor.source = "chatSession"` does not mean that `ZWACHATSESSION.ZPARTNERNAME` always won the display-name decision. In group chats, the runtime may ignore a phone-only chat-session label and prefer a `pushName` instead.
 - `senderName` and `senderPhone` are no longer part of the public `MessageInfo` contract.

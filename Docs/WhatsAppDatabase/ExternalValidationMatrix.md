@@ -1,174 +1,147 @@
-# External Validation Matrix
+# External Validation Report for `SwiftWABackupAPI` README  
+**Scope:** validation of the supplied README claims **without using the `SwiftWABackupAPI` repository**.
 
-This document audits the claims in [README.md](./README.md) against external sources available as of March 24, 2026.
+## Methodology
 
-The goal is not to replace the implementation-focused README, but to separate:
+I validated the README against external sources only, prioritizing public forensic write-ups, reverse-engineering references, official WhatsApp/GitHub material where available, and independent public code/examples. I **did not use the `SwiftWABackupAPI` repository** in this pass.
 
-- behaviour that is externally corroborated,
-- behaviour that is only partially corroborated,
-- behaviour that appears to conflict with older external sources, and
-- behaviour that is currently best treated as fixture-local or parser-specific inference.
+Because WhatsApp does not publish an official schema reference for `ChatStorage.sqlite`, some claims can only be checked against third-party reverse-engineering sources. For that reason, the labels below mean:
 
-## Validation Levels
+- **`externally corroborated`**: supported by one or more external sources and not materially contradicted by stronger external evidence.
+- **`externally conflicted`**: public external sources disagree in a material way, or the public evidence points in more than one direction.
+- **`WA-Web-validated`**: not externally documented in strong public sources, but validated against the visible behavior of real WhatsApp Web sessions and screenshots.
+- **`fixture-only`**: I found no sufficiently strong external corroboration; the claim appears to depend on your implementation, your fixture, or local reverse engineering.
 
-- `Externally corroborated`
-  Multiple external sources broadly agree with the README claim.
-- `Partially corroborated`
-  External sources support part of the claim, but not the exact runtime interpretation.
-- `Conflicted / version-sensitive`
-  External sources describe a different mapping or a historically older schema variant.
-- `Fixture-local / inferred`
-  The behaviour is supported by this project's code and private fixture, but not convincingly documented elsewhere.
+## Validation matrix
 
-## Source Catalog
+| README claim / area | Verdict | Notes |
+|---|---|---|
+| The project works against `ChatStorage.sqlite` extracted from an iOS WhatsApp backup. | `externally corroborated` | Multiple forensic references identify `ChatStorage.sqlite` as the main WhatsApp message database on iOS / iTunes-Finder backups. [1][2][3] |
+| The WhatsApp backup domain/path is `AppDomainGroup-group.net.whatsapp.WhatsApp.shared`. | `externally corroborated` | External forensic references and public extraction code use that exact app-group domain when locating `ChatStorage.sqlite` and related files. [2][4] |
+| `ZWAMESSAGE`, `ZWACHATSESSION`, and `ZWAMEDIAITEM` are core tables for iOS WhatsApp analysis. | `externally corroborated` | This is directly described in forensic references. [1][2] |
+| `ZWAMESSAGEINFO` exists and links to messages via `ZMESSAGE`; `ZRECEIPTINFO` is a blob field of interest. | `externally corroborated` | Independent public SQL/examples reference `ZWAMESSAGEINFO.ZRECEIPTINFO`, and reverse-engineering discussions mention the blob explicitly. [5][6] |
+| `ZWAGROUPMEMBER` is used to resolve senders in group chats. | `externally corroborated` | Public migration/conversion SQL joins `ZWAMESSAGE.ZGROUPMEMBER` to `ZWAGROUPMEMBER.Z_PK` and uses `ZMEMBERJID` for sender identity in groups. [7][8] |
+| `ZWAMESSAGE` columns such as `ZCHATSESSION`, `ZMESSAGETYPE`, `ZTEXT`, `ZMEDIAITEM`, `ZISFROMME`, `ZGROUPMEMBER`, `ZMESSAGEDATE`, `ZFROMJID`, and `ZTOJID` are central to extraction. | `externally corroborated` | These fields are described in forensic references and appear in public SQL/scripts for iOS backups. [1][2][5] |
+| `ZWACHATSESSION` columns such as `ZCONTACTJID`, `ZPARTNERNAME`, `ZLASTMESSAGEDATE`, `ZMESSAGECOUNTER`, `ZSESSIONTYPE`, and archive-related metadata are relevant chat metadata. | `externally corroborated` | Public forensic documentation describes the main purpose of these fields and the conversation/session role of the table. [1][2] |
+| `ZWAMEDIAITEM` columns such as `ZMEDIALOCALPATH`, `ZTITLE`, `ZMOVIEDURATION`, `ZLATITUDE`, `ZLONGITUDE`, and media metadata fields are used for attachment extraction. | `externally corroborated` | External sources describe these columns and their general purpose. [1][5][7] |
+| `ZMESSAGETYPE` basic mapping for `0=text`, `1=image`, `2=video`, `3=voice/audio`, `4=contact`, `5=location`, `7=URL/link`, `8=file/document` is valid. | `externally corroborated` | Belkasoft and another database-forensics reference give essentially that mapping. [1][9] |
+| Extended message-type mapping in the README (`10=Status`, `11=GIF`, `15=Sticker`) is established externally as written. | `externally conflicted` | I did **not** find strong authoritative documentation for this exact extended mapping. Worse, public reverse-engineering sources are inconsistent: one recent public source maps sticker/GIF/deletion-related values differently (`8=sticker`, `13=GIF`, `15=deleted for everyone`). This makes the exact higher-value mapping version-dependent and publicly inconsistent. [10][11] |
+| The status subcode table for `ZMESSAGETYPE = 10` (`ZGROUPEVENTTYPE` values, counts, and English renderings such as `This is a business chat` or `Status sync from …`) is externally documented. | `fixture-only` | I found public evidence that system/group/control messages exist, but not reliable external documentation for your exact subcode meanings, counts, or normalization strings. |
+| The fixture counts (for example `5281` images, `489` videos, `264` status messages) can be externally validated. | `fixture-only` | These are local fixture facts, not public facts. |
+| `@lid` identifiers are non-phone identifiers that appear in modern multi-device WhatsApp contexts. | `externally corroborated` | External discussions and tool ecosystems consistently describe `@lid` as a non-phone identifier introduced by newer WhatsApp multi-device / privacy-preserving behavior. [12][13][14] |
+| `@s.whatsapp.net` is the phone-based JID form, while `@lid` is a linked/private identifier that may need local mapping. | `externally corroborated` | External issue reports and release notes describe both forms and the need to resolve between them. [12][13][15] |
+| A local cache/database such as `LID.sqlite` may exist and help with LID resolution. | `externally corroborated` | External references show `LID.sqlite` present in WhatsApp-related backups/exfiltration targets, which supports the existence of such a cache/database. [16][17] |
+| The likely expansion of **LID** as `Linked ID` or `Link ID` is established externally. | `externally conflicted` | Public sources are inconsistent here. Some external tool vendors or project release notes call it **Linked ID**, while other public discussions describe the same identifiers as **linked device IDs** or simply as privacy-preserving local/linked identifiers. I did not find an authoritative WhatsApp source standardizing the expansion. [12][15][18] |
+| Author resolution using `ZISFROMME`, `ZWAGROUPMEMBER`, `ZWACHATSESSION`, `ZWAPROFILEPUSHNAME`, and optional LID mapping is plausible. | `externally corroborated` | The underlying tables/fields used in your reasoning are externally documented. The exact logic is your implementation, but the data sources you rely on are externally real. [1][2][5][8] |
+| The visible sender-label behavior seen in WhatsApp Web, including `~` prefix display and the fact that bidi control characters are not surfaced to the user, matches the API's current normalization strategy. | `WA-Web-validated` | Validated against real WhatsApp Web screenshots. Example: `ZWACHATSESSION.ZPARTNERNAME = '\\u200eTú'` is shown in the UI without exposing the leading LRM, and group-message screenshots show clean `~ Name` labels and `+34 ...` phone strings rather than raw bidi-wrapped database values. |
+| The exact author-resolution priority order (`ZPARTNERNAME` → `ZWAPROFILEPUSHNAME` → `ZWAGROUPMEMBER.ZCONTACTNAME`) is externally established WhatsApp behavior. | `externally conflicted` | WhatsApp Web evidence now conflicts with the order as written. In one validated group chat, the web prefers a human-friendly saved/direct-chat label over a more formal conflicting `ZWAPROFILEPUSHNAME` and over a phone-only `ZWAGROUPMEMBER.ZCONTACTNAME`. But another validated group chat shows the opposite of the documented order for phone-only chat-session labels: a phone-only `ZPARTNERNAME` and `ZWAGROUPMEMBER.ZCONTACTNAME` lose to a human-readable `ZWAPROFILEPUSHNAME`, and the web visibly renders the `~ Name` push label. |
+| In WhatsApp Web group-message rendering, a human-friendly push name can outrank phone-only fallback labels coming from direct-chat/session or group-member records. | `WA-Web-validated` | Validated against real WhatsApp Web screenshots. In one validated group chat, the database stores phone-only fallback labels in both `ZWACHATSESSION.ZPARTNERNAME` and `ZWAGROUPMEMBER.ZCONTACTNAME`, while the web visibly renders a `~ Name` label from `ZWAPROFILEPUSHNAME`. |
+| `author` versus `eventActor` as separate semantic outputs is externally documented WhatsApp behavior. | `fixture-only` | This is a modeling choice in your API, not an externally documented WhatsApp schema concept. |
+| Reply resolution through `ZWAMEDIAITEM.ZMETADATA` and specific byte markers (`0x32 0x1A` / `0x9A 0x01`) is externally documented. | `fixture-only` | I found no strong external documentation for those exact markers or your stanza-ID extraction strategy. |
+| Reactions are stored in `ZWAMESSAGEINFO.ZRECEIPTINFO` as binary blobs. | `externally corroborated` | The existence of `ZRECEIPTINFO` as a blob is externally corroborated; it is publicly recognized as opaque receipt-related metadata. [5][6] |
+| Your specific `ReactionParser` algorithm (emoji length byte + UTF-8 slice + preceding JID bytes) is externally established. | `fixture-only` | I found no strong external confirmation for that exact blob format/parser. |
+| Media retrieval via iOS `Manifest.db` / `Files(fileID, domain, relativePath)` and then locating the hashed file under `<backup>/<prefix>/<fileID>` is the correct general model. | `externally corroborated` | This is standard iOS backup behavior and is also reflected in public WhatsApp extraction code. [4][19][20] |
+| Looking up WhatsApp media by `domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'` plus relative path is externally grounded. | `externally corroborated` | Public code that extracts WhatsApp data from iPhone backups uses exactly that approach. [4] |
+| Profile photos / avatars in WhatsApp iOS data are found under `Media/Profile/`. | `externally corroborated` | Group-IB explicitly lists `/Media/Profile/` for contact/group thumbnails and avatars, and independent training material repeats the same location. [2][21] |
+| Sticker assets are associated with `.webp` files. | `externally corroborated` | Group-IB notes a `/stickers/` directory in the shared container, and official WhatsApp sticker documentation for iOS states that sticker payloads use WebP data. [2][22] |
+| The exact export naming rules in your README for avatars (for example `chat_<chatId>.ext`, newest-file selection, phone-based contact filenames) are externally documented. | `fixture-only` | The directory is externally corroborated, but your export-naming convention is implementation-specific. |
+| The error taxonomy (`BackupError`, `DatabaseErrorWA`, `DomainError`) is externally grounded in the WhatsApp data model. | `fixture-only` | Those are library/API design choices, not public WhatsApp artifacts. |
+| The listed tests (`testGetChats`, `testChatMessages`, `testMessageContentExtraction`, `testChatContacts`) provide external evidence. | `fixture-only` | They are internal validation assets unless reproduced and independently audited from outside the project. |
 
-These are the main external references used for the matrix below.
+## Overall assessment
 
-1. [Belkasoft: iOS WhatsApp Forensics with Belkasoft X](https://belkasoft.com/ios-whatsapp-forensics-with-belkasoft-x)
-   Practical iOS WhatsApp forensic walkthrough with screenshots and field descriptions for `ZWACHATSESSION`, `ZWAMESSAGE`, and `ZWAMEDIAITEM`.
+### Strongly supported externally
 
-2. [CERT-XLM / CoRIIN 2020 PDF](https://www.cecyf.fr/wp-content/uploads/2024/05/CoRIIN2020-Smartphone-Whatsapp.pdf)
-   Strong external reference for iOS table relationships, relevant columns, group-message correlation, `ZWAMESSAGEINFO`, and the lack of official documentation.
+The README is on firm ground in its **high-level forensic model**:
 
-3. [HackTricks: iOS Backup Forensics](https://book.hacktricks.wiki/en/generic-methodologies-and-resources/basic-forensic-methodology/ios-backup-forensics.html)
-   Useful for backup reconstruction, `Manifest.db`, hashed backup layout, and the `ZWAMESSAGE` ↔ `ZWAMEDIAITEM` linkage via `ZMEDIALOCALPATH`.
+- `ChatStorage.sqlite` is the central iOS message database.
+- The app-group domain/path is correct.
+- The main tables (`ZWAMESSAGE`, `ZWACHATSESSION`, `ZWAMEDIAITEM`, `ZWAMESSAGEINFO`, `ZWAGROUPMEMBER`) are real and widely discussed in public forensic material.
+- The basic `ZMESSAGETYPE` mapping for the low-numbered/common message types is well supported.
+- The `Manifest.db` lookup pattern for hashed iOS backup files is correct.
+- `@lid` is a real modern identifier form distinct from phone-number JIDs, and `LID.sqlite` also appears in external references. [1][2][4][12][16]
 
-4. [Mobile Verification Toolkit docs: `whatsapp.json`](https://docs.mvt.re/en/stable/ios/records/)
-   Independent confirmation that modern tooling extracts WhatsApp records from `ChatStorage.sqlite` under the shared App Group path.
+### Best treated as project-local / fixture-derived
 
-5. [Historical community SQL mapping gist (`convert.sql`)](https://gist.github.com/marmolejo/9f19f7f91ee6e58ec44f)
-   Not authoritative, but useful as a historical independent mapping of `ZWAMESSAGE`, `ZWAMEDIAITEM`, `ZWAGROUPMEMBER`, `ZSTANZAID`, and `ZGROUPEVENTTYPE`.
+The README becomes much less externally verifiable when it moves from **schema facts** to **behavioral interpretation**:
 
-6. [Mobile Forensics Guide for iOS & Android Devices (online excerpt)](https://studylib.net/doc/28056759/moreb-practical-forensic-analysis-of-artifacts-on-ios-and...)
-   Secondary source confirming `Media/Profile`, `Message/Media`, `Stickers`, and the existence of `ZWAGROUPMEMBER`-family tables in `ChatStorage.sqlite`.
+- exact `Status` subcode meanings and normalized strings,
+- exact reply-parsing byte signatures,
+- exact reaction blob decoding,
+- fixture counts,
+- the exact full precedence order for display-name resolution,
+- `author` vs `eventActor`,
+- file-export naming conventions,
+- local regression-test assertions.
 
-## Matrix By README Section
+Those sections should be treated as **implementation knowledge**, not as publicly validated WhatsApp documentation.
 
-### 1. Source of Truth
+### The two places I would soften most
 
-| README section | Status | Notes |
-| --- | --- | --- |
-| `Source of Truth` | `Fixture-local / inferred` | This section is intentionally repo-specific. External sources can corroborate the database families, but not the statement that the implementation and private regression suite are the project’s operational source of truth. |
+1. **Extended message-type mapping**  
+   Public sources are not consistent enough for the exact `10/11/15` mapping you list. I would either:
+   - move those values into a “fixture-observed / version-dependent” section, or
+   - explicitly label them as reverse-engineered and not externally stable.
 
-### 2. Core Tables and Columns
+2. **LID acronym expansion**  
+   The existence and role of `@lid` is well supported, but the expansion of the acronym itself is **not standardized by an authoritative WhatsApp source** in the material I found. I would avoid presenting any expansion as more than a tentative gloss.
 
-| README claim | Status | Notes |
-| --- | --- | --- |
-| `ZWAMESSAGE` is central and stores message/event rows | `Externally corroborated` | Strongly supported by Belkasoft and CoRIIN. |
-| `ZWACHATSESSION` stores chat metadata | `Externally corroborated` | Strongly supported by Belkasoft. |
-| `ZWAMEDIAITEM` stores attachment metadata | `Externally corroborated` | Supported by Belkasoft, CoRIIN, and HackTricks. |
-| `ZWAGROUPMEMBER` is used to resolve group participants | `Externally corroborated` | Supported by CoRIIN and secondary forensic references. |
-| `ZWAMESSAGEINFO` is relevant for message status / extra metadata | `Externally corroborated` | Supported by CoRIIN; exact semantics remain narrower externally than in this project. |
-| Exact minimal `expectedColumns` enforced by the code | `Fixture-local / inferred` | This is a project-specific schema contract, not something external sources validate. |
+## Suggested README wording changes
 
-### 3. Message Type Mapping
+### Safer wording for the LID section
 
-| README claim | Status | Notes |
-| --- | --- | --- |
-| Codes `0,1,2,3,4,5,7,8` map to text/image/video/audio/contact/location/url/file | `Externally corroborated` | Belkasoft and CoRIIN both describe this family of mappings. |
-| `10` behaves as a status/system family | `Partially corroborated` | Externally, status/system-event behaviour is visible, but subcode semantics remain poorly documented. |
-| `11 = GIF` | `Fixture-local / inferred` | I did not find a strong independent source naming `11` specifically as GIF for iOS ChatStorage.sqlite. |
-| `15 = Sticker` | `Fixture-local / inferred` | External sources confirm sticker artifacts exist on iOS, but not this exact code mapping in the reviewed sources. |
-| The supported enum is complete enough for the API | `Conflicted / version-sensitive` | CoRIIN and Belkasoft both document `ZMESSAGETYPE = 6` as a group-management/event family, while the current API does not expose that code as a supported public type. This may be an intentional design choice, but it is not an externally validated full type map. |
+> `@lid` is a WhatsApp identifier form seen in modern multi-device contexts. Public external sources consistently describe it as a non-phone identifier used for privacy-preserving identity handling. This project therefore treats `@lid` as distinct from a phone-number JID (`@s.whatsapp.net`). When local client-side mapping data is available (for example in WhatsApp caches/databases such as `LID.sqlite`), the runtime may sometimes resolve a `@lid` identity back to a phone-based identity.
 
-### 4. Type-By-Type Runtime Matrix
+### Safer wording for extended message types
 
-| README subsection | Status | Notes |
-| --- | --- | --- |
-| `Text`, `Image`, `Video`, `Audio`, `Location`, `Link`, `Document` rows | `Partially corroborated` | External sources support the underlying fields, but the exact output shape of `MessageInfo` is of course project-specific. |
-| `Contact` row says there is no validated structured contact payload | `Externally corroborated` | This is now the conservative, externally defensible statement. I did not find strong external evidence for a validated modern iOS contact-card parser in this schema. |
-| `GIF` row notes media-like handling but no exposed duration | `Fixture-local / inferred` | That exact behaviour is runtime-specific. |
-| `Sticker` row notes filename-only style handling | `Fixture-local / inferred` | Again, a runtime behaviour statement rather than something documented externally. |
-| Cross-cutting fields `author`, `replyTo`, `reactions`, `mediaFilename` | Mixed | See the dedicated sections below. |
+> The low-numbered `ZMESSAGETYPE` values used for common message classes (text, image, video, audio, contact, location, URL, file) are externally corroborated. Higher-value mappings used here for status/system/media-specialized rows are best understood as reverse-engineered and version-dependent observations from the current fixture and runtime, not as stable public WhatsApp documentation.
 
-### 5. Status Subcodes
+## Sources consulted
 
-| README claim | Status | Notes |
-| --- | --- | --- |
-| Subcode table for `ZGROUPEVENTTYPE` under `ZMESSAGETYPE = 10` | `Fixture-local / inferred` | This appears to come primarily from the private fixture plus implementation analysis. External sources reviewed here do not provide a reliable subcode taxonomy. |
-| `eventType 38` -> business chat text | `Fixture-local / inferred` | Plausible and tested locally, but not externally corroborated. |
-| `eventType 2` -> status sync wording | `Fixture-local / inferred` | Same as above. |
-| Other subcodes remain unmapped | `Externally corroborated` in spirit | CoRIIN explicitly notes that various codes remain unidentified in forensic work; the exact list in the README is local. |
+1. **Belkasoft** — *iOS WhatsApp Forensics with Belkasoft X*  
+   https://belkasoft.com/ios-whatsapp-forensics-with-belkasoft-x
 
-### 6. Author Resolution
+2. **Group-IB** — *All about WhatsApp forensics analysis*  
+   https://www.group-ib.com/blog/whatsapp-forensic-artifacts/
 
-| README claim | Status | Notes |
-| --- | --- | --- |
-| Outgoing messages are identified via `ZISFROMME` | `Externally corroborated` | Strongly supported by Belkasoft and CoRIIN. |
-| Group authorship involves `ZGROUPMEMBER` and `ZWAGROUPMEMBER` | `Externally corroborated` | Strongly supported by CoRIIN. |
-| Individual authorship relies on `ZCHATSESSION` / `ZWACHATSESSION` | `Partially corroborated` | Externally consistent, though the exact way the API collapses this into `MessageAuthor` is project-specific. |
-| Priority order `chatSession > pushName > groupMember > messageJid` | `Fixture-local / inferred` | This ordering is a deliberate parser policy, not something external sources describe. |
-| Fallback from missing `ZGROUPMEMBER` to `ZFROMJID` | `Partially corroborated` | `ZFROMJID` is externally documented as relevant, but the fallback strategy itself is local. |
-| Separating a real `author` from an `eventActor` for status/system rows | `Fixture-local / inferred` | This is an explicit project-level interpretation to avoid overstating authorship on system rows. It is consistent with the database patterns observed in the fixture, but external sources do not define this distinction. |
+3. **Magnet Forensics** — *Artifact Profile - WhatsApp Messenger*  
+   https://www.magnetforensics.com/blog/artifact-profile-whatsapp-messenger/
 
-### 7. Reply Resolution
+4. **rayed/whatsapp-iphone-backup** — public GitHub extraction code using `Manifest.db` and the WhatsApp app-group domain  
+   https://github.com/rayed/whatsapp-iphone-backup/blob/master/main.go
 
-| README claim | Status | Notes |
-| --- | --- | --- |
-| Replies are not exposed through a simple foreign key | `Partially corroborated` | External sources agree that multiple tables/blobs must often be correlated, but do not document a canonical reply field for modern iOS WhatsApp. |
-| Reply extraction from `ZWAMEDIAITEM.ZMETADATA` | `Fixture-local / inferred` | I did not find a strong independent source documenting this exact protobuf-style extraction logic. |
-| Resolving the target via `ZSTANZAID` | `Partially corroborated` | Historical community SQL mappings use `ZSTANZAID`, but the exact reply workflow remains mostly local knowledge. |
+5. **kacos2000/Queries** — public SQL against `ChatStorage.sqlite`  
+   https://github.com/kacos2000/queries/blob/master/WhatsApp_Chatstorage_sqlite.sql
 
-### 8. Reaction Storage
+6. **Reverse Engineering Stack Exchange** — discussion of `ZWAMESSAGEINFO.ZRECEIPTINFO` as an opaque blob  
+   https://reverseengineering.stackexchange.com/questions/30290/figuring-out-whatsapps-receipt-info-storage-format/30298
 
-| README claim | Status | Notes |
-| --- | --- | --- |
-| `ZWAMESSAGEINFO` and `ZRECEIPTINFO` are important | `Externally corroborated` | CoRIIN explicitly documents `ZWAMESSAGEINFO` and `ZRECEIPTINFO`. |
-| `ZRECEIPTINFO` stores emoji reactions as parsed by `ReactionParser` | `Partially corroborated` | This project has strong local evidence, but reviewed external sources more often describe `ZRECEIPTINFO` as delivery/read status information, especially for groups. The exact reaction encoding should therefore be treated as version-sensitive and parser-inferred. |
-| The current byte parser is a stable general solution | `Fixture-local / inferred` | There is no convincing external documentation for the exact blob format across app versions. |
+7. **marmolejo gist** — public conversion SQL joining `ZWAMESSAGE`, `ZWAMEDIAITEM`, and `ZWAGROUPMEMBER`  
+   https://gist.github.com/marmolejo/9f19f7f91ee6e58ec44f
 
-### 9. Media Retrieval and Manifest Lookup
+8. **A Practical Hands-on Approach to Database Forensics** — public excerpt describing WhatsApp iOS fields/mappings  
+   https://dokumen.pub/a-practical-hands-on-approach-to-database-forensics-9783031161261-9783031161278.html
 
-| README claim | Status | Notes |
-| --- | --- | --- |
-| WhatsApp files live under the shared App Group path in iOS backups | `Externally corroborated` | Strongly supported by Belkasoft, HackTricks, MVT, and other forensic references. |
-| `Manifest.db` maps hashed backup objects back to logical paths | `Externally corroborated` | Strongly supported by HackTricks and general iOS backup methodology. |
-| `ZMEDIALOCALPATH` is the key field linking message rows to media paths | `Externally corroborated` | Strongly supported by Belkasoft, CoRIIN, and HackTricks. |
-| The exact domain string `AppDomainGroup-group.net.whatsapp.WhatsApp.shared` | `Externally corroborated` | Strongly supported by Belkasoft and multiple modern references. |
-| The project’s file-copying policy and filename conventions | `Fixture-local / inferred` | This is implementation behaviour rather than external database knowledge. |
+9. **WhatsApp/stickers iOS README** — official WhatsApp GitHub documentation for sticker packaging / WebP payloads  
+   https://github.com/WhatsApp/stickers/blob/main/iOS/README.md
 
-### 10. Profile Photo Retrieval
+10. **DigitalPerito** — public 2026 reverse-engineering post with differing higher-value type mappings  
+   https://digitalperito.es/blog/metadatos-whatsapp-forense-analisis-peritaje-2026/
 
-| README claim | Status | Notes |
-| --- | --- | --- |
-| WhatsApp profile media exists under `Media/Profile/` | `Externally corroborated` | Supported by secondary forensic references and tooling guidance. |
-| Selecting the newest file by timestamp-like suffix | `Fixture-local / inferred` | This is a local heuristic. |
-| Naming exported files `chat_<chatId>.ext` or `<phone>.ext` | `Fixture-local / inferred` | Purely project-specific export policy. |
+11. **Stack Overflow** — why WhatsApp Web returns `@lid` IDs  
+   https://stackoverflow.com/questions/79808809/why-does-whatsapp-web-indexeddb-return-lid-ids-instead-of-phone-numbers-for-s
 
-### 11. Error Reporting
+12. **giuseppecastaldo/ha-addons issue** — linked device IDs replacing phone-number JIDs in practice  
+   https://github.com/giuseppecastaldo/ha-addons/issues/131
 
-| README claim | Status | Notes |
-| --- | --- | --- |
-| Error enums `BackupError`, `DatabaseErrorWA`, `DomainError` | `Fixture-local / inferred` | These are internal library constructs and do not require external validation. |
+13. **go-whatsapp-web-multidevice releases** — explicit `LID (Linked ID)` resolution language in public tooling  
+   https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases
 
-### 12. Test Coverage
+14. **Timmy O'Mahony** — iCloud backup contents including `.LID.sqlite.enc.icloud`  
+   https://timmyomahony.com/blog/backing-up-whatsapp-media-from-icloud/
 
-| README claim | Status | Notes |
-| --- | --- | --- |
-| Regression and invariant tests validate the described behaviour | `Fixture-local / inferred` | This is true by inspection of the repo, but it is not an external-validation topic. |
+15. **iVerify** — public incident write-up listing `LID.sqlite` among WhatsApp artifacts targeted on iOS  
+   https://iverify.io/blog/darksword-ios-exploit-kit-explained
 
-## Practical Conclusions
-
-The README is strongest, from an external-validation perspective, in these areas:
-
-- the overall iOS storage location and backup domain,
-- the importance of `ZWAMESSAGE`, `ZWACHATSESSION`, `ZWAMEDIAITEM`, `ZWAGROUPMEMBER`, and `ZWAMESSAGEINFO`,
-- the broad meaning of common message types such as text/image/video/audio/location/url/file,
-- the need to correlate multiple tables to understand group chats and media.
-
-The README should be treated more cautiously in these areas:
-
-- exact completeness of the message-type enum,
-- detailed `Status` subcode meanings,
-- reply extraction from `ZMETADATA`,
-- the exact semantics of `ZRECEIPTINFO` as emoji reactions rather than only delivery/read status,
-- the precise precedence rules used to resolve `MessageAuthor`.
-
-## Recommended Documentation Policy
-
-For future edits to [README.md](./README.md), I recommend this rule:
-
-- keep externally corroborated schema facts in the main README,
-- keep parser heuristics and fixture-driven interpretations explicitly labeled as such,
-- keep version-sensitive findings in dated tables,
-- and record any claim that lacks an external source as `observed in local fixture` rather than as an objective schema fact.
+16. **Radensa / SANS-style iOS apps forensics PDF** — references `Media/Profile`, `Message/Media`, and `stickers` under the shared WhatsApp AppGroup  
+   https://newsletter.radensa.ru/wp-content/uploads/2023/10/SANS_DFPS_iOS-APPS-v1.2_09-22.pdf

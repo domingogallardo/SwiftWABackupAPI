@@ -87,7 +87,13 @@ extension ChatSession {
                                      from db: Database) throws -> String? {
         try Row.fetchOne(
             db,
-            sql: "SELECT ZPARTNERNAME FROM \(tableName) WHERE ZCONTACTJID = ?",
+            sql: """
+                 SELECT ZPARTNERNAME FROM \(tableName)
+                 WHERE ZCONTACTJID = ?
+                   AND ZSESSIONTYPE = 0
+                   AND TRIM(ZPARTNERNAME) <> ''
+                 LIMIT 1
+                 """,
             arguments: [contactJid]
         )?["ZPARTNERNAME"]
     }

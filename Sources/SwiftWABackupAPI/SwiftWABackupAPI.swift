@@ -112,8 +112,17 @@ public struct MessageAuthor: Encodable {
         /// Resolved from `ZWACHATSESSION`.
         case chatSession
 
+        /// Resolved from `ContactsV2.sqlite`.
+        case addressBook
+
+        /// Resolved from the WhatsApp LID account cache in `LID.sqlite`.
+        case lidAccount
+
         /// Resolved from `ZWAPROFILEPUSHNAME`.
         case pushName
+
+        /// Resolved by linking a LID JID to a phone JID through duplicated push-name records.
+        case pushNamePhoneJid
 
         /// Resolved from `ZWAGROUPMEMBER`.
         case groupMember
@@ -126,12 +135,16 @@ public struct MessageAuthor: Encodable {
     public let kind: Kind
 
     /// Best-effort display name selected by the API.
+    ///
+    /// Names resolved from WhatsApp profile push names are intentionally prefixed
+    /// with `~ ` to mirror how WhatsApp Web renders group senders that are not
+    /// resolved through the address book or a direct chat session.
     public let displayName: String?
 
     /// Phone-like user portion derived from the WhatsApp JID.
     public let phone: String?
 
-    /// Raw WhatsApp JID when it can be determined.
+    /// Best WhatsApp JID resolved by the API for this participant.
     public let jid: String?
 
     /// Source used by the API to resolve the author.
@@ -364,6 +377,9 @@ public class WABackup {
     var iPhoneBackup: IPhoneBackup?
     var ownerJid: String?
     var mediaCopier: MediaCopier?
+    var addressBookIndex: AddressBookIndex?
+    var lidAccountIndex: LidAccountIndex?
+    var pushNamePhoneJidIndex: PushNamePhoneJidIndex?
 
     /// Creates a backup explorer rooted at the provided iPhone backup directory.
     public init(backupPath: String = "~/Library/Application Support/MobileSync/Backup/") {

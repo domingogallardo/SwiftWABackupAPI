@@ -28,6 +28,9 @@ public extension WABackup {
         iPhoneBackup = backup
         ownerJid = try dbQueue.performRead { try Message.fetchOwnerJid(from: $0) }
         mediaCopier = MediaCopier(backup: backup, delegate: delegate)
+        addressBookIndex = try? AddressBookIndex.loadIfPresent(from: backup)
+        lidAccountIndex = try? LidAccountIndex.loadIfPresent(from: backup)
+        pushNamePhoneJidIndex = try dbQueue.performRead { try PushNamePhoneJidIndex.load(from: $0) }
     }
 }
 

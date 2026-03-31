@@ -13,6 +13,15 @@ When upgrading WhatsApp versions or altering the fixture, re-run the private reg
 
 For an audit of which claims in this README are externally corroborated versus fixture-local, see [ExternalValidationMatrix.md](./ExternalValidationMatrix.md).
 
+## LID Terminology
+
+`@lid` is a WhatsApp identifier form seen in modern multi-device contexts. Public reverse-engineering sources describe these as privacy-preserving linked-device-style identifiers rather than ordinary phone-number JIDs. This project treats them as non-phone identifiers that may sometimes be resolved back to a phone number using local client caches such as LID.sqlite.
+
+So, in the API model:
+
+- `@s.whatsapp.net` means the participant is already identified by phone-based JID.
+- `@lid` means the participant is identified by a linked/private WhatsApp identity that may or may not be resolvable to a phone number from local client data.
+
 ## Core Tables and Columns
 
 | Table | Purpose | Key Columns Used |
@@ -65,7 +74,7 @@ This table focuses on what the current implementation actually validates and exp
 
 Cross-cutting enrichments that may apply to many rows regardless of their type:
 
-- `author` is reserved for real authored messages and combines `ZISFROMME`, `ZGROUPMEMBER`, `ZFROMJID`, `ZWAGROUPMEMBER`, `ZWACHATSESSION`, and `ZWAPROFILEPUSHNAME`.
+- `author` is reserved for real authored messages and combines `ZISFROMME`, `ZGROUPMEMBER`, `ZFROMJID`, `ZWAGROUPMEMBER`, `ZWACHATSESSION`, `ZWAPROFILEPUSHNAME`, and, when available, the WhatsApp `LID.sqlite` account cache.
 - `eventActor` is used for system/status rows that refer to a participant but do not represent a conventional authored message.
 - `replyTo` is inferred from `ZMEDIAITEM` plus the binary blob stored in `ZWAMEDIAITEM.ZMETADATA`.
 - `reactions` come from `ZWAMESSAGEINFO.ZRECEIPTINFO`.
@@ -96,7 +105,12 @@ When building `MessageInfo`, the API first resolves a participant identity candi
 1. **Outgoing messages (`ZISFROMME = 1`)** – Exposed as `MessageAuthor(kind: .me, displayName: "Me", source: .owner)`.
 2. **Group chats** – `ZWAMESSAGE.ZGROUPMEMBER` is used first:
    - `ZWAGROUPMEMBER.ZMEMBERJID` provides the strongest participant identifier.
-   - The display name is resolved in priority order from `ZWACHATSESSION.ZPARTNERNAME`, `ZWAPROFILEPUSHNAME`, and finally `ZWAGROUPMEMBER.ZCONTACTNAME`.
+   - The display name is resolved using a quality-aware priority, not a blind table order:
+     - a human-friendly 1:1/contact label from `ZWACHATSESSION.ZPARTNERNAME` is preferred when it is a real name
+     - a WhatsApp-only push name from `ZWAPROFILEPUSHNAME` is preferred over phone-only fallback labels and is surfaced with the familiar `~` prefix
+     - a phone-only `ZWACHATSESSION.ZPARTNERNAME` or `ZWAGROUPMEMBER.ZCONTACTNAME` is treated as fallback, not as a better label than a human-readable push name
+     - `phone` is exposed when the runtime can resolve a real phone confidently from the address book, a linked phone JID, or WhatsApp's `LID.sqlite`; ambiguous `@lid` identities still keep the visible name but leave `phone` unset
+   - The runtime strips bidi control characters from display labels so values such as `‎Tú` are exposed cleanly.
    - If `ZGROUPMEMBER` is missing, the runtime falls back to `ZWAMESSAGE.ZFROMJID`.
 3. **Individual chats** – `ZCHATSESSION` points to `ZWACHATSESSION`, which supplies the participant JID and display name for incoming messages.
 
@@ -115,6 +129,14 @@ Important consequences:
 - If the only fallback identity is a group JID, the runtime currently suppresses `eventActor` instead of pretending that the group identifier is a creator phone.
 
 This behaviour lives in `WABackup+Messages.swift` (`resolveParticipantIdentity`, `resolvedAuthor`, `resolvedEventActor`, `makeParticipantAuthor`) and is covered by the invariant and regression suites.
+
+### WhatsApp Web Alignment Notes
+
+Real WhatsApp Web screenshots were used to validate the current display-name strategy:
+
+- In one validated group chat, the web shows a saved/direct-chat label even though `ZWAPROFILEPUSHNAME` contains a different, more formal label. This supports preferring a human-friendly saved/direct-chat label over lower-quality alternatives.
+- In another validated group chat, the web shows a `~ Name` push-name label for messages whose database rows still contain phone-only fallback labels in both `ZWACHATSESSION.ZPARTNERNAME` and `ZWAGROUPMEMBER.ZCONTACTNAME`. This supports preferring `ZWAPROFILEPUSHNAME` over phone-only labels when rendering group-message authors.
+- In direct/self-chat UI, values such as `ZWACHATSESSION.ZPARTNERNAME = '\u200eTú'` are rendered without exposing the bidi control character.
 
 ## Reply Resolution
 

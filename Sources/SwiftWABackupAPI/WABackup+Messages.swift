@@ -186,11 +186,25 @@ extension WABackup {
 
         case .individual:
             let chatSession = try ChatSession.fetchChat(byId: Int(message.chatSessionId), from: db)
+            if let displayName = normalizedAuthorField(chatSession.partnerName) {
+                return MessageAuthor(
+                    kind: .participant,
+                    displayName: displayName,
+                    phone: resolvedPhone(for: chatSession.contactJid),
+                    jid: resolvedParticipantJid(for: chatSession.contactJid),
+                    source: .chatSession
+                )
+            }
+
+            if let addressBookAuthor = makeAddressBookAuthor(for: chatSession.contactJid) {
+                return addressBookAuthor
+            }
+
             return MessageAuthor(
                 kind: .participant,
-                displayName: normalizedAuthorField(chatSession.partnerName),
-                phone: normalizedAuthorField(chatSession.contactJid.extractedPhone),
-                jid: normalizedAuthorField(chatSession.contactJid),
+                displayName: nil,
+                phone: resolvedPhone(for: chatSession.contactJid),
+                jid: resolvedParticipantJid(for: chatSession.contactJid),
                 source: .chatSession
             )
         }
@@ -445,12 +459,32 @@ extension WABackup {
         contactNameGroupMember: String?,
         from db: Database
     ) throws -> (senderName: String?, senderPhone: String?) {
-        let senderPhone = jid.extractedPhone
+        let senderPhone = resolvedPhone(for: jid)
+        let chatSessionName = try ChatSession.fetchChatSessionName(for: jid, from: db)
+            .flatMap(normalizedAuthorField)
 
-        if let senderName = try ChatSession.fetchChatSessionName(for: jid, from: db) {
+        if let senderName = chatSessionName,
+           !isPhoneLikeDisplayLabel(senderName, resolvedPhone: senderPhone) {
             return (senderName, senderPhone)
+        } else if let addressBookContact = addressBookIndex?.contact(for: jid),
+                  let displayName = normalizedAuthorField(addressBookContact.bestDisplayName) {
+            return (
+                displayName,
+                normalizedAuthorField(addressBookContact.bestResolvedPhone) ?? senderPhone
+            )
+        } else if let lidAccount = lidAccountIndex?.account(for: jid) {
+            let profileDisplayName = try ProfilePushName.pushName(for: jid, from: db)
+                .flatMap(normalizedAuthorField)
+            return (
+                profileDisplayName,
+                normalizedAuthorField(lidAccount.normalizedPhoneNumber) ?? senderPhone
+            )
+        } else if let linkedPhoneJid = linkedPhoneJid(for: jid) {
+            return (nil, normalizedAuthorField(linkedPhoneJid.extractedPhone))
         } else if let pushName = try ProfilePushName.pushName(for: jid, from: db) {
-            return ("~" + pushName, senderPhone)
+            return (normalizedAuthorField(pushName), senderPhone)
+        } else if let chatSessionName {
+            return (chatSessionName, senderPhone)
         } else {
             return (contactNameGroupMember, senderPhone)
         }
@@ -463,10 +497,14 @@ extension WABackup {
         from db: Database
     ) throws -> MessageAuthor {
         let normalizedJid = normalizedAuthorField(jid)
-        let phone = normalizedAuthorField(jid.extractedPhone)
+        let phone = resolvedPhone(for: jid)
+        let chatSessionDisplayName = try ChatSession.fetchChatSessionName(for: jid, from: db)
+            .flatMap(normalizedAuthorField)
+        let profileDisplayName = try ProfilePushName.pushName(for: jid, from: db)
+            .flatMap(whatsAppProfileDisplayName)
 
-        if let senderName = try ChatSession.fetchChatSessionName(for: jid, from: db)
-            .flatMap(normalizedAuthorField) {
+        if let senderName = chatSessionDisplayName,
+           !isPhoneLikeDisplayLabel(senderName, resolvedPhone: phone) {
             return MessageAuthor(
                 kind: .participant,
                 displayName: senderName,
@@ -476,14 +514,41 @@ extension WABackup {
             )
         }
 
-        if let pushName = try ProfilePushName.pushName(for: jid, from: db)
-            .flatMap(normalizedAuthorField) {
+        if let addressBookAuthor = makeAddressBookAuthor(for: jid) {
+            return addressBookAuthor
+        }
+
+        if let lidAccountAuthor = makeLidAccountAuthor(for: jid, profileDisplayName: profileDisplayName) {
+            return lidAccountAuthor
+        }
+
+        if let linkedPhoneJid = linkedPhoneJid(for: jid) {
             return MessageAuthor(
                 kind: .participant,
-                displayName: "~" + pushName,
+                displayName: profileDisplayName,
+                phone: normalizedAuthorField(linkedPhoneJid.extractedPhone),
+                jid: normalizedAuthorField(linkedPhoneJid),
+                source: .pushNamePhoneJid
+            )
+        }
+
+        if let pushName = profileDisplayName {
+            return MessageAuthor(
+                kind: .participant,
+                displayName: pushName,
                 phone: phone,
                 jid: normalizedJid,
                 source: .pushName
+            )
+        }
+
+        if let chatSessionDisplayName {
+            return MessageAuthor(
+                kind: .participant,
+                displayName: chatSessionDisplayName,
+                phone: phone,
+                jid: normalizedJid,
+                source: .chatSession
             )
         }
 
@@ -501,7 +566,129 @@ extension WABackup {
             return nil
         }
 
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        let normalized = value.normalizedWhatsAppDisplayText
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    func isPhoneLikeDisplayLabel(_ value: String?, resolvedPhone: String?) -> Bool {
+        guard let normalized = normalizedAuthorField(value) else {
+            return false
+        }
+
+        let hasLetters = normalized.unicodeScalars.contains { CharacterSet.letters.contains($0) }
+        if hasLetters {
+            return false
+        }
+
+        let digitsOnly = normalized.unicodeScalars
+            .filter { CharacterSet.decimalDigits.contains($0) }
+        let digitString = String(String.UnicodeScalarView(digitsOnly))
+
+        guard digitString.count >= 7 else {
+            return false
+        }
+
+        if let resolvedPhone {
+            let normalizedPhoneDigits = resolvedPhone.unicodeScalars
+                .filter { CharacterSet.decimalDigits.contains($0) }
+            let normalizedPhone = String(String.UnicodeScalarView(normalizedPhoneDigits))
+            return digitString == normalizedPhone
+        }
+
+        return normalized.range(of: #"^\+?[\d\s().-]+$"#, options: .regularExpression) != nil
+    }
+
+    func whatsAppProfileDisplayName(_ value: String?) -> String? {
+        guard let normalized = normalizedAuthorField(value) else {
+            return nil
+        }
+
+        return "~ \(normalized)"
+    }
+
+    func resolvedPhone(for jid: String?) -> String? {
+        guard let jid else {
+            return nil
+        }
+
+        if let addressBookPhone = addressBookIndex?.contact(for: jid)?.bestResolvedPhone {
+            return normalizedAuthorField(addressBookPhone)
+        }
+
+        if let lidAccountPhone = lidAccountIndex?.phoneNumber(for: jid) {
+            return normalizedAuthorField(lidAccountPhone)
+        }
+
+        if let linkedPhoneJid = linkedPhoneJid(for: jid) {
+            return normalizedAuthorField(linkedPhoneJid.extractedPhone)
+        }
+
+        guard jid.isIndividualJid else {
+            return nil
+        }
+
+        return normalizedAuthorField(jid.extractedPhone)
+    }
+
+    func linkedPhoneJid(for jid: String?) -> String? {
+        guard let jid else {
+            return nil
+        }
+
+        return pushNamePhoneJidIndex?.linkedPhoneJid(for: jid)
+    }
+
+    func resolvedParticipantJid(for jid: String?) -> String? {
+        guard let jid else {
+            return nil
+        }
+
+        if let addressBookJid = addressBookIndex?.contact(for: jid)?.bestResolvedJid {
+            return normalizedAuthorField(addressBookJid)
+        }
+
+        if let lidAccountPhoneJid = lidAccountIndex?.phoneJid(for: jid) {
+            return normalizedAuthorField(lidAccountPhoneJid)
+        }
+
+        if let linkedPhoneJid = linkedPhoneJid(for: jid) {
+            return normalizedAuthorField(linkedPhoneJid)
+        }
+
+        return normalizedAuthorField(jid)
+    }
+
+    func makeAddressBookAuthor(for jid: String) -> MessageAuthor? {
+        guard let contact = addressBookIndex?.contact(for: jid),
+              let displayName = normalizedAuthorField(contact.bestDisplayName) else {
+            return nil
+        }
+
+        let resolvedJid = normalizedAuthorField(contact.bestResolvedJid) ?? normalizedAuthorField(jid)
+        let resolvedPhone = normalizedAuthorField(contact.bestResolvedPhone)
+            ?? (jid.isIndividualJid ? normalizedAuthorField(jid.extractedPhone) : nil)
+
+        return MessageAuthor(
+            kind: .participant,
+            displayName: displayName,
+            phone: resolvedPhone,
+            jid: resolvedJid,
+            source: .addressBook
+        )
+    }
+
+    func makeLidAccountAuthor(for jid: String, profileDisplayName: String?) -> MessageAuthor? {
+        guard let lidAccount = lidAccountIndex?.account(for: jid),
+              let resolvedPhone = normalizedAuthorField(lidAccount.normalizedPhoneNumber) else {
+            return nil
+        }
+
+        return MessageAuthor(
+            kind: .participant,
+            displayName: profileDisplayName,
+            phone: resolvedPhone,
+            jid: resolvedParticipantJid(for: jid),
+            source: .lidAccount
+        )
     }
 }

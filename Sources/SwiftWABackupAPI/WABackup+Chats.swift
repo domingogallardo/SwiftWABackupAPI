@@ -57,7 +57,7 @@ extension WABackup {
             return "Me"
         }
 
-        return chatSession.partnerName
+        return chatSession.partnerName.normalizedWhatsAppDisplayText
     }
 
     func sortChatsByDate(_ chats: [ChatInfo]) -> [ChatInfo] {
