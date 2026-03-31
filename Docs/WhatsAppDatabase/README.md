@@ -132,11 +132,13 @@ This behaviour lives in `WABackup+Messages.swift` (`resolveParticipantIdentity`,
 
 ### WhatsApp Web Alignment Notes
 
-Real WhatsApp Web screenshots were used to validate the current display-name strategy:
+The current display-name strategy has been validated with WhatsApp Web:
 
-- In one validated group chat, the web shows a saved/direct-chat label even though `ZWAPROFILEPUSHNAME` contains a different, more formal label. This supports preferring a human-friendly saved/direct-chat label over lower-quality alternatives.
-- In another validated group chat, the web shows a `~ Name` push-name label for messages whose database rows still contain phone-only fallback labels in both `ZWACHATSESSION.ZPARTNERNAME` and `ZWAGROUPMEMBER.ZCONTACTNAME`. This supports preferring `ZWAPROFILEPUSHNAME` over phone-only labels when rendering group-message authors.
-- In direct/self-chat UI, values such as `ZWACHATSESSION.ZPARTNERNAME = '\u200eTú'` are rendered without exposing the bidi control character.
+- Human-friendly saved/direct-chat labels are preferred over weaker alternatives when they exist.
+- Human-readable push names can outrank phone-only fallback labels for group-message authors.
+- Unsaved group participants can appear as `~ Name` with secondary phone text, which matches the current `pushName`, `pushNamePhoneJid`, and `lidAccount` strategy.
+- Saved-contact cases can appear as bare human names with no visible phone on the label, which matches the current `addressBook` and human-friendly `chatSession` branches.
+- Direct/self-chat UI values such as `ZWACHATSESSION.ZPARTNERNAME = '\u200eTú'` are rendered without exposing the bidi control character.
 
 ## Reply Resolution
 
@@ -148,7 +150,7 @@ Replies are encoded through media metadata rather than a direct foreign key:
 4. `WABackup.fetchReplyMessageId` uses `Message.fetchMessageId(byStanzaId:)` to locate the original `ZWAMESSAGE.Z_PK`.
 5. If found, `MessageInfo.replyTo` contains the target message ID; otherwise it remains `nil`.
 
-`SwiftWABackupAPITests.testMessageContentExtraction` and the local WhatsApp Web validation workflow both exercise this behaviour. The current implementation now resolves modern quoted replies that are visibly rendered by WhatsApp Web in recent chats, while still preserving compatibility with the older fixture format.
+`SwiftWABackupAPITests.testMessageContentExtraction` exercises this behaviour, and the current implementation has also been checked against WhatsApp Web. It resolves modern quoted replies that are visibly rendered there while still preserving compatibility with the older fixture format.
 
 ## Reaction Storage
 
