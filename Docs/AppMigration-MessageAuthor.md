@@ -49,14 +49,14 @@ For most UI code, use this order:
   - `.groupMember`
   - `.messageJid`
 - When `author.source` is `.pushName` or `.pushNamePhoneJid`, `author.displayName`
-  is intentionally rendered as `~ Name` to match WhatsApp Web's sender label style
+  is intentionally rendered as `~Name` to match WhatsApp Web's sender label style
   inside group conversations.
 - In group chats, a `.chatSession` label that is only a formatted phone number is now
   treated as weaker than a human-readable push name. This matches WhatsApp Web cases
-  where the visible sender label is a `~ Name` push-name label rather than a
+  where the visible sender label is a `~Name` push-name label rather than a
   formatted phone number.
 - When `author.source` is `.lidAccount`, `author.displayName` may still use that
-  same `~ Name` style, but the phone and JID were recovered from WhatsApp's
+  same `~Name` style, but the phone and JID were recovered from WhatsApp's
   `LID.sqlite` account cache instead of being inferred from the visible `@lid`.
 - `author.phone` is now intentionally conservative:
   - for `.addressBook`, `.chatSession`, `.lidAccount`, and `.pushNamePhoneJid`, it usually contains a real phone number

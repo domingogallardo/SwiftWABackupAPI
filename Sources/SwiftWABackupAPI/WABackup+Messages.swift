@@ -374,10 +374,90 @@ extension WABackup {
     func fetchReactions(forMessageId messageId: Int, from db: Database) throws -> [Reaction]? {
         if let messageInfo = try MessageInfoTable.fetch(by: messageId, from: db),
            let reactionsData = messageInfo.receiptInfo {
-            return ReactionParser.parse(reactionsData)
+            return parseReactions(from: reactionsData, from: db)
+        }
+
+        return try fetchDuplicateDocumentReactions(forMessageId: messageId, from: db)
+    }
+
+    func parseReactions(from reactionsData: Data, from db: Database) -> [Reaction]? {
+        ReactionParser.parse(reactionsData) { [self] senderJid in
+            try? resolveReactionAuthor(for: senderJid, from: db)
+        }
+    }
+
+    func fetchDuplicateDocumentReactions(forMessageId messageId: Int, from db: Database) throws -> [Reaction]? {
+        guard let message = try Message.fetch(by: Int64(messageId), from: db),
+              message.messageType == SupportedMessageType.doc.rawValue,
+              let currentText = normalizedAuthorField(message.text) else {
+            return nil
+        }
+
+        let normalizedCurrentName = normalizedDuplicateDocumentName(currentText)
+        let searchWindowStart = message.date.addingTimeInterval(-12 * 60 * 60).timeIntervalSinceReferenceDate
+        let searchWindowEnd = message.date.timeIntervalSinceReferenceDate
+
+        let candidateRows = try Row.fetchAll(
+            db,
+            sql: """
+                SELECT * FROM \(Message.tableName)
+                WHERE ZCHATSESSION = ?
+                  AND ZMESSAGETYPE = ?
+                  AND Z_PK <> ?
+                  AND ZTEXT IS NOT NULL
+                  AND ZMESSAGEDATE BETWEEN ? AND ?
+                ORDER BY ZMESSAGEDATE DESC
+                LIMIT 25
+                """,
+            arguments: [
+                message.chatSessionId,
+                message.messageType,
+                message.id,
+                searchWindowStart,
+                searchWindowEnd
+            ]
+        )
+
+        for candidate in candidateRows.map(Message.init(row:)) {
+            guard candidate.groupMemberId == message.groupMemberId,
+                  candidate.isFromMe == message.isFromMe,
+                  let candidateText = normalizedAuthorField(candidate.text),
+                  normalizedDuplicateDocumentName(candidateText) == normalizedCurrentName,
+                  currentText != candidateText,
+                  hasDuplicateDocumentCopySuffix(currentText) || hasDuplicateDocumentCopySuffix(candidateText),
+                  let messageInfo = try MessageInfoTable.fetch(by: Int(candidate.id), from: db),
+                  let receiptInfo = messageInfo.receiptInfo,
+                  let reactions = parseReactions(from: receiptInfo, from: db) else {
+                continue
+            }
+
+            return reactions
         }
 
         return nil
+    }
+
+    func resolveReactionAuthor(for senderJid: String, from db: Database) throws -> MessageAuthor? {
+        guard let normalizedJid = normalizedAuthorField(senderJid) else {
+            return nil
+        }
+
+        if normalizedJid == normalizedAuthorField(ownerJid) {
+            return MessageAuthor(
+                kind: .me,
+                displayName: "Me",
+                phone: normalizedAuthorField(ownerJid?.extractedPhone),
+                jid: normalizedAuthorField(ownerJid),
+                source: .owner
+            )
+        }
+
+        return try makeParticipantAuthor(
+            jid: normalizedJid,
+            contactNameGroupMember: nil,
+            fallbackSource: .messageJid,
+            from: db
+        )
     }
 
     func describeStatusSync(
@@ -502,9 +582,13 @@ extension WABackup {
     ) throws -> MessageAuthor {
         let normalizedJid = normalizedAuthorField(jid)
         let phone = resolvedPhone(for: jid)
+        let linkedPhoneJid = linkedPhoneJid(for: jid) ?? lidAccountIndex?.phoneJid(for: jid)
         let chatSessionDisplayName = try ChatSession.fetchChatSessionName(for: jid, from: db)
             .flatMap(normalizedAuthorField)
         let profileDisplayName = try ProfilePushName.pushName(for: jid, from: db)
+            .flatMap(whatsAppProfileDisplayName)
+        let linkedPhoneDisplayName = try linkedPhoneJid
+            .flatMap { try ProfilePushName.pushName(for: $0, from: db) }
             .flatMap(whatsAppProfileDisplayName)
 
         if let senderName = chatSessionDisplayName,
@@ -522,14 +606,17 @@ extension WABackup {
             return addressBookAuthor
         }
 
-        if let lidAccountAuthor = makeLidAccountAuthor(for: jid, profileDisplayName: profileDisplayName) {
+        if let lidAccountAuthor = makeLidAccountAuthor(
+            for: jid,
+            profileDisplayName: profileDisplayName ?? linkedPhoneDisplayName
+        ) {
             return lidAccountAuthor
         }
 
-        if let linkedPhoneJid = linkedPhoneJid(for: jid) {
+        if let linkedPhoneJid {
             return MessageAuthor(
                 kind: .participant,
-                displayName: profileDisplayName,
+                displayName: profileDisplayName ?? linkedPhoneDisplayName,
                 phone: normalizedAuthorField(linkedPhoneJid.extractedPhone),
                 jid: normalizedAuthorField(linkedPhoneJid),
                 source: .pushNamePhoneJid
@@ -607,7 +694,7 @@ extension WABackup {
             return nil
         }
 
-        return "~ \(normalized)"
+        return "~\(normalized)"
     }
 
     func resolvedPhone(for jid: String?) -> String? {
@@ -695,4 +782,40 @@ extension WABackup {
             source: .lidAccount
         )
     }
+}
+
+private extension String {
+    var duplicateDocumentCopySuffixRange: Range<String.Index>? {
+        if let range = range(of: #" \(\d+\)$"#, options: .regularExpression) {
+            return range
+        }
+
+        return range(of: #"-\d+$"#, options: .regularExpression)
+    }
+}
+
+private func normalizedDuplicateDocumentName(_ value: String) -> String {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let dotIndex = trimmed.lastIndex(of: "."), dotIndex > trimmed.startIndex else {
+        return trimmed
+    }
+
+    let basename = String(trimmed[..<dotIndex])
+    let extensionSuffix = String(trimmed[dotIndex...])
+
+    if let suffixRange = basename.duplicateDocumentCopySuffixRange {
+        return String(basename[..<suffixRange.lowerBound]) + extensionSuffix
+    }
+
+    return trimmed
+}
+
+private func hasDuplicateDocumentCopySuffix(_ value: String) -> Bool {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let dotIndex = trimmed.lastIndex(of: "."), dotIndex > trimmed.startIndex else {
+        return false
+    }
+
+    let basename = String(trimmed[..<dotIndex])
+    return basename.duplicateDocumentCopySuffixRange != nil
 }

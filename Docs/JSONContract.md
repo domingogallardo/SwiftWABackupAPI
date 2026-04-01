@@ -19,14 +19,20 @@ The contract is verified by the local private regression suite that accompanies 
 ```json
 {
   "emoji": "👍",
-  "senderPhone": "15550000001"
+  "author": {
+    "displayName": "Sample Contact",
+    "jid": "15550000001@s.whatsapp.net",
+    "kind": "participant",
+    "phone": "15550000001",
+    "source": "chatSession"
+  }
 }
 ```
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `emoji` | `String` | Yes | Emoji used in the reaction. |
-| `senderPhone` | `String` | Yes | Phone number derived from the reacting JID, or `"Me"` for the owner. |
+| `author` | `MessageAuthor` | Yes | Structured identity of the participant who reacted. |
 
 ## `ChatInfo`
 
@@ -78,7 +84,11 @@ The contract is verified by the local private regression suite that accompanies 
   "reactions": [
     {
       "emoji": "👍",
-      "senderPhone": "Me"
+      "author": {
+        "displayName": "Me",
+        "kind": "me",
+        "source": "owner"
+      }
     }
   ],
   "replyTo": 125479,
@@ -120,7 +130,7 @@ The contract is verified by the local private regression suite that accompanies 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `kind` | `"me" | "participant"` | Yes | Whether the author is the owner or another participant. |
-| `displayName` | `String` | No | Best-effort display name selected by the API. Names derived from WhatsApp profile push names are prefixed with `~ ` to match WhatsApp Web's group-message rendering. In groups, a phone-only direct-chat label is treated as fallback and does not outrank a human-readable push name. |
+| `displayName` | `String` | No | Best-effort display name selected by the API. Names derived from WhatsApp profile push names are prefixed with `~` to match WhatsApp Web's group-message rendering. In groups, a phone-only direct-chat label is treated as fallback and does not outrank a human-readable push name. |
 | `phone` | `String` | No | Real phone number when the API can resolve one confidently. Ambiguous `@lid` identities intentionally leave this field unset instead of exposing the raw LID digits as if they were a phone number. |
 | `jid` | `String` | No | Raw WhatsApp JID when it can be determined. |
 | `source` | `"owner" | "chatSession" | "addressBook" | "lidAccount" | "pushName" | "pushNamePhoneJid" | "groupMember" | "messageJid"` | Yes | Data source used by the API to resolve the identity. |

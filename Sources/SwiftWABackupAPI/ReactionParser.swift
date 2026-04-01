@@ -10,91 +10,177 @@
 import Foundation
 
 struct ReactionParser {
+    private struct ParsedReaction {
+        let emoji: String
+        let senderJid: String
+    }
 
     /// Parses a WhatsApp `receiptInfo` blob into reactions.
     /// Returns `nil` when no valid reactions can be extracted.
-    static func parse(_ data: Data) -> [Reaction]? {
-        var reactions: [Reaction] = []
-        let dataArray = [UInt8](data)
-        var i = 0
-        
-        while i < dataArray.count {
-            // The byte before the emoji indicates the emoji length.
-            let emojiLength = Int(dataArray[i])
-            if emojiLength <= 28 {
-                // Maximum possible length of an emoji is 28 bytes.
-                i += 1
-                let emojiEndIndex = i + emojiLength
-                if emojiEndIndex <= dataArray.count {
-                    let emojiData = dataArray[i..<emojiEndIndex]
-                    if let emojiStr = String(bytes: emojiData, encoding: .utf8),
-                       isSingleEmoji(emojiStr) {
-                        // Extract the sender's phone number preceding the emoji.
-                        let senderPhone = extractPhoneNumber(from: dataArray,
-                                                             endIndex: i-2)
-                        reactions.append(
-                            Reaction(emoji: emojiStr,
-                                     senderPhone: senderPhone ?? "Me"))
-                        i = emojiEndIndex - 1
-                    }
-                }
-            } else {
-                i += 1
-            }
+    static func parse(
+        _ data: Data,
+        senderAuthorResolver: ((String) -> MessageAuthor?)? = nil
+    ) -> [Reaction]? {
+        let parsedReactions = extractParsedReactions(from: [UInt8](data))
+        guard !parsedReactions.isEmpty else {
+            return nil
         }
+
+        let reactions = parsedReactions.compactMap { parsedReaction -> Reaction? in
+            guard let author = resolveAuthor(
+                for: parsedReaction.senderJid,
+                senderAuthorResolver: senderAuthorResolver
+            ) else {
+                return nil
+            }
+
+            return Reaction(
+                emoji: parsedReaction.emoji,
+                author: author
+            )
+        }
+
         return reactions.isEmpty ? nil : reactions
     }
-    
-    /// Checks if a string is a single emoji.
-    private static func isSingleEmoji(_ string: String) -> Bool {
-        // Checks if the string represents a single emoji character or sequence.
-        guard let firstScalar = string.unicodeScalars.first else {
-            return false
-        }
-        return firstScalar.properties.isEmoji &&
-            (firstScalar.properties.isEmojiPresentation
-             || string.unicodeScalars.contains { $0.properties.isEmojiPresentation })
+
+    private static func extractParsedReactions(from bytes: [UInt8]) -> [ParsedReaction] {
+        var reactions: [ParsedReaction] = []
+        collectParsedReactions(from: bytes, into: &reactions)
+        return reactions
     }
 
-    private static func extractPhoneNumber(from data: [UInt8], endIndex: Int) -> String? {
-         let senderSuffix = "@s.whatsapp.net"
-         let suffixData = Array(senderSuffix.utf8)
-         var endIndex = endIndex - 1
-         
-         // Verify the sender suffix is present.
-         var suffixEndIndex = suffixData.count - 1
-         while suffixEndIndex >= 0 && endIndex >= 0 {
-             if data[endIndex] != suffixData[suffixEndIndex] {
-                 return nil
-             }
-             suffixEndIndex -= 1
-             endIndex -= 1
-         }
-         
-         // If the sender suffix wasn't fully matched.
-         if suffixEndIndex >= 0 {
-             return nil
-         }
-         
-         // Extract the phone number.
-         var phoneNumberData: [UInt8] = []
-         while endIndex >= 0 {
-             let char = data[endIndex]
-             if char < 48 || char > 57 { // ASCII '0' to '9'
-                 break
-             }
-             phoneNumberData.append(char)
-             endIndex -= 1
-         }
-         
-         // If no phone number was found.
-         if phoneNumberData.isEmpty {
-             return nil
-         }
-         
-         // Convert the phone number data to a string.
-         let phoneNumber = String(bytes: phoneNumberData.reversed(), encoding: .utf8)
-         return phoneNumber
-     }
-     
+    private static func collectParsedReactions(from bytes: [UInt8], into reactions: inout [ParsedReaction]) {
+        var index = 0
+        var candidateJid: String?
+        var candidateEmoji: String?
+        var nestedChunks: [[UInt8]] = []
+
+        while index < bytes.count {
+            guard let rawTag = readVarint(from: bytes, index: &index) else {
+                return
+            }
+
+            let fieldNumber = Int(rawTag >> 3)
+            let wireType = Int(rawTag & 0x07)
+
+            switch wireType {
+            case 0:
+                guard readVarint(from: bytes, index: &index) != nil else {
+                    return
+                }
+            case 1:
+                guard index + 8 <= bytes.count else {
+                    return
+                }
+                index += 8
+            case 2:
+                guard let length = readVarint(from: bytes, index: &index) else {
+                    return
+                }
+
+                let chunkLength = Int(length)
+                guard index + chunkLength <= bytes.count else {
+                    return
+                }
+
+                let chunk = Array(bytes[index..<(index + chunkLength)])
+                index += chunkLength
+                nestedChunks.append(chunk)
+
+                if fieldNumber == 2,
+                   let candidate = decodeUTF8(chunk),
+                   candidate.isReactionSenderJid {
+                    candidateJid = candidate.lowercased()
+                } else if fieldNumber == 3,
+                          let candidate = decodeUTF8(chunk),
+                          isSingleEmoji(candidate) {
+                    candidateEmoji = candidate
+                }
+            case 5:
+                guard index + 4 <= bytes.count else {
+                    return
+                }
+                index += 4
+            default:
+                return
+            }
+        }
+
+        if let candidateJid, let candidateEmoji {
+            reactions.append(ParsedReaction(emoji: candidateEmoji, senderJid: candidateJid))
+            return
+        }
+
+        for chunk in nestedChunks {
+            collectParsedReactions(from: chunk, into: &reactions)
+        }
+    }
+
+    private static func resolveAuthor(
+        for senderJid: String,
+        senderAuthorResolver: ((String) -> MessageAuthor?)?
+    ) -> MessageAuthor? {
+        if let resolvedAuthor = senderAuthorResolver?(senderJid) {
+            return resolvedAuthor
+        }
+
+        if senderJid.isIndividualJid {
+            let extractedPhone = senderJid.extractedPhone
+            if !extractedPhone.isEmpty {
+                return MessageAuthor(
+                    kind: .participant,
+                    displayName: nil,
+                    phone: extractedPhone,
+                    jid: senderJid,
+                    source: .messageJid
+                )
+            }
+        }
+
+        return nil
+    }
+
+    private static func decodeUTF8(_ bytes: [UInt8]) -> String? {
+        String(bytes: bytes, encoding: .utf8)
+    }
+
+    /// Checks if a string is a single emoji.
+    private static func isSingleEmoji(_ string: String) -> Bool {
+        guard !string.isEmpty,
+              string.count == 1,
+              let firstScalar = string.unicodeScalars.first else {
+            return false
+        }
+
+        return firstScalar.properties.isEmoji
+    }
+
+    private static func readVarint(from bytes: [UInt8], index: inout Int) -> UInt64? {
+        var result: UInt64 = 0
+        var shift: UInt64 = 0
+
+        while index < bytes.count {
+            let byte = bytes[index]
+            index += 1
+
+            result |= UInt64(byte & 0x7F) << shift
+
+            if byte & 0x80 == 0 {
+                return result
+            }
+
+            shift += 7
+            if shift >= 64 {
+                return nil
+            }
+        }
+
+        return nil
+    }
+}
+
+private extension String {
+    var isReactionSenderJid: Bool {
+        hasSuffix("@s.whatsapp.net") || hasSuffix("@lid")
+    }
 }

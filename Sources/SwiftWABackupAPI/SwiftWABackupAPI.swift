@@ -86,8 +86,46 @@ public struct Reaction: Encodable {
     /// Emoji chosen by the reactor.
     public let emoji: String
 
-    /// Phone number extracted from the reacting JID, or `"Me"` for the owner.
-    public let senderPhone: String
+    /// Structured identity of the participant who reacted.
+    public let author: MessageAuthor
+
+    /// Compatibility helper that exposes the legacy phone-like view of the reactor.
+    ///
+    /// This is not part of the encoded JSON contract. Prefer `author`.
+    public var senderPhone: String? {
+        if author.kind == .me {
+            return "Me"
+        }
+
+        return author.phone
+    }
+
+    public init(emoji: String, author: MessageAuthor) {
+        self.emoji = emoji
+        self.author = author
+    }
+
+    init(emoji: String, senderPhone: String) {
+        self.emoji = emoji
+
+        if senderPhone == "Me" {
+            self.author = MessageAuthor(
+                kind: .me,
+                displayName: "Me",
+                phone: nil,
+                jid: nil,
+                source: .owner
+            )
+        } else {
+            self.author = MessageAuthor(
+                kind: .participant,
+                displayName: nil,
+                phone: senderPhone,
+                jid: nil,
+                source: .messageJid
+            )
+        }
+    }
 }
 
 /// Represents a structured participant identity resolved from WhatsApp data.
@@ -137,7 +175,7 @@ public struct MessageAuthor: Encodable {
     /// Best-effort display name selected by the API.
     ///
     /// Names resolved from WhatsApp profile push names are intentionally prefixed
-    /// with `~ ` to mirror how WhatsApp Web renders group senders that are not
+    /// with `~` to mirror how WhatsApp Web renders group senders that are not
     /// resolved through the address book or a direct chat session.
     public let displayName: String?
 

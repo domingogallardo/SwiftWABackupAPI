@@ -136,7 +136,7 @@ The current display-name strategy has been validated with WhatsApp Web:
 
 - Human-friendly saved/direct-chat labels are preferred over weaker alternatives when they exist.
 - Human-readable push names can outrank phone-only fallback labels for group-message authors.
-- Unsaved group participants can appear as `~ Name` with secondary phone text, which matches the current `pushName`, `pushNamePhoneJid`, and `lidAccount` strategy.
+- Unsaved group participants can appear as `~Name` with secondary phone text, which matches the current `pushName`, `pushNamePhoneJid`, and `lidAccount` strategy.
 - Saved-contact cases can appear as bare human names with no visible phone on the label, which matches the current `addressBook` and human-friendly `chatSession` branches.
 - Direct/self-chat UI values such as `ZWACHATSESSION.ZPARTNERNAME = '\u200eTú'` are rendered without exposing the bidi control character.
 
@@ -155,8 +155,11 @@ Replies are encoded through media metadata rather than a direct foreign key:
 ## Reaction Storage
 
 - Reactions live in `ZWAMESSAGEINFO.ZRECEIPTINFO` as binary blobs. Entries only exist for messages that received reactions.
-- `ReactionParser` iterates each blob byte-by-byte: the first byte gives the emoji length, the slice contains the UTF‑8 emoji, and preceding bytes encode the reacting JID (ending in `@s.whatsapp.net`).
-- Parsed reactions become `[Reaction]` (emoji + phone), attached to `MessageInfo.reactions`.
+- `ReactionParser` now walks the nested protobuf-style receipt entries inside `ZRECEIPTINFO`, extracting the reacting JID and emoji from structured length-delimited fields instead of scanning the blob byte-by-byte.
+- The runtime now emits reactions only when that structured metadata identifies both an emoji and a reacting participant JID. Ambiguous legacy blobs without a resolvable participant are ignored rather than guessed.
+- `WABackup.fetchReactions` resolves the reacting participant using the same identity sources already used elsewhere in the API, including direct-chat data, address-book data, WhatsApp push names, and `LID.sqlite` for `@lid` identities.
+- Parsed reactions become `[Reaction]` values with an `emoji` and a structured `author`, attached to `MessageInfo.reactions`.
+- The validated WhatsApp Web examples now line up with the current visible reaction behavior on the checked messages, including emoji plus the reacting participant's label and phone when the web shows one.
 - `SwiftWABackupAPITests.testMessageContentExtraction` exercises messages with and without reactions to confirm the parser output stays stable.
 
 ## Media Retrieval & Manifest Lookup

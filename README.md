@@ -46,7 +46,7 @@ On many systems you will need to grant Full Disk Access to the host app or termi
 Add the package dependency in `Package.swift` using the release rule that matches how you publish or consume the package:
 
 ```swift
-.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "1.0.10")
+.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "1.4.4")
 ```
 
 Then add the product to your target dependencies:
@@ -94,7 +94,7 @@ For UI and exports:
 - use `author` for normal user-authored messages
 - use `eventActor` for status/system rows such as sync or group-event notifications
 - do not assume that every message has a phone-bearing real author
-- when `author.source == .lidAccount`, the visible `~ Name` label still comes from WhatsApp identity data, but the phone and JID were recovered from WhatsApp's `LID.sqlite` cache
+- when `author.source == .lidAccount`, the visible `~Name` label still comes from WhatsApp identity data, but the phone and JID were recovered from WhatsApp's `LID.sqlite` cache
 - in group chats, a direct-chat label that is only a formatted phone number is treated as fallback, so a human-readable push name may be rendered instead to stay aligned with WhatsApp Web
 
 Recommended JSON settings:
