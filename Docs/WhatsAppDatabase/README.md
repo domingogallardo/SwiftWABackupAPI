@@ -146,11 +146,11 @@ Replies are encoded through media metadata rather than a direct foreign key:
 
 1. If `ZWAMESSAGE.ZPARENTMESSAGE` is populated, the runtime uses it directly as the replied-to message ID.
 2. Otherwise, `ZWAMESSAGE.ZMEDIAITEM` may reference a `ZWAMEDIAITEM` row whose `ZMETADATA` holds a protobuf-style blob. Messages without either source keep `replyTo = nil`.
-3. `MediaItem.extractReplyStanzaId()` first parses the modern top-level protobuf field that carries the quoted message stanza ID. The historical marker-based heuristic is kept as a backward-compatible fallback for older fixture blobs.
+3. `MediaItem.extractReplyStanzaId()` parses the modern top-level protobuf field that carries the quoted message stanza ID.
 4. `WABackup.fetchReplyMessageId` uses `Message.fetchMessageId(byStanzaId:)` to locate the original `ZWAMESSAGE.Z_PK`.
 5. If found, `MessageInfo.replyTo` contains the target message ID; otherwise it remains `nil`.
 
-`SwiftWABackupAPITests.testMessageContentExtraction` exercises this behaviour, and the current implementation has also been checked against WhatsApp Web. It resolves modern quoted replies that are visibly rendered there while still preserving compatibility with the older fixture format.
+`SwiftWABackupAPITests.testMessageContentExtraction` exercises this behaviour, and the current implementation has also been checked against WhatsApp Web. It resolves modern quoted replies that are visibly rendered there through `ZPARENTMESSAGE` and modern protobuf-style metadata.
 
 ## Reaction Storage
 

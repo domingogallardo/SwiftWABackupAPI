@@ -1,9 +1,8 @@
-# External Validation Report for `SwiftWABackupAPI` README  
-**Scope:** validation of the supplied README claims **without using the `SwiftWABackupAPI` repository**.
+# External and Web Validation Report for `SwiftWABackupAPI` README  
 
 ## Methodology
 
-I validated the README against external sources only, prioritizing public forensic write-ups, reverse-engineering references, official WhatsApp/GitHub material where available, and independent public code/examples. I **did not use the `SwiftWABackupAPI` repository** in this pass.
+I validated the README against external sources only, prioritizing public forensic write-ups, reverse-engineering references, official WhatsApp/GitHub material where available, and independent public code/examples. 
 
 Because WhatsApp does not publish an official schema reference for `ChatStorage.sqlite`, some claims can only be checked against third-party reverse-engineering sources. For that reason, the labels below mean:
 
@@ -40,7 +39,6 @@ Because WhatsApp does not publish an official schema reference for `ChatStorage.
 | When the API resolves a `@lid` identity through `LID.sqlite`, the recovered phone number can match the phone rendered by WhatsApp Web beside the author label. | `WA-Web-validated` | Validated with WhatsApp Web. The phone rendered beside the visible author label can match the phone recovered by the API from `LID.sqlite`. |
 | `author` versus `eventActor` as separate semantic outputs is externally documented WhatsApp behavior. | `WA-Web-validated` | Validated with WhatsApp Web. The visible distinction between ordinary message authors and participant-associated event rows is consistent with the API's `author` versus `eventActor` split. |
 | The visible quoted-reply behavior rendered by WhatsApp Web matches the API's current `replyTo` output on validated examples. | `WA-Web-validated` | Validated with WhatsApp Web. Quoted replies visible there are consistent with the API's current `replyTo` behavior on the validated examples. |
-| The exact legacy fallback byte markers used for reply parsing inside `ZWAMEDIAITEM.ZMETADATA` (`0x32 0x1A` / `0x9A 0x01`) are externally documented. | `fixture-only` | I still found no strong external documentation for those exact markers or for the historical stanza-ID extraction heuristic. The current runtime no longer depends on that heuristic alone, because it first checks `ZWAMESSAGE.ZPARENTMESSAGE` and then parses the modern protobuf-style reply metadata, but the legacy marker fallback remains an implementation detail grounded mainly in fixture behavior. |
 | Reactions are stored in `ZWAMESSAGEINFO.ZRECEIPTINFO` as binary blobs. | `externally corroborated` | The existence of `ZRECEIPTINFO` as a blob is externally corroborated; it is publicly recognized as opaque receipt-related metadata. [5][6] |
 | Your specific `ReactionParser` algorithm (emoji length byte + UTF-8 slice + preceding JID bytes) is externally established. | `fixture-only` | I found no strong external confirmation for that exact blob format/parser. |
 | Media retrieval via iOS `Manifest.db` / `Files(fileID, domain, relativePath)` and then locating the hashed file under `<backup>/<prefix>/<fileID>` is the correct general model. | `externally corroborated` | This is standard iOS backup behavior and is also reflected in public WhatsApp extraction code. [4][19][20] |
