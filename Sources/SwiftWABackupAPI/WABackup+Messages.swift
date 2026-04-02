@@ -398,12 +398,12 @@ extension WABackup {
         return nil
     }
 
-    func fetchLocation(mediaItemId: Int64, from db: Database) throws -> (Double, Double) {
-        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db) {
-            return (mediaItem.latitude ?? 0.0, mediaItem.longitude ?? 0.0)
+    func fetchLocation(mediaItemId: Int64, from db: Database) throws -> (Double?, Double?) {
+        guard let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db) else {
+            return (nil, nil)
         }
 
-        return (0.0, 0.0)
+        return (mediaItem.latitude, mediaItem.longitude)
     }
 
     func obtainSenderInfo(
