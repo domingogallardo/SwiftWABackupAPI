@@ -48,8 +48,8 @@ The public API maps `ZMESSAGETYPE` into the following supported message families
 | 5 | Location | Emits latitude/longitude (`ZLATITUDE`, `ZLONGITUDE`). |
 | 7 | Link | Keeps URL text and optional caption. |
 | 8 | Document | Exposes original file name and caption. |
-| 11 | GIF | Treated like video, stored as MP4 in the backup. |
-| 15 | Sticker | Returns `.webp` filename. |
+| 11 | GIF | Validated against WhatsApp Web examples as GIF-style media; stored as MP4 in the backup. |
+| 15 | Sticker | Validated against WhatsApp Web examples as sticker-style media; typically returns a `.webp` filename. |
 
 ## Type-By-Type Runtime Matrix
 
@@ -65,8 +65,8 @@ This table focuses on what the current implementation actually validates and exp
 | `Location` | `ZMESSAGETYPE = 5` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZLATITUDE`, `ZWAMEDIAITEM.ZLONGITUDE` | `latitude`, `longitude`, optional media/caption fields | Missing coordinates currently fall back to `0.0`, which may hide absent data. |
 | `Link` | `ZMESSAGETYPE = 7` | Primarily `ZTEXT`; optional `ZMEDIAITEM` / `ZTITLE` | Link text in `message`, optional `caption` | URL, preview metadata, and preview image are not modeled separately. |
 | `Document` | `ZMESSAGETYPE = 8` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZMEDIALOCALPATH`, `ZWAMEDIAITEM.ZTITLE` | `mediaFilename`, optional `caption` | MIME type and document metadata are not currently surfaced. |
-| `GIF` | `ZMESSAGETYPE = 11` | Same media fields as `Video` | `mediaFilename`, optional `caption` | Stored like media, but no duration is currently exposed for GIFs. |
-| `Sticker` | `ZMESSAGETYPE = 15` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZMEDIALOCALPATH` | `mediaFilename` | Sticker-specific metadata is not modeled; output is essentially filename + common fields. |
+| `GIF` | `ZMESSAGETYPE = 11` | Same media fields as `Video` | `mediaFilename`, optional `caption` | Validated against WhatsApp Web examples as GIF-style media. Stored like media, but no duration is currently exposed for GIFs. |
+| `Sticker` | `ZMESSAGETYPE = 15` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZMEDIALOCALPATH` | `mediaFilename` | Validated against WhatsApp Web examples as sticker-style media. Sticker-specific metadata is not modeled; output is essentially filename + common fields. |
 
 Cross-cutting enrichments that may apply to many rows regardless of their type:
 
