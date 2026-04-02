@@ -46,9 +46,8 @@ struct ChatSession: FetchableByID {
 // MARK: - Convenience API
 extension ChatSession {
 
-    /// Returns chats with at least one supported non-status message.
+    /// Returns chats with at least one supported message.
     static func fetchAllChats(from db: Database) throws -> [ChatSession] {
-        let statusType = SupportedMessageType.status.rawValue
         let supported  = SupportedMessageType.allValues
         let inClause   = supported.count.questionMarks
 
@@ -60,13 +59,10 @@ extension ChatSession {
             JOIN ZWAMESSAGE m ON m.ZCHATSESSION = cs.Z_PK
             WHERE cs.ZCONTACTJID NOT LIKE ?
               AND m.ZMESSAGETYPE IN (\(inClause))
-              AND \(Message.publicVisibilityPredicate(columnPrefix: "m"))
             GROUP BY cs.Z_PK
-            HAVING SUM(CASE WHEN m.ZMESSAGETYPE != ? THEN 1 ELSE 0 END) > 0
             """
 
-        var args: [DatabaseValueConvertible] = ["%@status"] + supported
-        args.append(statusType)
+        let args: [DatabaseValueConvertible] = ["%@status"] + supported
 
         return try Row.fetchAll(db, sql: sql,
                                 arguments: StatementArguments(args))

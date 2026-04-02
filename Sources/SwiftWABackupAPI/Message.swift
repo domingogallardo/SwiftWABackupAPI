@@ -16,7 +16,7 @@ struct Message: FetchableByID {
         "Z_PK", "ZTOJID", "ZMESSAGETYPE", "ZGROUPMEMBER",
         "ZCHATSESSION", "ZTEXT", "ZMESSAGEDATE",
         "ZFROMJID", "ZMEDIAITEM", "ZISFROMME",
-        "ZGROUPEVENTTYPE", "ZSTANZAID", "ZPARENTMESSAGE"
+        "ZSTANZAID", "ZPARENTMESSAGE"
     ]
     static let primaryKey = "Z_PK"
     typealias Key = Int64
@@ -30,7 +30,6 @@ struct Message: FetchableByID {
     let messageType: Int64
     let groupMemberId: Int64?
     let mediaItemId: Int64?
-    let groupEventType: Int64?
     let fromJid: String?
     let toJid: String?
     let stanzaId: String?
@@ -46,7 +45,6 @@ struct Message: FetchableByID {
         messageType   = row.value(for: "ZMESSAGETYPE",  default: Int64(-1))
         groupMemberId = row["ZGROUPMEMBER"]
         mediaItemId   = row["ZMEDIAITEM"]
-        groupEventType = row["ZGROUPEVENTTYPE"]
         fromJid       = row["ZFROMJID"]
         toJid         = row["ZTOJID"]
         stanzaId      = row["ZSTANZAID"]
@@ -56,44 +54,6 @@ struct Message: FetchableByID {
 
 // MARK: - Convenience API
 extension Message {
-
-    static let hiddenStatusSyncEventType: Int64 = 2
-
-    static func isHiddenStatusSyncRow(
-        messageType: Int64,
-        groupEventType: Int64?,
-        text: String?
-    ) -> Bool {
-        guard messageType == SupportedMessageType.status.rawValue else {
-            return false
-        }
-
-        guard groupEventType == hiddenStatusSyncEventType else {
-            return false
-        }
-
-        return text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
-    }
-
-    var isHiddenStatusSyncRow: Bool {
-        Self.isHiddenStatusSyncRow(
-            messageType: messageType,
-            groupEventType: groupEventType,
-            text: text
-        )
-    }
-
-    static func publicVisibilityPredicate(columnPrefix: String? = nil) -> String {
-        let prefix = columnPrefix.map { "\($0)." } ?? ""
-
-        return """
-            NOT (
-                \(prefix)ZMESSAGETYPE = \(SupportedMessageType.status.rawValue)
-                AND COALESCE(\(prefix)ZGROUPEVENTTYPE, -1) = \(hiddenStatusSyncEventType)
-                AND TRIM(COALESCE(\(prefix)ZTEXT, '')) = ''
-            )
-            """
-    }
 
     /// Returns chat messages filtered to the set of supported WhatsApp types.
     static func fetchMessages(forChatId chatId: Int,
@@ -105,7 +65,6 @@ extension Message {
             SELECT * FROM \(tableName)
             WHERE ZCHATSESSION = ?
               AND ZMESSAGETYPE IN (\(placeholders))
-              AND \(publicVisibilityPredicate())
             ORDER BY ZMESSAGEDATE ASC, Z_PK ASC
             """
         let args: [DatabaseValueConvertible] = [chatId] + supported
@@ -126,7 +85,6 @@ extension Message {
             FROM \(tableName)
             WHERE ZCHATSESSION = ?
               AND ZMESSAGETYPE IN (\(placeholders))
-              AND \(publicVisibilityPredicate())
             """
         let args: [DatabaseValueConvertible] = [chatId] + supported
         let row = try Row.fetchOne(db, sql: sql, arguments: StatementArguments(args))
@@ -148,7 +106,7 @@ extension Message {
             db,
             sql: """
                  SELECT ZTOJID FROM \(tableName)
-                 WHERE ZMESSAGETYPE IN (6, 10)
+                 WHERE ZMESSAGETYPE = 6
                    AND ZTOJID LIKE '%@s.whatsapp.net'
                  LIMIT 1
                  """
@@ -160,7 +118,7 @@ extension Message {
             db,
             sql: """
                  SELECT ZTOJID FROM \(tableName)
-                 WHERE ZMESSAGETYPE IN (6, 10) AND ZTOJID IS NOT NULL
+                 WHERE ZMESSAGETYPE = 6 AND ZTOJID IS NOT NULL
                  LIMIT 1
                  """
         )?["ZTOJID"]

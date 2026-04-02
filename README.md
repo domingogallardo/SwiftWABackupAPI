@@ -46,7 +46,7 @@ On many systems you will need to grant Full Disk Access to the host app or termi
 Add the package dependency in `Package.swift` using the release rule that matches how you publish or consume the package:
 
 ```swift
-.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "1.4.4")
+.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "1.4.5")
 ```
 
 Then add the product to your target dependencies:
@@ -87,12 +87,11 @@ let payload = try backupAPI.getChatPayload(chatId: chats[0].id, directoryToSaveM
 
 `ChatDumpPayload` exists specifically so consumers can serialize a full export without depending on the legacy tuple-based `ChatDump`.
 
-`MessageInfo.author` is reserved for real message authorship. System or event rows may instead populate `MessageInfo.eventActor` when a participant is associated with the event but there is no real authored message.
+`MessageInfo.author` is the single structured sender field exposed by the public API.
 
 For UI and exports:
 
 - use `author` for normal user-authored messages
-- use `eventActor` for status/system rows such as group-event notifications
 - do not assume that every message has a phone-bearing real author
 - when `author.source == .lidAccount`, the visible `~Name` label still comes from WhatsApp identity data, but the phone and JID were recovered from WhatsApp's `LID.sqlite` cache
 - in group chats, a direct-chat label that is only a formatted phone number is treated as fallback, so a human-readable push name may be rendered instead to stay aligned with WhatsApp Web
@@ -117,8 +116,6 @@ print(jsonString)
 ```
 
 The formal JSON contract is documented in [Docs/JSONContract.md](./Docs/JSONContract.md).
-
-If you maintain an app that consumes this package, read the migration guide in [Docs/AppMigration-MessageAuthor.md](./Docs/AppMigration-MessageAuthor.md) before updating integration code.
 
 ## Media And Profile Images
 

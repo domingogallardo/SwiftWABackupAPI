@@ -98,30 +98,15 @@ extension WABackup {
         }
 
         let participantIdentity = try resolveParticipantIdentity(for: message, chatType: chatType, from: db)
-        let author = resolvedAuthor(
-            for: message,
-            messageType: messageType,
-            participantIdentity: participantIdentity
-        )
-        let eventActor = resolvedEventActor(
-            for: message,
-            messageType: messageType,
-            participantIdentity: participantIdentity
-        )
-        let messageText = resolveMessageText(
-            for: message,
-            messageType: messageType
-        )
 
         var messageInfo = MessageInfo(
             id: Int(message.id),
             chatId: Int(message.chatSessionId),
-            message: messageText,
+            message: message.text,
             date: message.date,
             isFromMe: message.isFromMe,
             messageType: messageType.description,
-            author: author,
-            eventActor: eventActor
+            author: participantIdentity
         )
 
         if let replyMessageId = try fetchReplyMessageId(for: message, from: db) {
@@ -207,58 +192,6 @@ extension WABackup {
                 jid: resolvedParticipantJid(for: chatSession.contactJid),
                 source: .chatSession
             )
-        }
-    }
-
-    func resolvedAuthor(
-        for message: Message,
-        messageType: SupportedMessageType,
-        participantIdentity: MessageAuthor?
-    ) -> MessageAuthor? {
-        switch messageType {
-        case .status:
-            return nil
-        default:
-            return participantIdentity
-        }
-    }
-
-    func resolvedEventActor(
-        for message: Message,
-        messageType: SupportedMessageType,
-        participantIdentity: MessageAuthor?
-    ) -> MessageAuthor? {
-        guard messageType == .status else {
-            return nil
-        }
-
-        guard let participantIdentity else {
-            return nil
-        }
-
-        guard statusEventShouldExposeEventActor(message: message, participantIdentity: participantIdentity) else {
-            return nil
-        }
-
-        return participantIdentity
-    }
-
-    func statusEventShouldExposeEventActor(
-        message: Message,
-        participantIdentity: MessageAuthor
-    ) -> Bool {
-        guard let eventType = message.groupEventType else {
-            return false
-        }
-
-        switch eventType {
-        case 40, 41, 58:
-            if let jid = participantIdentity.jid, jid.isGroupJid {
-                return false
-            }
-            return true
-        default:
-            return false
         }
     }
 
@@ -453,27 +386,6 @@ extension WABackup {
             fallbackSource: .messageJid,
             from: db
         )
-    }
-
-    func resolveMessageText(
-        for message: Message,
-        messageType: SupportedMessageType
-    ) -> String? {
-        switch messageType {
-        case .status:
-            guard let eventType = message.groupEventType else {
-                return message.text
-            }
-
-            switch eventType {
-            case 38:
-                return "This is a business chat"
-            default:
-                return message.text
-            }
-        default:
-            return message.text
-        }
     }
 
     func fetchCaption(mediaItemId: Int64, from db: Database) throws -> String? {

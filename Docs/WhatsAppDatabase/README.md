@@ -26,7 +26,7 @@ So, in the API model:
 
 | Table | Purpose | Key Columns Used |
 | --- | --- | --- |
-| `ZWAMESSAGE` | Stores every chat message and system event. | `Z_PK`, `ZCHATSESSION`, `ZMESSAGETYPE`, `ZGROUPEVENTTYPE`, `ZTEXT`, `ZMEDIAITEM`, `ZPARENTMESSAGE`, `ZISFROMME`, `ZGROUPMEMBER`, `ZMESSAGEDATE`, `ZFROMJID`, `ZTOJID` |
+| `ZWAMESSAGE` | Stores WhatsApp message rows. | `Z_PK`, `ZCHATSESSION`, `ZMESSAGETYPE`, `ZTEXT`, `ZMEDIAITEM`, `ZPARENTMESSAGE`, `ZISFROMME`, `ZGROUPMEMBER`, `ZMESSAGEDATE`, `ZFROMJID`, `ZTOJID` |
 | `ZWACHATSESSION` | Metadata for each chat thread. | `Z_PK`, `ZCONTACTJID`, `ZPARTNERNAME`, `ZLASTMESSAGEDATE`, `ZMESSAGECOUNTER`, `ZSESSIONTYPE`, `ZARCHIVED` |
 | `ZWAMEDIAITEM` | Metadata for media attached to messages. | `Z_PK`, `ZMEDIALOCALPATH`, `ZTITLE`, `ZMOVIEDURATION`, `ZLATITUDE`, `ZLONGITUDE`, `ZMETADATA` |
 | `ZWAGROUPMEMBER` | Group participant roster used to resolve sender info. | `Z_PK`, `ZMEMBERJID`, `ZCONTACTNAME` |
@@ -36,7 +36,7 @@ All schema checks live in `DatabaseHelpers.swift` and `DatabaseProtocols.swift`;
 
 ## Message Type Mapping
 
-`ZMESSAGETYPE` is converted into the following enum in `SwiftWABackupAPI.swift`:
+The public API maps `ZMESSAGETYPE` into the following supported message families:
 
 | Code | Description | Notes |
 | --- | --- | --- |
@@ -48,11 +48,8 @@ All schema checks live in `DatabaseHelpers.swift` and `DatabaseProtocols.swift`;
 | 5 | Location | Emits latitude/longitude (`ZLATITUDE`, `ZLONGITUDE`). |
 | 7 | Link | Keeps URL text and optional caption. |
 | 8 | Document | Exposes original file name and caption. |
-| 10 | Status | System/business events; see subcodes below. |
 | 11 | GIF | Treated like video, stored as MP4 in the backup. |
 | 15 | Sticker | Returns `.webp` filename. |
-
-The private regression suite verifies that the counts for each supported type are stable against the fixture. Empty sync-like status rows are excluded from the public API.
 
 ## Type-By-Type Runtime Matrix
 
@@ -68,35 +65,19 @@ This table focuses on what the current implementation actually validates and exp
 | `Location` | `ZMESSAGETYPE = 5` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZLATITUDE`, `ZWAMEDIAITEM.ZLONGITUDE` | `latitude`, `longitude`, optional media/caption fields | Missing coordinates currently fall back to `0.0`, which may hide absent data. |
 | `Link` | `ZMESSAGETYPE = 7` | Primarily `ZTEXT`; optional `ZMEDIAITEM` / `ZTITLE` | Link text in `message`, optional `caption` | URL, preview metadata, and preview image are not modeled separately. |
 | `Document` | `ZMESSAGETYPE = 8` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZMEDIALOCALPATH`, `ZWAMEDIAITEM.ZTITLE` | `mediaFilename`, optional `caption` | MIME type and document metadata are not currently surfaced. |
-| `Status` | `ZMESSAGETYPE = 10` | `ZGROUPEVENTTYPE`, `ZTEXT`, `ZFROMJID`, `ZISFROMME`, resolved participant identity | Normalized `message`, optional `eventActor`, and usually no `author` | This is the most heuristic-driven family and the one with the most unfinished subcodes. Empty sync-like rows with subcode `2` and no text are currently filtered out of the public API. |
 | `GIF` | `ZMESSAGETYPE = 11` | Same media fields as `Video` | `mediaFilename`, optional `caption` | Stored like media, but no duration is currently exposed for GIFs. |
 | `Sticker` | `ZMESSAGETYPE = 15` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZMEDIALOCALPATH` | `mediaFilename` | Sticker-specific metadata is not modeled; output is essentially filename + common fields. |
 
 Cross-cutting enrichments that may apply to many rows regardless of their type:
 
-- `author` is reserved for real authored messages and combines `ZISFROMME`, `ZGROUPMEMBER`, `ZFROMJID`, `ZWAGROUPMEMBER`, `ZWACHATSESSION`, `ZWAPROFILEPUSHNAME`, and, when available, the WhatsApp `LID.sqlite` account cache.
-- `eventActor` is used for system/status rows that refer to a participant but do not represent a conventional authored message.
+- `author` combines `ZISFROMME`, `ZGROUPMEMBER`, `ZFROMJID`, `ZWAGROUPMEMBER`, `ZWACHATSESSION`, `ZWAPROFILEPUSHNAME`, and, when available, the WhatsApp `LID.sqlite` account cache.
 - `replyTo` is resolved from `ZWAMESSAGE.ZPARENTMESSAGE` when present, otherwise from `ZMEDIAITEM` plus the binary blob stored in `ZWAMEDIAITEM.ZMETADATA`.
 - `reactions` come from `ZWAMESSAGEINFO.ZRECEIPTINFO`.
 - `mediaFilename` always requires a second lookup into the iTunes backup manifest to resolve the hashed file path.
 
-### Status (`ZMESSAGETYPE = 10`) Subcodes (Fixture Snapshot)
-
-| Subcode | Count | Observed payload | Current handling |
-| --- | --- | --- | --- |
-| 2 | 217 | Empty `ZTEXT`; `ZFROMJID` set to contact | Excluded from the public API. Checked WhatsApp Web examples do not surface an equivalent visible text row. |
-| 1 | 24 | Empty text, same shape as `2` | Left as-is; no special normalization is currently applied. |
-| 38 | 15 | Business chat event; no text/media | Replaced with `"This is a business chat"`. |
-| 21 / 22 | 8 / 3 | `ZTEXT` lists JIDs separated by commas | Left as-is; indicates broadcast/contact list updates. |
-| 26 | 7 | `ZTEXT` contains a business/contact display name | Left as-is. |
-| 40 / 41 | 4 / 7 | `ZTEXT` is a hash-like identifier | Left as-is; likely media sync tokens. |
-| 56 / 58 | 8 / 5 | Empty text, group JID in `ZFROMJID` for 58 | Left as-is; appear to be group status sync events. |
-
-Subcodes `5, 6, 13, 14, 25, 29, 30, 31, 34` also exist but with very low counts. Mapping these to descriptive messages would be a useful future enhancement.
-
 ## Message Identity Resolution
 
-When building `MessageInfo`, the API first resolves a participant identity candidate and then decides whether that identity belongs in `author` or `eventActor`.
+When building `MessageInfo`, the API resolves a single structured participant identity into `author`.
 
 ### Real Author (`author`)
 
@@ -114,21 +95,7 @@ When building `MessageInfo`, the API first resolves a participant identity candi
    - If `ZGROUPMEMBER` is missing, the runtime falls back to `ZWAMESSAGE.ZFROMJID`.
 3. **Individual chats** – `ZCHATSESSION` points to `ZWACHATSESSION`, which supplies the participant JID and display name for incoming messages.
 
-For non-status rows, that resolved identity becomes `MessageInfo.author`.
-
-### Event Participant (`eventActor`)
-
-For status/system rows (`ZMESSAGETYPE = 10`), the same participant-resolution machinery may instead populate `MessageInfo.eventActor`.
-
-This is used when the row appears to be an event associated with a participant, rather than a conventional authored chat message. Examples include group-status events.
-
-Important consequences:
-
-- `author` is commonly `nil` for `Status` rows, even when a participant can still be associated with the event.
-- `eventActor` is only exposed when the resolved identity appears meaningful as a participant identity.
-- If the only fallback identity is a group JID, the runtime currently suppresses `eventActor` instead of pretending that the group identifier is a creator phone.
-
-This behaviour lives in `WABackup+Messages.swift` (`resolveParticipantIdentity`, `resolvedAuthor`, `resolvedEventActor`, `makeParticipantAuthor`) and is covered by the invariant and regression suites.
+This behaviour lives in `WABackup+Messages.swift` (`resolveParticipantIdentity`, `makeParticipantAuthor`) and is covered by the invariant and regression suites.
 
 ### WhatsApp Web Alignment Notes
 
@@ -189,5 +156,5 @@ Key tests that exercise the database assumptions:
 
 - `testGetChats` – Validates counts of active/archived sessions read from `ZWACHATSESSION`.
 - `testChatMessages` – Iterates every chat, asserting message totals per type and confirming that `MessageInfo` mirrors `ZWAMESSAGE` counters.
-- `testMessageContentExtraction` – Spot-checks individual messages (text, link, document, status) to confirm sender resolution, reply chains, filenames, reactions, and status handling.
+- `testMessageContentExtraction` – Spot-checks individual messages (text, link, document, and replies/reactions) to confirm sender resolution, reply chains, filenames, and reaction handling.
 - `testChatContacts` – Validates aggregate contact counts and profile media lookups against the fixture.

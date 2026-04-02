@@ -24,8 +24,7 @@ Because WhatsApp does not publish an official schema reference for `ChatStorage.
 | `ZWACHATSESSION` columns such as `ZCONTACTJID`, `ZPARTNERNAME`, `ZLASTMESSAGEDATE`, `ZMESSAGECOUNTER`, `ZSESSIONTYPE`, and archive-related metadata are relevant chat metadata. | `externally corroborated` | Public forensic documentation describes the main purpose of these fields and the conversation/session role of the table. [1][2] |
 | `ZWAMEDIAITEM` columns such as `ZMEDIALOCALPATH`, `ZTITLE`, `ZMOVIEDURATION`, `ZLATITUDE`, `ZLONGITUDE`, and media metadata fields are used for attachment extraction. | `externally corroborated` | External sources describe these columns and their general purpose. [1][5][7] |
 | `ZMESSAGETYPE` basic mapping for `0=text`, `1=image`, `2=video`, `3=voice/audio`, `4=contact`, `5=location`, `7=URL/link`, `8=file/document` is valid. | `externally corroborated` | Belkasoft and another database-forensics reference give essentially that mapping. [1][9] |
-| Extended message-type mapping in the README (`10=Status`, `11=GIF`, `15=Sticker`) is established externally as written. | `externally conflicted` | I did **not** find strong authoritative documentation for this exact extended mapping. Worse, public reverse-engineering sources are inconsistent: one recent public source maps sticker/GIF/deletion-related values differently (`8=sticker`, `13=GIF`, `15=deleted for everyone`). This makes the exact higher-value mapping version-dependent and publicly inconsistent. [10][11] |
-| The status subcode table for `ZMESSAGETYPE = 10` (`ZGROUPEVENTTYPE` values, counts, and English renderings such as `This is a business chat`) is externally documented. | `externally conflicted` | Public external documentation is still weak, and WhatsApp Web checks conflict with at least part of the old normalization table. The API no longer exposes the previously synthesized `Status sync from …` rows because checked direct-chat examples did not show an equivalent visible status row before the first real message. The business-chat rendering remains unverified in the web UI because the older history needed for that row was not available there. |
+| Extended message-type mapping in the README (`11=GIF`, `15=Sticker`) is established externally as written. | `externally conflicted` | I did **not** find strong authoritative documentation for this exact extended mapping. Public reverse-engineering sources remain inconsistent across versions, so these higher-value mappings are still best treated as version-dependent observations rather than stable public documentation. [10][11] |
 | `@lid` identifiers are non-phone identifiers that appear in modern multi-device WhatsApp contexts. | `externally corroborated` | External discussions and tool ecosystems consistently describe `@lid` as a non-phone identifier introduced by newer WhatsApp multi-device / privacy-preserving behavior. [12][13][14] |
 | `@s.whatsapp.net` is the phone-based JID form, while `@lid` is a linked/private identifier that may need local mapping. | `externally corroborated` | External issue reports and release notes describe both forms and the need to resolve between them. [12][13][15] |
 | A local cache/database such as `LID.sqlite` may exist and help with LID resolution. | `externally corroborated` | External references show `LID.sqlite` present in WhatsApp-related backups/exfiltration targets, which supports the existence of such a cache/database. [16][17] |
@@ -36,7 +35,6 @@ Because WhatsApp does not publish an official schema reference for `ChatStorage.
 | In WhatsApp Web group-message rendering, a human-friendly push name can outrank phone-only fallback labels coming from direct-chat/session or group-member records. | `WA-Web-validated` | Validated with WhatsApp Web. The visible group-message labels support preferring a human-readable push name over phone-only fallback labels. |
 | The current quality-aware author strategy implemented by the API matches WhatsApp Web on the distinguishable group-message cases that were tested. | `WA-Web-validated` | Validated with WhatsApp Web. The distinguishable group-message cases observed there are consistent with the API's current quality-aware strategy, without implying that every internal branch has a publicly proven total order. |
 | When the API resolves a `@lid` identity through `LID.sqlite`, the recovered phone number can match the phone rendered by WhatsApp Web beside the author label. | `WA-Web-validated` | Validated with WhatsApp Web. The phone rendered beside the visible author label can match the phone recovered by the API from `LID.sqlite`. |
-| The API's `author` versus `eventActor` split matches the visible distinction in WhatsApp Web between ordinary message authors and participant-associated event rows. | `WA-Web-validated` | Validated with WhatsApp Web. The visible distinction between ordinary message authors and participant-associated event rows is consistent with the API's `author` versus `eventActor` split. |
 | The visible quoted-reply behavior rendered by WhatsApp Web matches the API's current `replyTo` output on validated examples. | `WA-Web-validated` | Validated with WhatsApp Web. Quoted replies visible there are consistent with the API's current `replyTo` behavior on the validated examples. |
 | Reactions are stored in `ZWAMESSAGEINFO.ZRECEIPTINFO` as binary blobs. | `externally corroborated` | The existence of `ZRECEIPTINFO` as a blob is externally corroborated; it is publicly recognized as opaque receipt-related metadata. [5][6] |
 | The visible reaction emoji and reacting participant identity produced by the current API match WhatsApp Web on validated examples. | `WA-Web-validated` | Validated with WhatsApp Web. The checked reaction examples line up with the API's current visible output for emoji plus the reacting participant's visible label and phone where the web shows one. |
@@ -60,10 +58,9 @@ The README is on firm ground in its **high-level forensic model**:
 
 ### Main open questions
 
-The main unresolved areas are now concentrated in three claims:
+The main unresolved areas are now concentrated in two claims:
 
-- the exact higher-value `ZMESSAGETYPE` mapping for rows like `10`, `11`, and `15`
-- the exact `Status` / `ZGROUPEVENTTYPE` subcode meanings and normalization strings
+- the exact higher-value `ZMESSAGETYPE` mapping for rows like `11` and `15`
 - the exact full precedence order for display-name resolution
 
 Those are still best treated as reverse-engineered, version-sensitive behavior rather than settled public WhatsApp documentation.
@@ -71,7 +68,7 @@ Those are still best treated as reverse-engineered, version-sensitive behavior r
 ### The two places I would soften most
 
 1. **Extended message-type mapping**  
-   Public sources are not consistent enough for the exact `10/11/15` mapping you list. I would either:
+   Public sources are not consistent enough for the exact `11/15` mapping you list. I would either:
    - move those values into a “fixture-observed / version-dependent” section, or
    - explicitly label them as reverse-engineered and not externally stable.
 
@@ -86,7 +83,7 @@ Those are still best treated as reverse-engineered, version-sensitive behavior r
 
 ### Safer wording for extended message types
 
-> The low-numbered `ZMESSAGETYPE` values used for common message classes (text, image, video, audio, contact, location, URL, file) are externally corroborated. Higher-value mappings used here for status/system/media-specialized rows are best understood as reverse-engineered and version-dependent observations from the current fixture and runtime, not as stable public WhatsApp documentation.
+> The low-numbered `ZMESSAGETYPE` values used for common message classes (text, image, video, audio, contact, location, URL, file) are externally corroborated. Higher-value mappings used here for media-specialized rows are best understood as reverse-engineered and version-dependent observations from the current fixture and runtime, not as stable public WhatsApp documentation.
 
 ## Sources consulted
 

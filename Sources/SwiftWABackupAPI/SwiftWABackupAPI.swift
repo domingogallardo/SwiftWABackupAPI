@@ -198,7 +198,6 @@ enum SupportedMessageType: Int64, CaseIterable {
     case location = 5
     case link = 7
     case doc = 8
-    case status = 10
     case gif = 11
     case sticker = 15
 
@@ -212,7 +211,6 @@ enum SupportedMessageType: Int64, CaseIterable {
         case .location: return "Location"
         case .link: return "Link"
         case .doc: return "Document"
-        case .status: return "Status"
         case .gif: return "GIF"
         case .sticker: return "Sticker"
         }
@@ -232,7 +230,7 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     /// Identifier of the parent chat session.
     public let chatId: Int
 
-    /// Message text or event text resolved by the API.
+    /// Message text resolved by the API.
     public let message: String?
 
     /// Message timestamp.
@@ -244,16 +242,8 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
     /// Human-readable message type name.
     public let messageType: String
 
-    /// Structured author identity for a user-authored message when it can be resolved.
-    ///
-    /// System or event rows may leave this field `nil` and instead populate `eventActor`.
+    /// Structured author identity for a message when it can be resolved.
     public var author: MessageAuthor?
-
-    /// Participant associated with a system/event message when no real author exists.
-    ///
-    /// Examples include group status events that refer to a
-    /// participant but are not authored chat messages in the usual sense.
-    public var eventActor: MessageAuthor?
 
     /// Caption or title associated with linked media.
     public var caption: String?
@@ -286,8 +276,7 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
         date: Date,
         isFromMe: Bool,
         messageType: String,
-        author: MessageAuthor? = nil,
-        eventActor: MessageAuthor? = nil
+        author: MessageAuthor? = nil
     ) {
         self.id = id
         self.chatId = chatId
@@ -296,7 +285,6 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
         self.isFromMe = isFromMe
         self.messageType = messageType
         self.author = author
-        self.eventActor = eventActor
         self.caption = nil
         self.replyTo = nil
         self.mediaFilename = nil

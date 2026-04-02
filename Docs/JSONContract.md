@@ -100,12 +100,11 @@ The contract is verified by the local private regression suite that accompanies 
 | --- | --- | --- | --- |
 | `id` | `Int` | Yes | Message identifier from `ZWAMESSAGE.Z_PK`. |
 | `chatId` | `Int` | Yes | Parent chat identifier. |
-| `message` | `String` | No | Message text or normalized event text. |
+| `message` | `String` | No | Message text exposed by the API. |
 | `date` | `String` | Yes | ISO 8601 timestamp for the message. |
 | `isFromMe` | `Bool` | Yes | Whether the message was sent by the owner. |
 | `messageType` | `String` | Yes | Human-readable message type name. |
 | `author` | `MessageAuthor` | No | Structured identity for a real user-authored message. |
-| `eventActor` | `MessageAuthor` | No | Participant associated with a status/system row when there is no real authored message. |
 | `caption` | `String` | No | Media caption or title. |
 | `replyTo` | `Int` | No | Identifier of the replied-to message when it can be resolved. |
 | `mediaFilename` | `String` | No | Exported media filename when media is copied or resolved. |
@@ -134,26 +133,6 @@ The contract is verified by the local private regression suite that accompanies 
 | `phone` | `String` | No | Real phone number when the API can resolve one confidently. Ambiguous `@lid` identities intentionally leave this field unset instead of exposing the raw LID digits as if they were a phone number. |
 | `jid` | `String` | No | Raw WhatsApp JID when it can be determined. |
 | `source` | `"owner" | "chatSession" | "addressBook" | "lidAccount" | "pushName" | "pushNamePhoneJid" | "groupMember" | "messageJid"` | Yes | Data source used by the API to resolve the identity. |
-
-## `MessageInfo` Example For Status/System Rows
-
-```json
-{
-  "chatId": 44,
-  "date": "2024-04-03T11:24:16Z",
-  "eventActor": {
-    "displayName": "Sample Contact",
-    "jid": "15550000001@s.whatsapp.net",
-    "kind": "participant",
-    "phone": "15550000001",
-    "source": "chatSession"
-  },
-  "id": 125600,
-  "isFromMe": false,
-  "message": "Event payload from WhatsApp",
-  "messageType": "Status"
-}
-```
 
 ## `ContactInfo`
 
@@ -195,8 +174,7 @@ The contract is verified by the local private regression suite that accompanies 
 
 - `ChatDump` remains available as the legacy tuple returned by `getChat(...)`.
 - `ChatDumpPayload` is the recommended type for JSON export because it is stable, explicit, and directly `Encodable`.
-- `MessageInfo.author` is reserved for real authored messages.
-- `MessageInfo.eventActor` is used for status/system rows that refer to a participant but are not authored chat messages in the usual sense.
+- `MessageInfo.author` is the only structured sender field in the public API.
 - Consumers should not assume that every message has a phone-bearing real author.
 - `MessageAuthor.source = "lidAccount"` means the visible sender label still comes from WhatsApp identity data such as push names, while the real phone number was recovered from WhatsApp's `LID.sqlite` account cache.
 - `MessageAuthor.source = "chatSession"` does not mean that `ZWACHATSESSION.ZPARTNERNAME` always won the display-name decision. In group chats, the runtime may ignore a phone-only chat-session label and prefer a `pushName` instead.
