@@ -15,12 +15,12 @@ For an audit of which claims in this README are externally corroborated versus f
 
 ## LID Terminology
 
-`@lid` is a WhatsApp identifier form seen in modern multi-device contexts. Public reverse-engineering sources describe these as privacy-preserving linked-device-style identifiers rather than ordinary phone-number JIDs. This project treats them as non-phone identifiers that may sometimes be resolved back to a phone number using local client caches such as LID.sqlite.
+`@lid` is a WhatsApp identifier form seen in modern multi-device contexts. Public sources consistently describe it as a non-phone identifier, but they do not agree on a single authoritative expansion of the acronym. This project therefore treats `LID` as an opaque WhatsApp term and treats `@lid` identities as distinct from ordinary phone-number JIDs. When local client caches such as `LID.sqlite` are available, the runtime may sometimes resolve a `@lid` identity back to a phone number.
 
 So, in the API model:
 
 - `@s.whatsapp.net` means the participant is already identified by phone-based JID.
-- `@lid` means the participant is identified by a linked/private WhatsApp identity that may or may not be resolvable to a phone number from local client data.
+- `@lid` means the participant is identified by a non-phone/private WhatsApp identity that may or may not be resolvable to a phone number from local client data.
 
 ## Core Tables and Columns
 
@@ -86,10 +86,18 @@ When building `MessageInfo`, the API resolves a single structured participant id
 1. **Outgoing messages (`ZISFROMME = 1`)** – Exposed as `MessageAuthor(kind: .me, displayName: "Me", source: .owner)`.
 2. **Group chats** – `ZWAMESSAGE.ZGROUPMEMBER` is used first:
    - `ZWAGROUPMEMBER.ZMEMBERJID` provides the strongest participant identifier.
-   - The display name is resolved using a quality-aware priority, not a blind table order:
-     - a human-friendly 1:1/contact label from `ZWACHATSESSION.ZPARTNERNAME` is preferred when it is a real name
-     - a WhatsApp-only push name from `ZWAPROFILEPUSHNAME` is preferred over phone-only fallback labels and is surfaced with the familiar `~` prefix
-     - a phone-only `ZWACHATSESSION.ZPARTNERNAME` or `ZWAGROUPMEMBER.ZCONTACTNAME` is treated as fallback, not as a better label than a human-readable push name
+   - The current runtime resolves the participant label using this exact order:
+     1. a non-phone-like direct-chat/session label from `ZWACHATSESSION.ZPARTNERNAME`
+     2. an address-book contact from `ContactsV2.sqlite`
+     3. a `LID.sqlite` account match
+     4. a linked phone JID plus WhatsApp push-name label
+     5. a WhatsApp push name from `ZWAPROFILEPUSHNAME`
+     6. a phone-like `ZWACHATSESSION.ZPARTNERNAME`
+     7. `ZWAGROUPMEMBER.ZCONTACTNAME` as the last fallback
+   - This is intentionally quality-aware rather than a blind table order:
+     - a human-friendly saved/direct-chat label is preferred when it is a real name
+     - a WhatsApp-only push name is preferred over phone-only fallback labels and is surfaced with the familiar `~` prefix
+     - phone-only labels from `ZWACHATSESSION` or `ZWAGROUPMEMBER` are treated as fallback, not as better labels than a human-readable push name
      - `phone` is exposed when the runtime can resolve a real phone confidently from the address book, a linked phone JID, or WhatsApp's `LID.sqlite`; ambiguous `@lid` identities still keep the visible name but leave `phone` unset
    - The runtime strips bidi control characters from display labels so values such as `‎Tú` are exposed cleanly.
    - If `ZGROUPMEMBER` is missing, the runtime falls back to `ZWAMESSAGE.ZFROMJID`.
@@ -106,6 +114,7 @@ The current display-name strategy has been validated with WhatsApp Web:
 - Unsaved group participants can appear as `~Name` with secondary phone text, which matches the current `pushName`, `pushNamePhoneJid`, and `lidAccount` strategy.
 - Saved-contact cases can appear as bare human names with no visible phone on the label, which matches the current `addressBook` and human-friendly `chatSession` branches.
 - Direct/self-chat UI values such as `ZWACHATSESSION.ZPARTNERNAME = '\u200eTú'` are rendered without exposing the bidi control character.
+- Some later internal branches remain UI-indistinguishable in practice, so WhatsApp Web validates the visible precedence decisions above without proving every internal branch of the total runtime order.
 
 ## Reply Resolution
 
