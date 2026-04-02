@@ -150,7 +150,7 @@ The contract is verified by the local private regression suite that accompanies 
   },
   "id": 125600,
   "isFromMe": false,
-  "message": "Status sync from Sample Contact",
+  "message": "Event payload from WhatsApp",
   "messageType": "Status"
 }
 ```

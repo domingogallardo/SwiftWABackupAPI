@@ -23,7 +23,7 @@ struct ChatSession: FetchableByID {
     let id: Int64
     let contactJid: String
     let partnerName: String
-    let lastMessageDate: Date
+    var lastMessageDate: Date
     var messageCounter: Int64
     let isArchived: Bool
     let sessionType: Int64
@@ -53,11 +53,14 @@ extension ChatSession {
         let inClause   = supported.count.questionMarks
 
         let sql = """
-            SELECT cs.*, COUNT(m.Z_PK) AS messageCount
+            SELECT cs.*,
+                   COUNT(m.Z_PK) AS messageCount,
+                   MAX(m.ZMESSAGEDATE) AS publicLastMessageDate
             FROM \(tableName) cs
             JOIN ZWAMESSAGE m ON m.ZCHATSESSION = cs.Z_PK
             WHERE cs.ZCONTACTJID NOT LIKE ?
               AND m.ZMESSAGETYPE IN (\(inClause))
+              AND \(Message.publicVisibilityPredicate(columnPrefix: "m"))
             GROUP BY cs.Z_PK
             HAVING SUM(CASE WHEN m.ZMESSAGETYPE != ? THEN 1 ELSE 0 END) > 0
             """
@@ -71,6 +74,8 @@ extension ChatSession {
                          var session = ChatSession(row: row)
                          session.messageCounter =
                              row["messageCount"] as? Int64 ?? 0
+                         session.lastMessageDate =
+                             row.date(for: "publicLastMessageDate", default: session.lastMessageDate)
                          return session
                      }
     }

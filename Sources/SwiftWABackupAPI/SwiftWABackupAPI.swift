@@ -251,7 +251,7 @@ public struct MessageInfo: CustomStringConvertible, Encodable {
 
     /// Participant associated with a system/event message when no real author exists.
     ///
-    /// Examples include group status events or sync notifications that refer to a
+    /// Examples include group status events that refer to a
     /// participant but are not authored chat messages in the usual sense.
     public var eventActor: MessageAuthor?
 

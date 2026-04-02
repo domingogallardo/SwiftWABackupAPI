@@ -42,13 +42,14 @@ extension WABackup {
     func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) throws -> ChatInfo {
         try dbQueue.performRead { db in
             let chatSession = try ChatSession.fetchChat(byId: id, from: db)
+            let publicSummary = try Message.fetchPublicSummary(forChatId: id, from: db)
 
             return ChatInfo(
                 id: Int(chatSession.id),
                 contactJid: chatSession.contactJid,
                 name: resolvedChatName(for: chatSession),
-                numberMessages: Int(chatSession.messageCounter),
-                lastMessageDate: chatSession.lastMessageDate,
+                numberMessages: Int(publicSummary.count),
+                lastMessageDate: publicSummary.lastMessageDate ?? chatSession.lastMessageDate,
                 isArchived: chatSession.isArchived
             )
         }
@@ -109,8 +110,7 @@ extension WABackup {
         )
         let messageText = resolveMessageText(
             for: message,
-            messageType: messageType,
-            eventActor: eventActor
+            messageType: messageType
         )
 
         var messageInfo = MessageInfo(
@@ -252,11 +252,6 @@ extension WABackup {
         }
 
         switch eventType {
-        case 2:
-            if let jid = participantIdentity.jid, jid.isGroupJid {
-                return false
-            }
-            return true
         case 40, 41, 58:
             if let jid = participantIdentity.jid, jid.isGroupJid {
                 return false
@@ -460,41 +455,9 @@ extension WABackup {
         )
     }
 
-    func describeStatusSync(
-        for message: Message,
-        eventActor: MessageAuthor?
-    ) -> String {
-        if message.isFromMe {
-            return "Status sync from me"
-        }
-
-        if let name = eventActor?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !name.isEmpty {
-            return "Status sync from \(name)"
-        }
-
-        if let phone = eventActor?.phone, !phone.isEmpty {
-            return "Status sync from \(phone)"
-        }
-
-        if let fromJid = message.fromJid, !fromJid.isEmpty {
-            if fromJid.isIndividualJid || fromJid.isGroupJid {
-                let identifier = fromJid.extractedPhone
-                if !identifier.isEmpty {
-                    return "Status sync from \(identifier)"
-                }
-            }
-
-            return "Status sync from \(fromJid)"
-        }
-
-        return "Status sync notification"
-    }
-
     func resolveMessageText(
         for message: Message,
-        messageType: SupportedMessageType,
-        eventActor: MessageAuthor?
+        messageType: SupportedMessageType
     ) -> String? {
         switch messageType {
         case .status:
@@ -505,13 +468,6 @@ extension WABackup {
             switch eventType {
             case 38:
                 return "This is a business chat"
-            case 2:
-                if let current = message.text,
-                   !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return current
-                }
-
-                return describeStatusSync(for: message, eventActor: eventActor)
             default:
                 return message.text
             }

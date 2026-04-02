@@ -52,7 +52,7 @@ All schema checks live in `DatabaseHelpers.swift` and `DatabaseProtocols.swift`;
 | 11 | GIF | Treated like video, stored as MP4 in the backup. |
 | 15 | Sticker | Returns `.webp` filename. |
 
-The private regression suite verifies that the counts for each supported type are stable against the fixture (currently 5281 images, 489 videos, and 264 status messages).
+The private regression suite verifies that the counts for each supported type are stable against the fixture. Empty sync-like status rows are excluded from the public API.
 
 ## Type-By-Type Runtime Matrix
 
@@ -68,7 +68,7 @@ This table focuses on what the current implementation actually validates and exp
 | `Location` | `ZMESSAGETYPE = 5` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZLATITUDE`, `ZWAMEDIAITEM.ZLONGITUDE` | `latitude`, `longitude`, optional media/caption fields | Missing coordinates currently fall back to `0.0`, which may hide absent data. |
 | `Link` | `ZMESSAGETYPE = 7` | Primarily `ZTEXT`; optional `ZMEDIAITEM` / `ZTITLE` | Link text in `message`, optional `caption` | URL, preview metadata, and preview image are not modeled separately. |
 | `Document` | `ZMESSAGETYPE = 8` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZMEDIALOCALPATH`, `ZWAMEDIAITEM.ZTITLE` | `mediaFilename`, optional `caption` | MIME type and document metadata are not currently surfaced. |
-| `Status` | `ZMESSAGETYPE = 10` | `ZGROUPEVENTTYPE`, `ZTEXT`, `ZFROMJID`, `ZISFROMME`, resolved participant identity | Normalized `message`, optional `eventActor`, and usually no `author` | This is the most heuristic-driven family and the one with the most unfinished subcodes. |
+| `Status` | `ZMESSAGETYPE = 10` | `ZGROUPEVENTTYPE`, `ZTEXT`, `ZFROMJID`, `ZISFROMME`, resolved participant identity | Normalized `message`, optional `eventActor`, and usually no `author` | This is the most heuristic-driven family and the one with the most unfinished subcodes. Empty sync-like rows with subcode `2` and no text are currently filtered out of the public API. |
 | `GIF` | `ZMESSAGETYPE = 11` | Same media fields as `Video` | `mediaFilename`, optional `caption` | Stored like media, but no duration is currently exposed for GIFs. |
 | `Sticker` | `ZMESSAGETYPE = 15` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZMEDIALOCALPATH` | `mediaFilename` | Sticker-specific metadata is not modeled; output is essentially filename + common fields. |
 
@@ -84,8 +84,8 @@ Cross-cutting enrichments that may apply to many rows regardless of their type:
 
 | Subcode | Count | Observed payload | Current handling |
 | --- | --- | --- | --- |
-| 2 | 217 | Empty `ZTEXT`; `ZFROMJID` set to contact | Rendered as `Status sync from …` using sender info (new behaviour). |
-| 1 | 24 | Empty text, same shape as `2` | Currently treated as raw status; candidate for sync label. |
+| 2 | 217 | Empty `ZTEXT`; `ZFROMJID` set to contact | Excluded from the public API. Checked WhatsApp Web examples do not surface an equivalent visible text row. |
+| 1 | 24 | Empty text, same shape as `2` | Left as-is; no special normalization is currently applied. |
 | 38 | 15 | Business chat event; no text/media | Replaced with `"This is a business chat"`. |
 | 21 / 22 | 8 / 3 | `ZTEXT` lists JIDs separated by commas | Left as-is; indicates broadcast/contact list updates. |
 | 26 | 7 | `ZTEXT` contains a business/contact display name | Left as-is. |
@@ -120,7 +120,7 @@ For non-status rows, that resolved identity becomes `MessageInfo.author`.
 
 For status/system rows (`ZMESSAGETYPE = 10`), the same participant-resolution machinery may instead populate `MessageInfo.eventActor`.
 
-This is used when the row appears to be an event associated with a participant, rather than a conventional authored chat message. Examples include sync-style notifications or group-status events.
+This is used when the row appears to be an event associated with a participant, rather than a conventional authored chat message. Examples include group-status events.
 
 Important consequences:
 
@@ -189,5 +189,5 @@ Key tests that exercise the database assumptions:
 
 - `testGetChats` – Validates counts of active/archived sessions read from `ZWACHATSESSION`.
 - `testChatMessages` – Iterates every chat, asserting message totals per type and confirming that `MessageInfo` mirrors `ZWAMESSAGE` counters.
-- `testMessageContentExtraction` – Spot-checks individual messages (text, link, document, status) to confirm sender resolution, reply chains, filenames, reactions, and status-sync wording.
+- `testMessageContentExtraction` – Spot-checks individual messages (text, link, document, status) to confirm sender resolution, reply chains, filenames, reactions, and status handling.
 - `testChatContacts` – Validates aggregate contact counts and profile media lookups against the fixture.

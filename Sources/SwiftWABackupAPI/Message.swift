@@ -57,6 +57,44 @@ struct Message: FetchableByID {
 // MARK: - Convenience API
 extension Message {
 
+    static let hiddenStatusSyncEventType: Int64 = 2
+
+    static func isHiddenStatusSyncRow(
+        messageType: Int64,
+        groupEventType: Int64?,
+        text: String?
+    ) -> Bool {
+        guard messageType == SupportedMessageType.status.rawValue else {
+            return false
+        }
+
+        guard groupEventType == hiddenStatusSyncEventType else {
+            return false
+        }
+
+        return text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+    }
+
+    var isHiddenStatusSyncRow: Bool {
+        Self.isHiddenStatusSyncRow(
+            messageType: messageType,
+            groupEventType: groupEventType,
+            text: text
+        )
+    }
+
+    static func publicVisibilityPredicate(columnPrefix: String? = nil) -> String {
+        let prefix = columnPrefix.map { "\($0)." } ?? ""
+
+        return """
+            NOT (
+                \(prefix)ZMESSAGETYPE = \(SupportedMessageType.status.rawValue)
+                AND COALESCE(\(prefix)ZGROUPEVENTTYPE, -1) = \(hiddenStatusSyncEventType)
+                AND TRIM(COALESCE(\(prefix)ZTEXT, '')) = ''
+            )
+            """
+    }
+
     /// Returns chat messages filtered to the set of supported WhatsApp types.
     static func fetchMessages(forChatId chatId: Int,
                               from db: Database) throws -> [Message] {
@@ -65,12 +103,43 @@ extension Message {
         let placeholders = supported.count.questionMarks
         let sql = """
             SELECT * FROM \(tableName)
-            WHERE ZCHATSESSION = ? AND ZMESSAGETYPE IN (\(placeholders))
+            WHERE ZCHATSESSION = ?
+              AND ZMESSAGETYPE IN (\(placeholders))
+              AND \(publicVisibilityPredicate())
+            ORDER BY ZMESSAGEDATE ASC, Z_PK ASC
             """
         let args: [DatabaseValueConvertible] = [chatId] + supported
         return try Row.fetchAll(db, sql: sql,
                                 arguments: StatementArguments(args))
                      .map(Self.init(row:))
+    }
+
+    static func fetchPublicSummary(
+        forChatId chatId: Int,
+        from db: Database
+    ) throws -> (count: Int64, lastMessageDate: Date?) {
+        let supported = SupportedMessageType.allValues
+        let placeholders = supported.count.questionMarks
+        let sql = """
+            SELECT COUNT(Z_PK) AS messageCount,
+                   MAX(ZMESSAGEDATE) AS publicLastMessageDate
+            FROM \(tableName)
+            WHERE ZCHATSESSION = ?
+              AND ZMESSAGETYPE IN (\(placeholders))
+              AND \(publicVisibilityPredicate())
+            """
+        let args: [DatabaseValueConvertible] = [chatId] + supported
+        let row = try Row.fetchOne(db, sql: sql, arguments: StatementArguments(args))
+        let count = row?.value(for: "messageCount", default: Int64(0)) ?? 0
+
+        guard count > 0 else {
+            return (count: 0, lastMessageDate: nil)
+        }
+
+        return (
+            count: count,
+            lastMessageDate: row?.date(for: "publicLastMessageDate")
+        )
     }
 
     /// Returns the first `ZTOJID` that identifies the owner profile.

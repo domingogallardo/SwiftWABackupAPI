@@ -25,8 +25,7 @@ Because WhatsApp does not publish an official schema reference for `ChatStorage.
 | `ZWAMEDIAITEM` columns such as `ZMEDIALOCALPATH`, `ZTITLE`, `ZMOVIEDURATION`, `ZLATITUDE`, `ZLONGITUDE`, and media metadata fields are used for attachment extraction. | `externally corroborated` | External sources describe these columns and their general purpose. [1][5][7] |
 | `ZMESSAGETYPE` basic mapping for `0=text`, `1=image`, `2=video`, `3=voice/audio`, `4=contact`, `5=location`, `7=URL/link`, `8=file/document` is valid. | `externally corroborated` | Belkasoft and another database-forensics reference give essentially that mapping. [1][9] |
 | Extended message-type mapping in the README (`10=Status`, `11=GIF`, `15=Sticker`) is established externally as written. | `externally conflicted` | I did **not** find strong authoritative documentation for this exact extended mapping. Worse, public reverse-engineering sources are inconsistent: one recent public source maps sticker/GIF/deletion-related values differently (`8=sticker`, `13=GIF`, `15=deleted for everyone`). This makes the exact higher-value mapping version-dependent and publicly inconsistent. [10][11] |
-| The status subcode table for `ZMESSAGETYPE = 10` (`ZGROUPEVENTTYPE` values, counts, and English renderings such as `This is a business chat` or `Status sync from …`) is externally documented. | `fixture-only` | I found public evidence that system/group/control messages exist, but not reliable external documentation for your exact subcode meanings, counts, or normalization strings. |
-| The fixture counts (for example `5281` images, `489` videos, `264` status messages) can be externally validated. | `fixture-only` | These are local fixture facts, not public facts. |
+| The status subcode table for `ZMESSAGETYPE = 10` (`ZGROUPEVENTTYPE` values, counts, and English renderings such as `This is a business chat`) is externally documented. | `externally conflicted` | Public external documentation is still weak, and WhatsApp Web checks conflict with at least part of the old normalization table. The API no longer exposes the previously synthesized `Status sync from …` rows because checked direct-chat examples did not show an equivalent visible status row before the first real message. The business-chat rendering remains unverified in the web UI because the older history needed for that row was not available there. |
 | `@lid` identifiers are non-phone identifiers that appear in modern multi-device WhatsApp contexts. | `externally corroborated` | External discussions and tool ecosystems consistently describe `@lid` as a non-phone identifier introduced by newer WhatsApp multi-device / privacy-preserving behavior. [12][13][14] |
 | `@s.whatsapp.net` is the phone-based JID form, while `@lid` is a linked/private identifier that may need local mapping. | `externally corroborated` | External issue reports and release notes describe both forms and the need to resolve between them. [12][13][15] |
 | A local cache/database such as `LID.sqlite` may exist and help with LID resolution. | `externally corroborated` | External references show `LID.sqlite` present in WhatsApp-related backups/exfiltration targets, which supports the existence of such a cache/database. [16][17] |
@@ -45,9 +44,6 @@ Because WhatsApp does not publish an official schema reference for `ChatStorage.
 | Looking up WhatsApp media by `domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'` plus relative path is externally grounded. | `externally corroborated` | Public code that extracts WhatsApp data from iPhone backups uses exactly that approach. [4] |
 | Profile photos / avatars in WhatsApp iOS data are found under `Media/Profile/`. | `externally corroborated` | Group-IB explicitly lists `/Media/Profile/` for contact/group thumbnails and avatars, and independent training material repeats the same location. [2][21] |
 | Sticker assets are associated with `.webp` files. | `externally corroborated` | Group-IB notes a `/stickers/` directory in the shared container, and official WhatsApp sticker documentation for iOS states that sticker payloads use WebP data. [2][22] |
-| The exact export naming rules in your README for avatars (for example `chat_<chatId>.ext`, newest-file selection, phone-based contact filenames) are externally documented. | `fixture-only` | The directory is externally corroborated, but your export-naming convention is implementation-specific. |
-| The error taxonomy (`BackupError`, `DatabaseErrorWA`, `DomainError`) is externally grounded in the WhatsApp data model. | `fixture-only` | Those are library/API design choices, not public WhatsApp artifacts. |
-| The listed tests (`testGetChats`, `testChatMessages`, `testMessageContentExtraction`, `testChatContacts`) provide external evidence. | `fixture-only` | They are internal validation assets unless reproduced and independently audited from outside the project. |
 
 ## Overall assessment
 
@@ -62,20 +58,15 @@ The README is on firm ground in its **high-level forensic model**:
 - The `Manifest.db` lookup pattern for hashed iOS backup files is correct.
 - `@lid` is a real modern identifier form distinct from phone-number JIDs, and `LID.sqlite` also appears in external references. [1][2][4][12][16]
 
-### Best treated as project-local / fixture-derived
+### Main open questions
 
-The README becomes much less externally verifiable when it moves from **schema facts** to **behavioral interpretation**:
+The main unresolved areas are now concentrated in three claims:
 
-- exact `Status` subcode meanings and normalized strings,
-- exact reply-parsing byte signatures,
-- exact reaction blob decoding,
-- fixture counts,
-- the exact full precedence order for display-name resolution,
-- `author` vs `eventActor`,
-- file-export naming conventions,
-- local regression-test assertions.
+- the exact higher-value `ZMESSAGETYPE` mapping for rows like `10`, `11`, and `15`
+- the exact `Status` / `ZGROUPEVENTTYPE` subcode meanings and normalization strings
+- the exact full precedence order for display-name resolution
 
-Those sections should be treated as **implementation knowledge**, not as publicly validated WhatsApp documentation.
+Those are still best treated as reverse-engineered, version-sensitive behavior rather than settled public WhatsApp documentation.
 
 ### The two places I would soften most
 
