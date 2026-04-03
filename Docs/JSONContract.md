@@ -172,8 +172,7 @@ The contract is verified by the local private regression suite that accompanies 
 
 ## Notes
 
-- `ChatDump` remains available as the legacy tuple returned by `getChat(...)`.
-- `ChatDumpPayload` is the recommended type for JSON export because it is stable, explicit, and directly `Encodable`.
+- `ChatDumpPayload` is the type returned by `getChat(...)` and intended for JSON export.
 - `MessageInfo.author` is the only structured sender field in the public API.
 - Consumers should not assume that every message has a phone-bearing real author.
 - `MessageAuthor.source = "lidAccount"` means the visible sender label still comes from WhatsApp identity data such as push names, while the real phone number was recovered from WhatsApp's `LID.sqlite` account cache.

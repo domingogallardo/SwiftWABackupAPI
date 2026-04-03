@@ -16,7 +16,6 @@ The public API is centered on `WABackup`:
 - Connect to a WhatsApp `ChatStorage.sqlite` database with `connectChatStorageDb(from:)`
 - List chats with `getChats(directoryToSavePhotos:)`
 - Export a chat with `getChat(chatId:directoryToSaveMedia:)`
-- Export the same data as an `Encodable` wrapper with `getChatPayload(chatId:directoryToSaveMedia:)`
 
 Returned models are `Encodable` and designed to be easy to serialize:
 
@@ -46,8 +45,13 @@ On many systems you will need to grant Full Disk Access to the host app or termi
 Add the package dependency in `Package.swift` using the release rule that matches how you publish or consume the package:
 
 ```swift
-.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "1.4.5")
+.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "2.0.0")
 ```
+
+Version `2.0.0` includes a breaking API change:
+
+- `getChat(chatId:directoryToSaveMedia:)` now returns `ChatDumpPayload`
+- `getChatPayload(chatId:directoryToSaveMedia:)` was removed
 
 Then add the product to your target dependencies:
 
@@ -70,7 +74,7 @@ guard let backup = backups.validBackups.first else {
 try backupAPI.connectChatStorageDb(from: backup)
 
 let chats = try backupAPI.getChats()
-let payload = try backupAPI.getChatPayload(chatId: chats[0].id, directoryToSaveMedia: nil)
+let payload = try backupAPI.getChat(chatId: chats[0].id, directoryToSaveMedia: nil)
 print(payload.chatInfo.name)
 print(payload.messages.count)
 ```
@@ -80,12 +84,12 @@ If you want exported media and copied profile images:
 ```swift
 let outputDirectory = URL(fileURLWithPath: "/tmp/wa-export", isDirectory: true)
 let chats = try backupAPI.getChats(directoryToSavePhotos: outputDirectory)
-let payload = try backupAPI.getChatPayload(chatId: chats[0].id, directoryToSaveMedia: outputDirectory)
+let payload = try backupAPI.getChat(chatId: chats[0].id, directoryToSaveMedia: outputDirectory)
 ```
 
 ## JSON Export
 
-`ChatDumpPayload` exists specifically so consumers can serialize a full export without depending on the legacy tuple-based `ChatDump`.
+`ChatDumpPayload` is the full chat export payload exposed by the public API and intended for JSON serialization.
 
 `MessageInfo.author` is the single structured sender field exposed by the public API.
 
@@ -93,7 +97,8 @@ For UI and exports:
 
 - use `author` for normal user-authored messages
 - do not assume that every message has a phone-bearing real author
-- when `author.source == .lidAccount`, the visible `~Name` label still comes from WhatsApp identity data, but the phone and JID were recovered from WhatsApp's `LID.sqlite` cache
+- `@lid` is a WhatsApp identifier form seen in modern multi-device contexts; this project treats `LID` as an opaque WhatsApp term and treats `@lid` as distinct from a phone-number JID (`@s.whatsapp.net`)
+- when local client-side mapping data is available, for example in caches or databases such as `LID.sqlite`, the runtime may sometimes resolve a `@lid` identity back to a phone-based identity
 - in group chats, a direct-chat label that is only a formatted phone number is treated as fallback, so a human-readable push name may be rendered instead to stay aligned with WhatsApp Web
 
 Recommended JSON settings:
@@ -104,7 +109,7 @@ Recommended JSON settings:
 Example:
 
 ```swift
-let payload = try backupAPI.getChatPayload(chatId: 44, directoryToSaveMedia: nil)
+let payload = try backupAPI.getChat(chatId: 44, directoryToSaveMedia: nil)
 
 let encoder = JSONEncoder()
 encoder.dateEncodingStrategy = .iso8601

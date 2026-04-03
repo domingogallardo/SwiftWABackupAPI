@@ -7,8 +7,8 @@ import Foundation
 import GRDB
 
 public extension WABackup {
-    /// Retrieves a full chat export using the legacy tuple payload.
-    func getChat(chatId: Int, directoryToSaveMedia directory: URL?) throws -> ChatDump {
+    /// Retrieves a full chat export.
+    func getChat(chatId: Int, directoryToSaveMedia directory: URL?) throws -> ChatDumpPayload {
         guard let dbQueue = chatDatabase, let iPhoneBackup = iPhoneBackup else {
             throw DatabaseErrorWA.connection(DatabaseError(message: "Database or backup not found"))
         }
@@ -29,12 +29,11 @@ public extension WABackup {
             directory: directory
         )
 
-        return (chatInfo, processedMessages, contacts)
-    }
-
-    /// Retrieves a full chat export wrapped in an `Encodable` payload.
-    func getChatPayload(chatId: Int, directoryToSaveMedia directory: URL?) throws -> ChatDumpPayload {
-        try ChatDumpPayload(getChat(chatId: chatId, directoryToSaveMedia: directory))
+        return ChatDumpPayload(
+            chatInfo: chatInfo,
+            messages: processedMessages,
+            contacts: contacts
+        )
     }
 }
 

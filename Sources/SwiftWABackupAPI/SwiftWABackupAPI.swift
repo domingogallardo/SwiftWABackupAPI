@@ -336,10 +336,7 @@ public struct ContactInfo: CustomStringConvertible, Encodable, Hashable {
     }
 }
 
-/// Legacy tuple returned by `getChat(chatId:directoryToSaveMedia:)`.
-public typealias ChatDump = (chatInfo: ChatInfo, messages: [MessageInfo], contacts: [ContactInfo])
-
-/// Encodable wrapper around a full chat export.
+/// Encodable full chat export returned by `getChat(chatId:directoryToSaveMedia:)`.
 public struct ChatDumpPayload: CustomStringConvertible, Encodable {
     /// Chat metadata for the exported conversation.
     public let chatInfo: ChatInfo
@@ -355,15 +352,6 @@ public struct ChatDumpPayload: CustomStringConvertible, Encodable {
         self.chatInfo = chatInfo
         self.messages = messages
         self.contacts = contacts
-    }
-
-    /// Creates a payload from the legacy `ChatDump` tuple.
-    public init(_ chatDump: ChatDump) {
-        self.init(
-            chatInfo: chatDump.chatInfo,
-            messages: chatDump.messages,
-            contacts: chatDump.contacts
-        )
     }
 
     /// A human-readable description intended for debugging.
