@@ -10,5 +10,9 @@ DerivedData/
 Package.resolved
 .vscode
 Tests/**
+!Tests/SwiftWABackupAPITests/
+Tests/SwiftWABackupAPITests/**
+!Tests/SwiftWABackupAPITests/Public/
+!Tests/SwiftWABackupAPITests/Public/**
 Private/
 output/
