@@ -87,6 +87,63 @@ let chats = try backupAPI.getChats(directoryToSavePhotos: outputDirectory)
 let payload = try backupAPI.getChat(chatId: chats[0].id, directoryToSaveMedia: outputDirectory)
 ```
 
+## Command Line Interface
+
+The package also ships with a small companion executable named `SwiftWABackupCLI`. It mirrors the basic workflows exposed by the Python port:
+
+- discover backups with `list-backups`
+- list chats with `list-chats`
+- export a full chat with `export-chat`
+
+Run it directly from the package root:
+
+```bash
+swift run SwiftWABackupCLI --help
+```
+
+List backups under the default macOS MobileSync folder:
+
+```bash
+swift run SwiftWABackupCLI list-backups \
+  --backup-path "$HOME/Library/Application Support/MobileSync/Backup" \
+  --json --pretty
+```
+
+List chats from a specific backup:
+
+```bash
+swift run SwiftWABackupCLI list-chats \
+  --backup-path "$HOME/Library/Application Support/MobileSync/Backup" \
+  --backup-id "00008101-000478893600801E" \
+  --json --pretty
+```
+
+Export one chat to JSON and copy message media:
+
+```bash
+swift run SwiftWABackupCLI export-chat \
+  --backup-path "$HOME/Library/Application Support/MobileSync/Backup" \
+  --backup-id "00008101-000478893600801E" \
+  --chat-id 44 \
+  --output-dir /tmp/chat-44 \
+  --pretty
+```
+
+Export only the JSON payload to a file:
+
+```bash
+swift run SwiftWABackupCLI export-chat \
+  --backup-path "$HOME/Library/Application Support/MobileSync/Backup" \
+  --backup-id "00008101-000478893600801E" \
+  --chat-id 44 \
+  --output-json /tmp/chat-44.json \
+  --pretty
+```
+
+`--output-dir` creates the directory if it does not exist, writes `chat-<id>.json` inside it, and copies exported media into that same directory. `--output-json` writes only the JSON file.
+
+If `--backup-id` is omitted, the CLI uses the first valid backup it finds in the given root directory.
+
 ## JSON Export
 
 `ChatDumpPayload` is the full chat export payload exposed by the public API and intended for JSON serialization.
