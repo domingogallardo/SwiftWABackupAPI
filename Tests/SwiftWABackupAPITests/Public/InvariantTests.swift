@@ -299,6 +299,24 @@ final class GroupChatInvariantTests: XCTestCase {
         )
         XCTAssertEqual(dump.contacts.filter { $0.name == "Me" }.count, 1)
     }
+
+    func testGroupContactListPrefersActiveMembershipAndDeduplicatesHistory() throws {
+        let (waBackup, fixture) = try InvariantFixtureFactory.makeConnectedActiveGroupMembersBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let dump = try waBackup.getChat(chatId: 710, directoryToSaveMedia: nil)
+        let contactsByPhone = Dictionary(uniqueKeysWithValues: dump.contacts.map { ($0.phone, $0) })
+
+        XCTAssertEqual(dump.contacts.count, 4)
+        XCTAssertEqual(
+            Set(contactsByPhone.keys),
+            Set(["08185296380", "08185296378", "08185296371", "08185296390"])
+        )
+        XCTAssertEqual(contactsByPhone["08185296380"]?.name, "Me")
+        XCTAssertEqual(contactsByPhone["08185296378"]?.name, "Alice Active")
+        XCTAssertEqual(contactsByPhone["08185296371"]?.name, "Linked Delta")
+        XCTAssertEqual(contactsByPhone["08185296390"]?.name, "Nova Member")
+    }
 }
 
 private enum InvariantFixtureFactory {
@@ -1018,6 +1036,170 @@ private enum InvariantFixtureFactory {
                     "40482648260486@lid",
                     "08185296385",
                     makeReferenceTimestamp(year: 2025, month: 2, day: 10, hour: 12, minute: 0, second: 0)
+                ]
+            )
+        }
+
+        let waBackup = WABackup(backupPath: fixture.rootURL.path)
+        try waBackup.connectChatStorageDb(from: fixture.backup)
+        return (waBackup, fixture)
+    }
+
+    static func makeConnectedActiveGroupMembersBackup() throws -> (waBackup: WABackup, fixture: PublicTemporaryBackupFixture) {
+        let fixture = try PublicTestSupport.makeTemporaryBackup(name: "active-group-members-backup") { db in
+            try createCommonTables(in: db)
+            try db.execute(sql: "ALTER TABLE ZWAGROUPMEMBER ADD COLUMN ZISACTIVE INTEGER")
+            try db.execute(sql: "ALTER TABLE ZWAGROUPMEMBER ADD COLUMN ZCHATSESSION INTEGER")
+
+            let latest = makeReferenceTimestamp(year: 2024, month: 4, day: 11, hour: 11, minute: 0, second: 0)
+
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWACHATSESSION
+                    (Z_PK, ZCONTACTJID, ZPARTNERNAME, ZLASTMESSAGEDATE, ZMESSAGECOUNTER, ZSESSIONTYPE, ZARCHIVED)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [710, "08185296380-999999@g.us", "Active Member Group", latest, 3, 0, 0]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWACHATSESSION
+                    (Z_PK, ZCONTACTJID, ZPARTNERNAME, ZLASTMESSAGEDATE, ZMESSAGECOUNTER, ZSESSIONTYPE, ZARCHIVED)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [711, "08185296380@s.whatsapp.net", "Me", latest, 1, 0, 0]
+            )
+
+            let members: [(Int, String, String?, Int, Int)] = [
+                (901, "08185296378@s.whatsapp.net", "Alice Historical", 0, 710),
+                (902, "40482648261001@lid", nil, 0, 710),
+                (911, "08185296380@s.whatsapp.net", nil, 1, 710),
+                (912, "08185296378@s.whatsapp.net", "Alice Active", 1, 710),
+                (913, "40482648261001@lid", nil, 1, 710),
+                (914, "40482648261002@lid", nil, 1, 710)
+            ]
+            for member in members {
+                try db.execute(
+                    sql: """
+                        INSERT INTO ZWAGROUPMEMBER
+                        (Z_PK, ZMEMBERJID, ZCONTACTNAME, ZISACTIVE, ZCHATSESSION)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                    arguments: [member.0, member.1, member.2, member.3, member.4]
+                )
+            }
+
+            let pushNames: [(String, String)] = [
+                ("Linked Delta", "08185296371@s.whatsapp.net"),
+                ("Nova Member", "08185296390@s.whatsapp.net")
+            ]
+            for pushName in pushNames {
+                try db.execute(
+                    sql: """
+                        INSERT INTO ZWAPROFILEPUSHNAME
+                        (ZPUSHNAME, ZJID)
+                        VALUES (?, ?)
+                        """,
+                    arguments: [pushName.0, pushName.1]
+                )
+            }
+
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAMESSAGE
+                    (Z_PK, ZTOJID, ZMESSAGETYPE, ZGROUPMEMBER, ZCHATSESSION, ZTEXT, ZMESSAGEDATE, ZFROMJID, ZMEDIAITEM, ZISFROMME, ZGROUPEVENTTYPE, ZSTANZAID)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    710001,
+                    "08185296380-999999@g.us",
+                    0,
+                    901,
+                    710,
+                    "Historical Alice message",
+                    makeReferenceTimestamp(year: 2024, month: 4, day: 11, hour: 10, minute: 0, second: 0),
+                    "08185296378@s.whatsapp.net",
+                    nil,
+                    0,
+                    nil,
+                    "active-group-1"
+                ]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAMESSAGE
+                    (Z_PK, ZTOJID, ZMESSAGETYPE, ZGROUPMEMBER, ZCHATSESSION, ZTEXT, ZMESSAGEDATE, ZFROMJID, ZMEDIAITEM, ZISFROMME, ZGROUPEVENTTYPE, ZSTANZAID)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    710002,
+                    "08185296380-999999@g.us",
+                    0,
+                    902,
+                    710,
+                    "Historical Delta message",
+                    makeReferenceTimestamp(year: 2024, month: 4, day: 11, hour: 10, minute: 5, second: 0),
+                    "40482648261001@lid",
+                    nil,
+                    0,
+                    nil,
+                    "active-group-2"
+                ]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAMESSAGE
+                    (Z_PK, ZTOJID, ZMESSAGETYPE, ZGROUPMEMBER, ZCHATSESSION, ZTEXT, ZMESSAGEDATE, ZFROMJID, ZMEDIAITEM, ZISFROMME, ZGROUPEVENTTYPE, ZSTANZAID)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    710003,
+                    "08185296380-999999@g.us",
+                    0,
+                    nil,
+                    710,
+                    "Outgoing",
+                    latest,
+                    nil,
+                    nil,
+                    1,
+                    nil,
+                    "active-group-3"
+                ]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAMESSAGE
+                    (Z_PK, ZTOJID, ZMESSAGETYPE, ZGROUPMEMBER, ZCHATSESSION, ZTEXT, ZMESSAGEDATE, ZFROMJID, ZMEDIAITEM, ZISFROMME, ZGROUPEVENTTYPE, ZSTANZAID)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    711001,
+                    "08185296380@s.whatsapp.net",
+                    6,
+                    nil,
+                    711,
+                    nil,
+                    makeReferenceTimestamp(year: 2024, month: 4, day: 11, hour: 9, minute: 0, second: 0),
+                    nil,
+                    nil,
+                    1,
+                    nil,
+                    "active-group-owner"
+                ]
+            )
+        }
+
+        try PublicTestSupport.addLidDatabase(to: fixture) { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAZACCOUNT
+                    (Z_PK, ZIDENTIFIER, ZPHONENUMBER, ZCREATEDAT)
+                    VALUES (?, ?, ?, ?), (?, ?, ?, ?)
+                    """,
+                arguments: [
+                    1, "40482648261001@lid", "08185296371", makeReferenceTimestamp(year: 2025, month: 2, day: 10, hour: 12, minute: 0, second: 0),
+                    2, "40482648261002@lid", "08185296390", makeReferenceTimestamp(year: 2025, month: 2, day: 10, hour: 12, minute: 1, second: 0)
                 ]
             )
         }

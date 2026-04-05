@@ -279,14 +279,36 @@ extension WABackup {
         from db: Database
     ) throws -> (senderName: String?, senderPhone: String?)? {
         if let groupMember = try GroupMember.fetchGroupMember(byId: memberId, from: db) {
-            return try obtainSenderInfo(
-                jid: groupMember.memberJid,
-                contactNameGroupMember: groupMember.contactName,
-                from: db
-            )
+            return try fetchGroupMemberInfo(groupMember: groupMember, from: db)
         }
 
         return nil
+    }
+
+    func fetchGroupMemberInfo(
+        groupMember: GroupMember,
+        from db: Database
+    ) throws -> (senderName: String?, senderPhone: String?) {
+        try obtainSenderInfo(
+            jid: groupMember.memberJid,
+            contactNameGroupMember: groupMember.contactName,
+            from: db
+        )
+    }
+
+    func fetchGroupContactMembers(
+        forChatId chatId: Int,
+        from db: Database
+    ) throws -> [GroupMember] {
+        let activeMembers = try GroupMember.fetchActiveGroupMembers(forChatId: chatId, from: db)
+        if !activeMembers.isEmpty {
+            return activeMembers
+        }
+
+        let memberIds = try GroupMember.fetchGroupMemberIds(forChatId: chatId, from: db)
+        return try memberIds.compactMap { memberId in
+            try GroupMember.fetchGroupMember(byId: memberId, from: db)
+        }
     }
 
     func fetchDuration(mediaItemId: Int64, from db: Database) throws -> Int? {
@@ -426,12 +448,29 @@ extension WABackup {
         } else if let lidAccount = lidAccountIndex?.account(for: jid) {
             let profileDisplayName = try ProfilePushName.pushName(for: jid, from: db)
                 .flatMap(normalizedAuthorField)
+            let linkedPhoneJid = linkedPhoneJid(for: jid) ?? lidAccountIndex?.phoneJid(for: jid)
+            let linkedPhoneDisplayName = try linkedPhoneJid.flatMap {
+                try resolvedContactDisplayName(
+                    for: $0,
+                    profileDisplayName: try ProfilePushName.pushName(for: $0, from: db)
+                        .flatMap(normalizedAuthorField),
+                    senderPhone: normalizedAuthorField($0.extractedPhone),
+                    from: db
+                )
+            }
             return (
-                profileDisplayName,
+                linkedPhoneDisplayName ?? profileDisplayName,
                 normalizedAuthorField(lidAccount.normalizedPhoneNumber) ?? senderPhone
             )
         } else if let linkedPhoneJid = linkedPhoneJid(for: jid) {
-            return (nil, normalizedAuthorField(linkedPhoneJid.extractedPhone))
+            let linkedPhoneDisplayName = try resolvedContactDisplayName(
+                for: linkedPhoneJid,
+                profileDisplayName: try ProfilePushName.pushName(for: linkedPhoneJid, from: db)
+                    .flatMap(normalizedAuthorField),
+                senderPhone: normalizedAuthorField(linkedPhoneJid.extractedPhone),
+                from: db
+            )
+            return (linkedPhoneDisplayName, normalizedAuthorField(linkedPhoneJid.extractedPhone))
         } else if let pushName = try ProfilePushName.pushName(for: jid, from: db) {
             return (normalizedAuthorField(pushName), senderPhone)
         } else if let chatSessionName {
@@ -439,6 +478,26 @@ extension WABackup {
         } else {
             return (contactNameGroupMember, senderPhone)
         }
+    }
+
+    func resolvedContactDisplayName(
+        for jid: String,
+        profileDisplayName: String?,
+        senderPhone: String?,
+        from db: Database
+    ) throws -> String? {
+        if let senderName = try ChatSession.fetchChatSessionName(for: jid, from: db)
+            .flatMap(normalizedAuthorField),
+           !isPhoneLikeDisplayLabel(senderName, resolvedPhone: senderPhone) {
+            return senderName
+        }
+
+        if let displayName = addressBookIndex?.contact(for: jid)?.bestDisplayName
+            .flatMap(normalizedAuthorField) {
+            return displayName
+        }
+
+        return profileDisplayName
     }
 
     func makeParticipantAuthor(

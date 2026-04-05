@@ -47,10 +47,10 @@ On many systems you will need to grant Full Disk Access to the host app or termi
 Add the package dependency in `Package.swift` using the release rule that matches how you publish or consume the package:
 
 ```swift
-.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "2.0.0")
+.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "2.0.1")
 ```
 
-Version `2.0.0` includes a breaking API change:
+Version `2.0.0` introduced a breaking API change:
 
 - `getChat(chatId:directoryToSaveMedia:)` now returns `ChatDumpPayload`
 - `getChatPayload(chatId:directoryToSaveMedia:)` was removed

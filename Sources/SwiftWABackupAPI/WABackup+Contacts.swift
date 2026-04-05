@@ -35,17 +35,25 @@ extension WABackup {
                 }
 
             case .group:
-                let memberIds = try GroupMember.fetchGroupMemberIds(forChatId: chatInfo.id, from: db)
-                for memberId in memberIds {
-                    if let senderInfo = try fetchGroupMemberInfo(memberId: memberId, from: db),
-                       let phone = senderInfo.senderPhone,
-                       phone != ownerPhone {
-                        var contact = ContactInfo(name: senderInfo.senderName ?? "", phone: phone)
-                        if let directory {
-                            contact = try copyContactMedia(for: contact, from: iPhoneBackup, to: directory)
-                        }
-                        contacts.append(contact)
+                let members = try fetchGroupContactMembers(forChatId: chatInfo.id, from: db)
+                var seenPhones = Set(contacts.map(\.phone))
+
+                for member in members {
+                    let senderInfo = try fetchGroupMemberInfo(groupMember: member, from: db)
+                    guard let phone = senderInfo.senderPhone,
+                          phone != ownerPhone,
+                          seenPhones.insert(phone).inserted else {
+                        continue
                     }
+
+                    var contact = ContactInfo(
+                        name: senderInfo.senderName ?? phone,
+                        phone: phone
+                    )
+                    if let directory {
+                        contact = try copyContactMedia(for: contact, from: iPhoneBackup, to: directory)
+                    }
+                    contacts.append(contact)
                 }
             }
         }

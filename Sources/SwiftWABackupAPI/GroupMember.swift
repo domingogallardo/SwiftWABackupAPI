@@ -30,11 +30,32 @@ struct GroupMember: FetchableByID {
 
 // MARK: - Convenience API
 extension GroupMember {
+    private static let activeMembershipColumns: Set<String> = ["ZCHATSESSION", "ZISACTIVE"]
 
     /// Returns the group member by id, or `nil` when it does not exist.
     static func fetchGroupMember(byId id: Int64,
                                  from db: Database) throws -> GroupMember? {
         try fetch(by: id, from: db)
+    }
+
+    /// Returns active group members for a chat when the backing schema stores
+    /// current membership state. Older fixtures may not expose these columns.
+    static func fetchActiveGroupMembers(forChatId chatId: Int,
+                                        from db: Database) throws -> [GroupMember] {
+        let columns = Set(try db.columns(in: tableName).map { $0.name.uppercased() })
+        guard activeMembershipColumns.isSubset(of: columns) else {
+            return []
+        }
+
+        let sql = """
+            SELECT *
+            FROM \(tableName)
+            WHERE ZCHATSESSION = ?
+              AND IFNULL(ZISACTIVE, 0) = 1
+            ORDER BY Z_PK
+            """
+
+        return try Row.fetchAll(db, sql: sql, arguments: [chatId]).map { GroupMember(row: $0) }
     }
 
     /// Returns distinct member ids that appear in supported messages for a chat.
