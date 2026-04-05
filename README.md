@@ -2,6 +2,8 @@
 
 `SwiftWABackupAPI` is a Swift package for exploring WhatsApp data stored inside an unencrypted iPhone backup. It powers the companion macOS CLI application [WABackupExtractor](https://github.com/domingogallardo/WABackupExtractor), but it can also be consumed directly from your own Swift tools and apps.
 
+A full Python port of this library is also available as [PyWABackupAPI](https://github.com/domingogallardo/PyWABackupAPI).
+
 ## Privacy Warning
 
 This package is intended for legitimate backup, recovery, export, and personal analysis workflows.
@@ -89,7 +91,7 @@ let payload = try backupAPI.getChat(chatId: chats[0].id, directoryToSaveMedia: o
 
 ## Command Line Interface
 
-The package also ships with a small companion executable named `SwiftWABackupCLI`. It mirrors the basic workflows exposed by the Python port:
+The package also ships with a small companion executable named `SwiftWABackupCLI`. It mirrors the basic workflows exposed by the Python port [PyWABackupAPI](https://github.com/domingogallardo/PyWABackupAPI):
 
 - discover backups with `list-backups`
 - list chats with `list-chats`
