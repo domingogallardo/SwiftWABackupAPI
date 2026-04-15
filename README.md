@@ -147,6 +147,10 @@ swift run SwiftWABackupCLI list-backups \
   --json --pretty
 ```
 
+`list-backups` now reports diagnostic status for each candidate backup, including
+whether it is ready, encrypted, or otherwise unusable. In JSON mode, the new
+`backups` array exposes `status`, `isEncrypted`, `isReady`, and `issue`.
+
 List chats from a specific backup:
 
 ```bash
@@ -180,11 +184,13 @@ swift run SwiftWABackupCLI export-chat \
 
 `--output-dir` creates the directory if it does not exist, writes `chat-<id>.json` inside it, and copies exported media into that same directory. `--output-json` writes only the JSON file.
 
-If `--backup-id` is omitted, the CLI uses the first valid backup it finds in the given root directory.
+If `--backup-id` is omitted, the CLI uses the first ready backup it finds in
+the given root directory. Encrypted backups and backups with unknown encryption
+status are rejected by `list-chats` and `export-chat`.
 
-The CLI continues to use the legacy backup discovery flow. If you need
-encryption-aware diagnostics, use the library API and inspect backups with
-`inspectBackups()` before calling `connectChatStorageDb(from:)`.
+The CLI now surfaces backup diagnostics directly in `list-backups`, and
+`list-chats` / `export-chat` only operate on backups that are explicitly ready
+for chat access.
 
 ## JSON Export
 

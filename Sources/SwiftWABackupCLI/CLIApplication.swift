@@ -268,10 +268,12 @@ struct CLIApplication {
         standardOutput: OutputWriter
     ) throws {
         let waBackup = WABackup(backupPath: backupPath)
+        let inspections = try waBackup.inspectBackups()
         let backups = try waBackup.getBackups()
 
         if json {
             let payload = BackupListPayload(
+                backups: inspections.map(BackupListPayload.Backup.init),
                 validBackups: backups.validBackups.map(BackupListPayload.ValidBackup.init),
                 invalidBackups: backups.invalidBackups.map(\.path)
             )
@@ -279,17 +281,13 @@ struct CLIApplication {
             return
         }
 
-        if backups.validBackups.isEmpty && backups.invalidBackups.isEmpty {
+        if inspections.isEmpty {
             standardOutput("No backups found.")
             return
         }
 
-        for backup in backups.validBackups {
-            standardOutput("VALID\t\(backup.identifier)\t\(iso8601Formatter.string(from: backup.creationDate))\t\(backup.path)")
-        }
-
-        for invalid in backups.invalidBackups {
-            standardOutput("INVALID\t\(invalid.path)")
+        for inspection in inspections {
+            standardOutput(renderBackupInspectionLine(inspection))
         }
     }
 
@@ -360,23 +358,77 @@ struct CLIApplication {
         backupId: String?
     ) throws -> (waBackup: WABackup, backup: IPhoneBackup) {
         let waBackup = WABackup(backupPath: backupPath)
-        let backups = try waBackup.getBackups()
+        let inspections = try waBackup.inspectBackups()
 
-        let backup: IPhoneBackup
+        let inspection: BackupDiscoveryInfo
         if let backupId {
-            guard let matched = backups.validBackups.first(where: { $0.identifier == backupId }) else {
+            guard let matched = inspections.first(where: { $0.identifier == backupId }) else {
                 throw CLIError.backupNotFound(backupId)
             }
-            backup = matched
+            inspection = matched
         } else {
-            guard let first = backups.validBackups.first else {
-                throw CLIError.invalidArguments("No valid backups found.")
+            guard let first = inspections.first(where: \.isReady) else {
+                throw CLIError.invalidArguments(
+                    "No ready backups found. Run 'list-backups' to inspect encryption status and backup diagnostics."
+                )
             }
-            backup = first
+            inspection = first
+        }
+
+        guard inspection.isReady, let backup = inspection.backup else {
+            let issue = inspection.issue ?? "Backup status is \(inspection.status.rawValue)."
+            throw CLIError.invalidArguments(
+                "Backup '\(inspection.identifier)' is not ready for chat access: \(issue)"
+            )
         }
 
         try waBackup.connectChatStorageDb(from: backup)
         return (waBackup, backup)
+    }
+
+    private func renderBackupInspectionLine(_ inspection: BackupDiscoveryInfo) -> String {
+        let creationDate = inspection.creationDate.map(iso8601Formatter.string(from:)) ?? "-"
+        let encryptionState: String
+        if let isEncrypted = inspection.isEncrypted {
+            encryptionState = isEncrypted ? "ENCRYPTED" : "NOT_ENCRYPTED"
+        } else {
+            encryptionState = "UNKNOWN"
+        }
+
+        var columns = [
+            backupStatusLabel(for: inspection.status),
+            inspection.identifier,
+            creationDate,
+            encryptionState,
+            inspection.path
+        ]
+
+        if let issue = inspection.issue {
+            columns.append(issue)
+        }
+
+        return columns.joined(separator: "\t")
+    }
+
+    private func backupStatusLabel(for status: BackupDiscoveryStatus) -> String {
+        switch status {
+        case .ready:
+            return "READY"
+        case .encrypted:
+            return "ENCRYPTED"
+        case .encryptionStatusUnavailable:
+            return "UNKNOWN_ENCRYPTION"
+        case .missingRequiredFile:
+            return "INVALID_MISSING_FILE"
+        case .malformedStatusPlist:
+            return "INVALID_STATUS_PLIST"
+        case .missingWhatsAppDatabase:
+            return "NO_WHATSAPP_DATABASE"
+        case .unreadableManifestDatabase:
+            return "UNREADABLE_MANIFEST_DB"
+        case .unreadableBackup:
+            return "UNREADABLE_BACKUP"
+        }
     }
 
     private func resolveOutputJSONURL(at path: String) throws -> URL {
@@ -463,18 +515,41 @@ struct CLIApplication {
 }
 
 private struct BackupListPayload: Encodable {
+    struct Backup: Encodable {
+        let identifier: String
+        let path: String
+        let creationDate: Date?
+        let isEncrypted: Bool?
+        let isReady: Bool
+        let status: BackupDiscoveryStatus
+        let issue: String?
+
+        init(_ backup: BackupDiscoveryInfo) {
+            identifier = backup.identifier
+            path = backup.path
+            creationDate = backup.creationDate
+            isEncrypted = backup.isEncrypted
+            isReady = backup.isReady
+            status = backup.status
+            issue = backup.issue
+        }
+    }
+
     struct ValidBackup: Encodable {
         let identifier: String
         let path: String
         let creationDate: Date
+        let isEncrypted: Bool?
 
         init(_ backup: IPhoneBackup) {
             identifier = backup.identifier
             path = backup.path
             creationDate = backup.creationDate
+            isEncrypted = backup.isEncrypted
         }
     }
 
+    let backups: [Backup]
     let validBackups: [ValidBackup]
     let invalidBackups: [String]
 }
