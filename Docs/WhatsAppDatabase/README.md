@@ -22,6 +22,26 @@ So, in the API model:
 - `@s.whatsapp.net` means the participant is already identified by phone-based JID.
 - `@lid` means the participant is identified by a non-phone/private WhatsApp identity that may or may not be resolvable to a phone number from local client data.
 
+## Backup Discovery and Encryption Diagnostics
+
+The package now exposes two discovery layers:
+
+- `getBackups()` is the legacy compatibility API. It classifies candidates only
+  as `validBackups` or `invalidBackups`.
+- `inspectBackups()` is the diagnostic API. It inspects `Status.plist`,
+  `Manifest.db`, and, when available, `Manifest.plist` to report a structured
+  `BackupDiscoveryInfo` with a `status`, optional `isEncrypted`, and `isReady`.
+
+Current encryption detection is based on `Manifest.plist["IsEncrypted"]`:
+
+- `status = ready` means WhatsApp data was found and `IsEncrypted == false`
+- `status = encrypted` means WhatsApp data was found and `IsEncrypted == true`
+- `status = encryptionStatusUnavailable` means WhatsApp data was found but
+  `Manifest.plist` was missing, malformed, unreadable, or lacked `IsEncrypted`
+
+The chat and export APIs still assume the caller passes a backup that is ready
+to use, typically by checking `inspectBackups()` first.
+
 ## Core Tables and Columns
 
 | Table | Purpose | Key Columns Used |
@@ -157,7 +177,10 @@ The library surfaces granular error enums so consumers can react appropriately:
 - `DatabaseErrorWA` – database connection problems, unexpected schemas, or missing rows.
 - `DomainError` – higher-level logic errors (media not found, unsupported message types).
 
-These errors are thrown from API entry points (`getBackups`, `connectChatStorageDb`, `getChat`, etc.) and are covered by the happy-path tests; you can trigger them manually by corrupting the fixture or requesting unsupported resources.
+These errors are thrown from API entry points (`getBackups`, `inspectBackups`,
+`connectChatStorageDb`, `getChat`, etc.) and are covered by the happy-path
+tests; you can trigger them manually by corrupting the fixture or requesting
+unsupported resources.
 
 ## Test Coverage
 

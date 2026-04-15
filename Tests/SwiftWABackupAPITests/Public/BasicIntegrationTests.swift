@@ -17,6 +17,56 @@ final class BackupDiscoveryTests: XCTestCase {
             URL(fileURLWithPath: backups.validBackups[0].path).standardizedFileURL.path,
             URL(fileURLWithPath: fixture.backup.path).standardizedFileURL.path
         )
+        XCTAssertEqual(backups.validBackups[0].isEncrypted, false)
+    }
+
+    func testInspectBackupsReturnsReadyBackupDiagnostics() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let waBackup = WABackup(backupPath: fixture.rootURL.path)
+        let infos = try waBackup.inspectBackups()
+        let info = try XCTUnwrap(infos.first)
+
+        XCTAssertEqual(info.status, .ready)
+        XCTAssertTrue(info.isReady)
+        XCTAssertEqual(info.isEncrypted, false)
+        XCTAssertNil(info.issue)
+        XCTAssertEqual(info.backup?.identifier, fixture.backup.identifier)
+        XCTAssertEqual(info.backup?.isEncrypted, false)
+    }
+
+    func testInspectBackupsReturnsEncryptedBackupDiagnostics() throws {
+        let fixture = try PublicTestSupport.makeTemporaryBackup(name: "encrypted-backup", isEncrypted: true) { _ in }
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let waBackup = WABackup(backupPath: fixture.rootURL.path)
+        let infos = try waBackup.inspectBackups()
+        let info = try XCTUnwrap(infos.first)
+
+        XCTAssertEqual(info.status, .encrypted)
+        XCTAssertFalse(info.isReady)
+        XCTAssertEqual(info.isEncrypted, true)
+        XCTAssertEqual(info.issue, "Backup is encrypted.")
+        XCTAssertEqual(info.backup?.isEncrypted, true)
+    }
+
+    func testInspectBackupsReportsUnknownEncryptionStateWhenManifestPlistIsMissing() throws {
+        let fixture = try PublicTestSupport.makeTemporaryBackup(name: "unknown-encryption-backup", isEncrypted: nil) { _ in }
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let waBackup = WABackup(backupPath: fixture.rootURL.path)
+        let infos = try waBackup.inspectBackups()
+        let info = try XCTUnwrap(infos.first)
+
+        XCTAssertEqual(info.status, .encryptionStatusUnavailable)
+        XCTAssertFalse(info.isReady)
+        XCTAssertNil(info.isEncrypted)
+        XCTAssertEqual(
+            info.issue,
+            "Manifest.plist is missing, so encryption status could not be determined."
+        )
+        XCTAssertNil(info.backup?.isEncrypted)
     }
 
     func testConnectChatStorageDatabase() throws {

@@ -31,6 +31,25 @@ final class ErrorHandlingTests: XCTestCase {
         )
     }
 
+    func testInspectBackupsReportsIncompleteBackupDetails() throws {
+        let rootURL = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-invalid-backup-diagnostics")
+        defer { try? PublicTestSupport.removeItemIfExists(at: rootURL) }
+
+        let backupURL = rootURL.appendingPathComponent("incomplete-backup", isDirectory: true)
+        try FileManager.default.createDirectory(at: backupURL, withIntermediateDirectories: true)
+        try Data().write(to: backupURL.appendingPathComponent("Info.plist"))
+
+        let waBackup = WABackup(backupPath: rootURL.path)
+        let infos = try waBackup.inspectBackups()
+        let info = try XCTUnwrap(infos.first)
+
+        XCTAssertEqual(info.identifier, "incomplete-backup")
+        XCTAssertEqual(info.status, .missingRequiredFile)
+        XCTAssertFalse(info.isReady)
+        XCTAssertEqual(info.issue, "Manifest.db is missing.")
+        XCTAssertNil(info.backup)
+    }
+
     func testGetChatsFailsWhenDatabaseIsNotConnected() {
         let waBackup = WABackup(backupPath: FileManager.default.temporaryDirectory.path)
 

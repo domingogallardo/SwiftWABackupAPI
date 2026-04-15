@@ -90,6 +90,63 @@ final class PublicJSONContractTests: XCTestCase {
         )
     }
 
+    func testBackupDiscoveryInfoReadyJSONContract() throws {
+        let date = Date(timeIntervalSince1970: 1_712_143_456)
+        let info = BackupDiscoveryInfo(
+            identifier: "sample-backup",
+            path: "/tmp/sample-backup",
+            creationDate: date,
+            isEncrypted: false,
+            status: .ready,
+            issue: nil
+        )
+
+        let json = try PublicTestSupport.canonicalJSONString(info)
+
+        XCTAssertEqual(
+            json,
+            """
+            {
+              "creationDate" : "2024-04-03T11:24:16Z",
+              "identifier" : "sample-backup",
+              "isEncrypted" : false,
+              "isReady" : true,
+              "path" : "\\/tmp\\/sample-backup",
+              "status" : "ready"
+            }
+            """
+        )
+    }
+
+    func testBackupDiscoveryInfoEncryptedJSONContract() throws {
+        let date = Date(timeIntervalSince1970: 1_712_143_456)
+        let info = BackupDiscoveryInfo(
+            identifier: "encrypted-backup",
+            path: "/tmp/encrypted-backup",
+            creationDate: date,
+            isEncrypted: true,
+            status: .encrypted,
+            issue: "Backup is encrypted."
+        )
+
+        let json = try PublicTestSupport.canonicalJSONString(info)
+
+        XCTAssertEqual(
+            json,
+            """
+            {
+              "creationDate" : "2024-04-03T11:24:16Z",
+              "identifier" : "encrypted-backup",
+              "isEncrypted" : true,
+              "isReady" : false,
+              "issue" : "Backup is encrypted.",
+              "path" : "\\/tmp\\/encrypted-backup",
+              "status" : "encrypted"
+            }
+            """
+        )
+    }
+
     func testMessageInfoJSONContract() throws {
         let date = Date(timeIntervalSince1970: 1_712_143_456)
         var messageInfo = MessageInfo(

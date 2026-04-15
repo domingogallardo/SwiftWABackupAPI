@@ -280,6 +280,7 @@ enum PublicTestSupport {
 
     static func makeTemporaryBackup(
         name: String = UUID().uuidString,
+        isEncrypted: Bool? = false,
         additionalManifestEntries: [PublicBackupStoredFile] = [],
         chatStorageSetup: (Database) throws -> Void
     ) throws -> PublicTemporaryBackupFixture {
@@ -290,6 +291,9 @@ enum PublicTestSupport {
         let creationDate = Date(timeIntervalSince1970: 1_711_267_200)
         try writePlist([:], to: backupURL.appendingPathComponent("Info.plist"))
         try writePlist(["Date": creationDate], to: backupURL.appendingPathComponent("Status.plist"))
+        if let isEncrypted {
+            try writePlist(["IsEncrypted": isEncrypted], to: backupURL.appendingPathComponent("Manifest.plist"))
+        }
 
         let fileHash = "ab1234567890chatstorage"
         try createManifestDatabase(
@@ -307,7 +311,7 @@ enum PublicTestSupport {
         let chatStorageQueue = try DatabaseQueue(path: chatStorageURL.path)
         try chatStorageQueue.write(chatStorageSetup)
 
-        let backup = IPhoneBackup(url: backupURL, creationDate: creationDate)
+        let backup = IPhoneBackup(url: backupURL, creationDate: creationDate, isEncrypted: isEncrypted)
         return PublicTemporaryBackupFixture(rootURL: rootURL, backupURL: backupURL, backup: backup)
     }
 

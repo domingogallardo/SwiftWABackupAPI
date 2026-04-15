@@ -16,7 +16,19 @@ public extension WABackup {
         }
     }
 
+    /// Discovers iPhone backups together with diagnostic information such as encryption state.
+    func inspectBackups() throws -> [BackupDiscoveryInfo] {
+        do {
+            return try phoneBackup.inspectBackups()
+        } catch {
+            throw BackupError.directoryAccess(error)
+        }
+    }
+
     /// Connects the API to the WhatsApp `ChatStorage.sqlite` database contained in a backup.
+    ///
+    /// Callers are expected to use a backup previously verified as ready by
+    /// `inspectBackups()` or a backup whose `isEncrypted` flag is known to be `false`.
     func connectChatStorageDb(from backup: IPhoneBackup) throws {
         let chatStorageHash = try backup.fetchWAFileHash(endsWith: "ChatStorage.sqlite")
         let chatStorageUrl = backup.getUrl(fileHash: chatStorageHash)

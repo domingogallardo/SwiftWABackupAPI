@@ -14,6 +14,37 @@ The contract is verified by the local private regression suite that accompanies 
 - Optional properties are omitted when their value is `nil`.
 - Arrays preserve the order returned by the API.
 
+## `BackupDiscoveryInfo`
+
+```json
+{
+  "creationDate": "2024-04-03T11:24:16Z",
+  "identifier": "sample-backup",
+  "isEncrypted": false,
+  "isReady": true,
+  "path": "\/tmp\/sample-backup",
+  "status": "ready"
+}
+```
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `identifier` | `String` | Yes | Backup directory name used by Finder/iTunes. |
+| `path` | `String` | Yes | Absolute backup directory path. |
+| `creationDate` | `String` | No | ISO 8601 creation date from `Status.plist` when available. |
+| `isEncrypted` | `Bool` | No | Encryption flag from `Manifest.plist.IsEncrypted` when available. |
+| `isReady` | `Bool` | Yes | Whether the backup is explicitly ready to be passed to the chat APIs. |
+| `status` | `"ready" | "encrypted" | "encryptionStatusUnavailable" | "missingRequiredFile" | "malformedStatusPlist" | "missingWhatsAppDatabase" | "unreadableManifestDatabase" | "unreadableBackup"` | Yes | High-level discovery outcome. |
+| `issue` | `String` | No | Human-readable diagnostic message for non-ready cases. |
+
+Notes:
+
+- `backup` is intentionally excluded from the JSON contract. It is an in-memory
+  `IPhoneBackup` value exposed by the Swift API for callers that want to reuse
+  the inspected backup object.
+- `status = "ready"` is the recommended gate before calling
+  `connectChatStorageDb(from:)`.
+
 ## `Reaction`
 
 ```json
@@ -172,6 +203,7 @@ The contract is verified by the local private regression suite that accompanies 
 
 ## Notes
 
+- `BackupDiscoveryInfo` is returned by `inspectBackups()` and is intended for diagnostic UIs and logging.
 - `ChatDumpPayload` is the type returned by `getChat(...)` and intended for JSON export.
 - `MessageInfo.author` is the only structured sender field in the public API.
 - Consumers should not assume that every message has a phone-bearing real author.

@@ -10,9 +10,9 @@ import GRDB
 
 /// Result returned when scanning a backup directory.
 ///
-/// Valid backups contain the WhatsApp `ChatStorage.sqlite` database.
-/// Invalid backups point to directories that look like iPhone backups but
-/// cannot be used by this package.
+/// This is the legacy discovery shape retained for compatibility.
+/// Use `inspectBackups()` when you need encryption diagnostics in addition to
+/// the legacy valid/invalid grouping.
 public typealias BackupFetchResult = (validBackups: [IPhoneBackup], invalidBackups: [URL])
 
 /// Scans the standard macOS backup folder and identifies usable iPhone backups.
@@ -55,6 +55,33 @@ public struct BackupManager {
             throw BackupError.directoryAccess(error)
         }
     }
+
+    /// Returns per-backup diagnostic information, including encryption status when available.
+    ///
+    /// Unlike `getBackups()`, this method does not collapse every failure into the
+    /// legacy valid/invalid buckets.
+    public func inspectBackups() throws -> [BackupDiscoveryInfo] {
+        let expandedBackupPath = NSString(string: backupPath).expandingTildeInPath
+        let backupURL = URL(fileURLWithPath: expandedBackupPath)
+
+        do {
+            let directoryContents = try FileManager.default.contentsOfDirectory(
+                at: backupURL,
+                includingPropertiesForKeys: [.isDirectoryKey]
+            )
+
+            return try directoryContents.compactMap { url in
+                let resourceValues = try url.resourceValues(forKeys: [.isDirectoryKey])
+                guard resourceValues.isDirectory == true else {
+                    return nil
+                }
+
+                return inspectBackup(at: url)
+            }
+        } catch {
+            throw BackupError.directoryAccess(error)
+        }
+    }
 }
 
 extension BackupManager {
@@ -65,7 +92,7 @@ extension BackupManager {
             throw BackupError.invalidBackup(url: url, reason: "Path is not a directory.")
         }
 
-        let expectedFiles = ["Info.plist", "Manifest.db", "Status.plist"]
+        let expectedFiles = requiredFiles
         for file in expectedFiles {
             let filePath = url.appendingPathComponent(file).path
             if !fileManager.fileExists(atPath: filePath) {
@@ -74,19 +101,9 @@ extension BackupManager {
         }
 
         do {
-            let statusPlistData = try Data(contentsOf: url.appendingPathComponent("Status.plist"))
-            let plistObject = try PropertyListSerialization.propertyList(
-                from: statusPlistData,
-                options: [],
-                format: nil
-            )
-
-            guard let plistDict = plistObject as? [String: Any],
-                  let date = plistDict["Date"] as? Date else {
-                throw BackupError.invalidBackup(url: url, reason: "Status.plist is malformed.")
-            }
-
-            let iPhoneBackup = IPhoneBackup(url: url, creationDate: date)
+            let date = try creationDate(from: url)
+            let encryptionState = encryptionState(for: url).isEncrypted
+            let iPhoneBackup = IPhoneBackup(url: url, creationDate: date, isEncrypted: encryptionState)
 
             do {
                 _ = try iPhoneBackup.fetchWAFileHash(endsWith: "ChatStorage.sqlite")
@@ -105,6 +122,197 @@ extension BackupManager {
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
             && isDirectory.boolValue
     }
+
+    private func inspectBackup(at url: URL) -> BackupDiscoveryInfo {
+        let identifier = url.lastPathComponent
+        let path = url.path
+
+        guard isDirectory(at: url) else {
+            return BackupDiscoveryInfo(
+                identifier: identifier,
+                path: path,
+                creationDate: nil,
+                isEncrypted: nil,
+                status: .missingRequiredFile,
+                issue: "Path is not a directory."
+            )
+        }
+
+        if let missingFile = firstMissingRequiredFile(at: url) {
+            return BackupDiscoveryInfo(
+                identifier: identifier,
+                path: path,
+                creationDate: nil,
+                isEncrypted: nil,
+                status: .missingRequiredFile,
+                issue: "\(missingFile) is missing."
+            )
+        }
+
+        let backupCreationDate: Date
+        do {
+            backupCreationDate = try creationDate(from: url)
+        } catch let error as BackupError {
+            return BackupDiscoveryInfo(
+                identifier: identifier,
+                path: path,
+                creationDate: nil,
+                isEncrypted: nil,
+                status: .malformedStatusPlist,
+                issue: error.errorDescription
+            )
+        } catch {
+            return BackupDiscoveryInfo(
+                identifier: identifier,
+                path: path,
+                creationDate: nil,
+                isEncrypted: nil,
+                status: .unreadableBackup,
+                issue: error.localizedDescription
+            )
+        }
+
+        let encryptionInspection = encryptionState(for: url)
+        let backup = IPhoneBackup(
+            url: url,
+            creationDate: backupCreationDate,
+            isEncrypted: encryptionInspection.isEncrypted
+        )
+
+        do {
+            _ = try backup.fetchWAFileHash(endsWith: "ChatStorage.sqlite")
+        } catch let error as DatabaseErrorWA {
+            if case .connection(let underlying) = error,
+               case DomainError.mediaNotFound = underlying {
+                return BackupDiscoveryInfo(
+                    identifier: identifier,
+                    path: path,
+                    creationDate: backupCreationDate,
+                    isEncrypted: encryptionInspection.isEncrypted,
+                    status: .missingWhatsAppDatabase,
+                    issue: "WhatsApp database not found."
+                )
+            }
+
+            return BackupDiscoveryInfo(
+                identifier: identifier,
+                path: path,
+                creationDate: backupCreationDate,
+                isEncrypted: encryptionInspection.isEncrypted,
+                status: .unreadableManifestDatabase,
+                issue: error.errorDescription
+            )
+        } catch {
+            return BackupDiscoveryInfo(
+                identifier: identifier,
+                path: path,
+                creationDate: backupCreationDate,
+                isEncrypted: encryptionInspection.isEncrypted,
+                status: .unreadableManifestDatabase,
+                issue: error.localizedDescription
+            )
+        }
+
+        if encryptionInspection.isEncrypted == true {
+            return BackupDiscoveryInfo(
+                identifier: identifier,
+                path: path,
+                creationDate: backupCreationDate,
+                isEncrypted: true,
+                status: .encrypted,
+                issue: "Backup is encrypted.",
+                backup: backup
+            )
+        }
+
+        if encryptionInspection.isEncrypted == false {
+            return BackupDiscoveryInfo(
+                identifier: identifier,
+                path: path,
+                creationDate: backupCreationDate,
+                isEncrypted: false,
+                status: .ready,
+                issue: nil,
+                backup: backup
+            )
+        }
+
+        return BackupDiscoveryInfo(
+            identifier: identifier,
+            path: path,
+            creationDate: backupCreationDate,
+            isEncrypted: nil,
+            status: .encryptionStatusUnavailable,
+            issue: encryptionInspection.issue,
+            backup: backup
+        )
+    }
+
+    private var requiredFiles: [String] {
+        ["Info.plist", "Manifest.db", "Status.plist"]
+    }
+
+    private func firstMissingRequiredFile(at url: URL) -> String? {
+        requiredFiles.first { file in
+            !FileManager.default.fileExists(atPath: url.appendingPathComponent(file).path)
+        }
+    }
+
+    private func creationDate(from url: URL) throws -> Date {
+        let statusPlistData = try Data(contentsOf: url.appendingPathComponent("Status.plist"))
+        let plistObject = try PropertyListSerialization.propertyList(
+            from: statusPlistData,
+            options: [],
+            format: nil
+        )
+
+        guard let plistDict = plistObject as? [String: Any],
+              let date = plistDict["Date"] as? Date else {
+            throw BackupError.invalidBackup(url: url, reason: "Status.plist is malformed.")
+        }
+
+        return date
+    }
+
+    private func encryptionState(for url: URL) -> (isEncrypted: Bool?, issue: String?) {
+        let manifestPlistURL = url.appendingPathComponent("Manifest.plist")
+        guard FileManager.default.fileExists(atPath: manifestPlistURL.path) else {
+            return (
+                nil,
+                "Manifest.plist is missing, so encryption status could not be determined."
+            )
+        }
+
+        do {
+            let manifestPlistData = try Data(contentsOf: manifestPlistURL)
+            let plistObject = try PropertyListSerialization.propertyList(
+                from: manifestPlistData,
+                options: [],
+                format: nil
+            )
+
+            guard let plistDict = plistObject as? [String: Any] else {
+                return (
+                    nil,
+                    "Manifest.plist is malformed, so encryption status could not be determined."
+                )
+            }
+
+            guard let isEncrypted = plistDict["IsEncrypted"] as? Bool else {
+                return (
+                    nil,
+                    "Manifest.plist does not contain IsEncrypted, so encryption status could not be determined."
+                )
+            }
+
+            return (isEncrypted, nil)
+        } catch {
+            return (
+                nil,
+                "Manifest.plist could not be read, so encryption status could not be determined: \(error.localizedDescription)"
+            )
+        }
+    }
 }
 
 /// Relative WhatsApp filename and hashed on-disk filename stored in the iPhone backup.
@@ -122,9 +330,18 @@ public struct IPhoneBackup {
     /// Creation date reported by `Status.plist`.
     public let creationDate: Date
 
+    /// Encryption flag declared by `Manifest.plist` when available.
+    public let isEncrypted: Bool?
+
     /// Directory name used by iTunes/Finder to identify the backup.
     public var identifier: String {
         url.lastPathComponent
+    }
+
+    init(url: URL, creationDate: Date, isEncrypted: Bool? = nil) {
+        self.url = url
+        self.creationDate = creationDate
+        self.isEncrypted = isEncrypted
     }
 }
 
