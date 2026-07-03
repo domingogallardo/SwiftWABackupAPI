@@ -2,7 +2,7 @@
 
 `SwiftWABackupAPI` is a Swift package for extracting WhatsApp data from iPhone backups and then exploring it from a regular WhatsApp backup directory. It includes backup-discovery diagnostics for encrypted backups; chat listing and export operate on the extracted WhatsApp copy, not on the original full-device backup. It powers the companion macOS CLI application [WABackupExtractor](https://github.com/domingogallardo/WABackupExtractor), but it can also be consumed directly from your own Swift tools and apps.
 
-The former Python port, [PyWABackupAPI](https://github.com/domingogallardo/PyWABackupAPI), remains available as legacy code but is no longer maintained. From version 3.0.0 onward, SwiftWABackupAPI is the maintained implementation.
+The former Python port, [PyWABackupAPI](https://github.com/domingogallardo/PyWABackupAPI), remains available as legacy code but is no longer maintained. SwiftWABackupAPI is the maintained implementation.
 
 ## Privacy Warning
 
@@ -57,43 +57,8 @@ On many systems you will need to grant Full Disk Access to the host app or termi
 Add the package dependency in `Package.swift` using the release rule that matches how you publish or consume the package:
 
 ```swift
-.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "3.0.5")
+.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "3.0.6")
 ```
-
-Version `3.0.5` removes the remaining recursive filesystem fallback when
-resolving files from an extracted WhatsApp backup. Paths stored inside the
-copied WhatsApp databases are now resolved through deterministic extracted-tree
-locations such as `Message/Media/...` and `Media/Profile/...`.
-
-Version `3.0.4` improves full chat exports with contact/avatar copying by
-looking up profile media directly under `Media/Profile` instead of recursively
-scanning the whole extracted backup for every contact.
-
-Version `3.0.3` improves export performance from extracted WhatsApp backups by
-resolving `Media/...` paths directly under `Message/Media/...` and avoiding
-repeated media-row lookups during chat export.
-
-Version `3.0.2` renamed the full-device backup surface so it consistently uses
-`IPhoneBackup` / `iPhoneBackups` wording:
-
-- `getBackups()` became `getIPhoneBackups()`
-- `inspectBackups()` became `inspectIPhoneBackups()`
-- `getIPhoneBackups()` now returns `[IPhoneBackup]` ready for extraction
-- `list-backups` became `list-iphone-backups`
-- `--backup-path` and `--backup-id` became `--iphone-backups-path` and `--iphone-backup-id`
-- CLI JSON now uses the `iPhoneBackups` array for backup diagnostics
-
-Version `3.0.0` introduced a breaking architecture change:
-
-- WhatsApp data must be extracted from an iPhone backup before listing or exporting chats
-- `list-chats` and `export-chat` now read from `--whatsapp-backup-path`
-- direct chat access from the original iPhone backup was removed
-- PyWABackupAPI is no longer maintained in parallel
-
-Version `2.0.0` introduced a breaking API change:
-
-- `getChat(chatId:directoryToSaveMedia:)` now returns `ChatDumpPayload`
-- `getChatPayload(chatId:directoryToSaveMedia:)` was removed
 
 Then add the product to your target dependencies:
 
@@ -160,6 +125,9 @@ let payload = try whatsApp.getChat(chatId: chats[0].id, directoryToSaveMedia: ou
 The extracted directory preserves WhatsApp relative paths such as
 `ChatStorage.sqlite`, `ContactsV2.sqlite`, `LID.sqlite`, and `Media/...`, so
 chat reads and media exports do not need the iPhone backup's `Manifest.db`.
+Extraction also creates `.wa-backup/index.sqlite` and `.wa-backup/README.md`
+inside the extracted copy. These files document portable path-resolution
+metadata for external tools; the runtime does not need them for normal reads.
 
 ## Command Line Interface
 

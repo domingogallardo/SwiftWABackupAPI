@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import GRDB
 @testable import SwiftWABackupAPI
 
 final class IPhoneBackupDiscoveryTests: XCTestCase {
@@ -173,6 +174,105 @@ final class MediaExportSmokeTests: XCTestCase {
 }
 
 final class ExtractedWhatsAppBackupTests: XCTestCase {
+    func testExtractionCreatesPortablePathIndexAndReadme() throws {
+        let mediaLocalPath = "Media/08185296386@s.whatsapp.net/a/b/example.jpg"
+        let manifestPath = "Message/\(mediaLocalPath)"
+        let fixture = try PublicTestSupport.makeTemporaryBackup(
+            name: "sidecar-index-backup",
+            additionalManifestEntries: [
+                PublicBackupStoredFile(
+                    relativePath: manifestPath,
+                    fileHash: "ef1234567890examplemedia",
+                    contents: Data("example-media".utf8)
+                )
+            ]
+        ) { db in
+            try db.execute(sql: """
+                CREATE TABLE ZWAMEDIAITEM (
+                    Z_PK INTEGER PRIMARY KEY,
+                    ZMETADATA BLOB,
+                    ZTITLE TEXT,
+                    ZMEDIALOCALPATH TEXT,
+                    ZMOVIEDURATION INTEGER,
+                    ZLATITUDE DOUBLE,
+                    ZLONGITUDE DOUBLE
+                )
+                """)
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAMEDIAITEM
+                    (Z_PK, ZMETADATA, ZTITLE, ZMEDIALOCALPATH, ZMOVIEDURATION, ZLATITUDE, ZLONGITUDE)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [42, nil, nil, mediaLocalPath, nil, nil, nil]
+            )
+        }
+        let extractedRoot = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-sidecar")
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+        defer { try? PublicTestSupport.removeItemIfExists(at: extractedRoot) }
+
+        _ = try fixture.backup.extractWhatsAppBackup(to: extractedRoot)
+
+        let sidecarURL = extractedRoot.appendingPathComponent(".wa-backup", isDirectory: true)
+        let indexURL = sidecarURL.appendingPathComponent("index.sqlite")
+        let readmeURL = sidecarURL.appendingPathComponent("README.md")
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: indexURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: readmeURL.path))
+
+        let indexQueue = try DatabaseQueue(path: indexURL.path)
+        try indexQueue.read { db in
+            let schemaVersion = try String.fetchOne(
+                db,
+                sql: "SELECT value FROM metadata WHERE key = 'schema_version'"
+            )
+            XCTAssertEqual(schemaVersion, "1")
+
+            let fileRow = try XCTUnwrap(Row.fetchOne(
+                db,
+                sql: """
+                    SELECT file_id, extracted_relative_path, entry_type, exists_on_disk, byte_count
+                    FROM files
+                    WHERE manifest_relative_path = ?
+                    """,
+                arguments: [manifestPath]
+            ))
+            XCTAssertEqual(fileRow["file_id"], "ef1234567890examplemedia")
+            XCTAssertEqual(fileRow["extracted_relative_path"], manifestPath)
+            XCTAssertEqual(fileRow["entry_type"], "file")
+            XCTAssertEqual(fileRow["exists_on_disk"], 1)
+            XCTAssertEqual(fileRow["byte_count"], Int64("example-media".utf8.count))
+
+            let aliasPath = try String.fetchOne(
+                db,
+                sql: """
+                    SELECT extracted_relative_path
+                    FROM path_aliases
+                    WHERE normalized_alias_path = ?
+                      AND reason = ?
+                    """,
+                arguments: [mediaLocalPath, "message-media-local-path"]
+            )
+            XCTAssertEqual(aliasPath, manifestPath)
+
+            let mediaItemRow = try XCTUnwrap(Row.fetchOne(
+                db,
+                sql: """
+                    SELECT local_path, resolved_relative_path, resolution_status
+                    FROM media_items
+                    WHERE media_item_id = 42
+                    """
+            ))
+            XCTAssertEqual(mediaItemRow["local_path"], mediaLocalPath)
+            XCTAssertEqual(mediaItemRow["resolved_relative_path"], manifestPath)
+            XCTAssertEqual(mediaItemRow["resolution_status"], "resolved")
+        }
+
+        let readme = try String(contentsOf: readmeURL, encoding: .utf8)
+        XCTAssertTrue(readme.contains("Path Resolution Index"))
+        XCTAssertTrue(readme.contains("Message/Media"))
+    }
+
     func testExtractedBackupCanBeUsedAfterDeletingOriginalIPhoneBackup() throws {
         let fixture = try PublicTestSupport.makeSampleBackup()
         let extractedRoot = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-extracted")
