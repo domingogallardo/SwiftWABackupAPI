@@ -56,95 +56,85 @@ extension ExtractedWhatsAppBackup {
             }
         }
 
-        let suffix = "/" + normalizedPath
-        if let match = try enumerateFiles().first(where: { $0.filename == normalizedPath || $0.filename.hasSuffix(suffix) }) {
-            return match.sourceURL
-        }
-
         throw DomainError.mediaNotFound(path: relativePath)
     }
 
     private func directFileURLCandidates(for normalizedPath: String) -> [URL] {
-        [
-            url.appendingPathComponent(normalizedPath),
-            url.appendingPathComponent("Message").appendingPathComponent(normalizedPath)
-        ]
+        var candidates = [url.appendingPathComponent(normalizedPath)]
+
+        if normalizedPath.hasPrefix("Media/"),
+           !normalizedPath.hasPrefix("Media/Profile/") {
+            candidates.append(url.appendingPathComponent("Message").appendingPathComponent(normalizedPath))
+        }
+
+        return candidates
     }
 
     func fileDetails(containing relativePath: String) throws -> [WhatsAppFileDetails] {
         let normalizedPath = normalizedWhatsAppRelativePath(relativePath)
 
         guard !normalizedPath.isEmpty else {
-            return try enumerateFiles()
+            return []
         }
 
         if normalizedPath.hasPrefix("Media/Profile/") {
             return try profileFileDetails(containing: normalizedPath)
         }
 
-        return try enumerateFiles().filter { $0.filename.contains(normalizedPath) }
+        return try fileDetailsInDirectDirectory(containing: normalizedPath)
     }
 
     private func profileFileDetails(containing normalizedPath: String) throws -> [WhatsAppFileDetails] {
+        try fileDetails(
+            inDirectoryAtRelativePath: "Media/Profile",
+            matching: { $0.contains(normalizedPath) }
+        )
+    }
+
+    private func fileDetailsInDirectDirectory(containing normalizedPath: String) throws -> [WhatsAppFileDetails] {
+        let pathComponents = normalizedPath.split(separator: "/").map(String.init)
+        guard pathComponents.count > 1 else {
+            return []
+        }
+
+        let directoryRelativePath = pathComponents.dropLast().joined(separator: "/")
+        return try fileDetails(
+            inDirectoryAtRelativePath: directoryRelativePath,
+            matching: { $0.contains(normalizedPath) }
+        )
+    }
+
+    private func fileDetails(
+        inDirectoryAtRelativePath directoryRelativePath: String,
+        matching predicate: (String) -> Bool
+    ) throws -> [WhatsAppFileDetails] {
         let fileManager = FileManager.default
-        let profileDirectoryRelativePath = "Media/Profile"
-        let profileDirectoryURL = url.appendingPathComponent(profileDirectoryRelativePath, isDirectory: true)
+        let directoryURL = url.appendingPathComponent(directoryRelativePath, isDirectory: true)
 
         var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: profileDirectoryURL.path, isDirectory: &isDirectory),
+        guard fileManager.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory),
               isDirectory.boolValue else {
             return []
         }
 
         let contents = try fileManager.contentsOfDirectory(
-            at: profileDirectoryURL,
+            at: directoryURL,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: []
         )
-
         var files: [WhatsAppFileDetails] = []
+
         for fileURL in contents {
             let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
             guard values.isRegularFile == true else {
                 continue
             }
 
-            let relativePath = profileDirectoryRelativePath + "/" + fileURL.lastPathComponent
-            guard relativePath.contains(normalizedPath) else {
+            let relativePath = directoryRelativePath + "/" + fileURL.lastPathComponent
+            guard predicate(relativePath) else {
                 continue
             }
 
-            files.append(WhatsAppFileDetails(filename: relativePath, sourceURL: fileURL))
-        }
-
-        return files
-    }
-
-    private func enumerateFiles() throws -> [WhatsAppFileDetails] {
-        let fileManager = FileManager.default
-        guard let enumerator = fileManager.enumerator(
-            at: url,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: []
-        ) else {
-            throw BackupError.invalidBackup(url: url, reason: "Extracted WhatsApp directory could not be enumerated.")
-        }
-
-        let rootPath = url.standardizedFileURL.path
-        var files: [WhatsAppFileDetails] = []
-
-        for case let fileURL as URL in enumerator {
-            let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
-            guard values.isRegularFile == true else {
-                continue
-            }
-
-            let filePath = fileURL.standardizedFileURL.path
-            guard filePath.hasPrefix(rootPath + "/") else {
-                continue
-            }
-
-            let relativePath = String(filePath.dropFirst(rootPath.count + 1))
             files.append(WhatsAppFileDetails(filename: relativePath, sourceURL: fileURL))
         }
 

@@ -255,6 +255,49 @@ final class ExtractedWhatsAppBackupTests: XCTestCase {
         XCTAssertEqual(resolvedURL.standardizedFileURL.path, mediaURL.standardizedFileURL.path)
     }
 
+    func testExtractedBackupResolvesLeadingSlashMessageMediaPrefix() throws {
+        let root = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-message-media-slash-prefix")
+        defer { try? PublicTestSupport.removeItemIfExists(at: root) }
+
+        let mediaURL = root.appendingPathComponent(
+            "Message/Media/example@s.whatsapp.net/a/b/example.jpg"
+        )
+        try FileManager.default.createDirectory(
+            at: mediaURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("media".utf8).write(to: mediaURL)
+
+        let backup = ExtractedWhatsAppBackup(url: root)
+        let resolvedURL = try backup.fileURL(endingWith: "/Media/example@s.whatsapp.net/a/b/example.jpg")
+
+        XCTAssertEqual(resolvedURL.standardizedFileURL.path, mediaURL.standardizedFileURL.path)
+    }
+
+    func testExtractedBackupDoesNotScanForSuffixMatches() throws {
+        let root = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-no-suffix-scan")
+        defer { try? PublicTestSupport.removeItemIfExists(at: root) }
+
+        let unrelatedURL = root.appendingPathComponent(
+            "Other/Media/example@s.whatsapp.net/a/b/example.jpg"
+        )
+        try FileManager.default.createDirectory(
+            at: unrelatedURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("media".utf8).write(to: unrelatedURL)
+
+        let backup = ExtractedWhatsAppBackup(url: root)
+
+        XCTAssertThrowsError(
+            try backup.fileURL(endingWith: "Media/example@s.whatsapp.net/a/b/example.jpg")
+        ) { error in
+            guard case DomainError.mediaNotFound = error else {
+                return XCTFail("Expected DomainError.mediaNotFound, got \(error)")
+            }
+        }
+    }
+
     func testExtractedBackupProfileLookupUsesProfileDirectoryOnly() throws {
         let root = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-profile-lookup")
         defer { try? PublicTestSupport.removeItemIfExists(at: root) }
