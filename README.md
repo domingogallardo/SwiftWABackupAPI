@@ -57,8 +57,12 @@ On many systems you will need to grant Full Disk Access to the host app or termi
 Add the package dependency in `Package.swift` using the release rule that matches how you publish or consume the package:
 
 ```swift
-.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "3.0.3")
+.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "3.0.4")
 ```
+
+Version `3.0.4` improves full chat exports with contact/avatar copying by
+looking up profile media directly under `Media/Profile` instead of recursively
+scanning the whole extracted backup for every contact.
 
 Version `3.0.3` improves export performance from extracted WhatsApp backups by
 resolving `Media/...` paths directly under `Message/Media/...` and avoiding

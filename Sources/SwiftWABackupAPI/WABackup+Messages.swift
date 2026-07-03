@@ -232,7 +232,7 @@ extension WABackup {
         let mediaFilename = try fetchMediaFilename(
             forMediaItem: mediaItem,
             from: whatsAppBackup,
-            toDirectory: directoryToSaveMedia,
+            toDirectory: directoryToSaveMedia
         )
         let caption = mediaItem.title.flatMap { $0.isEmpty ? nil : $0 }
 

@@ -73,13 +73,51 @@ extension ExtractedWhatsAppBackup {
 
     func fileDetails(containing relativePath: String) throws -> [WhatsAppFileDetails] {
         let normalizedPath = normalizedWhatsAppRelativePath(relativePath)
-        let files = try enumerateFiles()
 
         guard !normalizedPath.isEmpty else {
-            return files
+            return try enumerateFiles()
         }
 
-        return files.filter { $0.filename.contains(normalizedPath) }
+        if normalizedPath.hasPrefix("Media/Profile/") {
+            return try profileFileDetails(containing: normalizedPath)
+        }
+
+        return try enumerateFiles().filter { $0.filename.contains(normalizedPath) }
+    }
+
+    private func profileFileDetails(containing normalizedPath: String) throws -> [WhatsAppFileDetails] {
+        let fileManager = FileManager.default
+        let profileDirectoryRelativePath = "Media/Profile"
+        let profileDirectoryURL = url.appendingPathComponent(profileDirectoryRelativePath, isDirectory: true)
+
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: profileDirectoryURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return []
+        }
+
+        let contents = try fileManager.contentsOfDirectory(
+            at: profileDirectoryURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: []
+        )
+
+        var files: [WhatsAppFileDetails] = []
+        for fileURL in contents {
+            let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+            guard values.isRegularFile == true else {
+                continue
+            }
+
+            let relativePath = profileDirectoryRelativePath + "/" + fileURL.lastPathComponent
+            guard relativePath.contains(normalizedPath) else {
+                continue
+            }
+
+            files.append(WhatsAppFileDetails(filename: relativePath, sourceURL: fileURL))
+        }
+
+        return files
     }
 
     private func enumerateFiles() throws -> [WhatsAppFileDetails] {

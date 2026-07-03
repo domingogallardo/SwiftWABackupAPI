@@ -254,4 +254,27 @@ final class ExtractedWhatsAppBackupTests: XCTestCase {
 
         XCTAssertEqual(resolvedURL.standardizedFileURL.path, mediaURL.standardizedFileURL.path)
     }
+
+    func testExtractedBackupProfileLookupUsesProfileDirectoryOnly() throws {
+        let root = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-profile-lookup")
+        defer { try? PublicTestSupport.removeItemIfExists(at: root) }
+
+        let profileURL = root.appendingPathComponent("Media/Profile/12345-1.thumb")
+        let unrelatedURL = root.appendingPathComponent("Message/Media/Profile/12345-999.thumb")
+        try FileManager.default.createDirectory(
+            at: profileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: unrelatedURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("profile".utf8).write(to: profileURL)
+        try Data("message-media".utf8).write(to: unrelatedURL)
+
+        let backup = ExtractedWhatsAppBackup(url: root)
+        let files = try backup.fileDetails(containing: "Media/Profile/12345")
+
+        XCTAssertEqual(files.map(\.filename), ["Media/Profile/12345-1.thumb"])
+    }
 }
