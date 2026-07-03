@@ -235,4 +235,23 @@ final class ExtractedWhatsAppBackupTests: XCTestCase {
         )
         XCTAssertTrue(isDirectory.boolValue)
     }
+
+    func testExtractedBackupResolvesMessageMediaPrefix() throws {
+        let root = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-message-media-prefix")
+        defer { try? PublicTestSupport.removeItemIfExists(at: root) }
+
+        let mediaURL = root.appendingPathComponent(
+            "Message/Media/example@s.whatsapp.net/a/b/example.jpg"
+        )
+        try FileManager.default.createDirectory(
+            at: mediaURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("media".utf8).write(to: mediaURL)
+
+        let backup = ExtractedWhatsAppBackup(url: root)
+        let resolvedURL = try backup.fileURL(endingWith: "Media/example@s.whatsapp.net/a/b/example.jpg")
+
+        XCTAssertEqual(resolvedURL.standardizedFileURL.path, mediaURL.standardizedFileURL.path)
+    }
 }

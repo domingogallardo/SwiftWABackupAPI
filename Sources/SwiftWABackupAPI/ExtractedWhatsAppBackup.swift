@@ -49,10 +49,11 @@ public struct ExtractedWhatsAppBackup {
 extension ExtractedWhatsAppBackup {
     func fileURL(endingWith relativePath: String) throws -> URL {
         let normalizedPath = normalizedWhatsAppRelativePath(relativePath)
-        let directURL = url.appendingPathComponent(normalizedPath)
 
-        if FileManager.default.fileExists(atPath: directURL.path) {
-            return directURL
+        for candidate in directFileURLCandidates(for: normalizedPath) {
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
         }
 
         let suffix = "/" + normalizedPath
@@ -61,6 +62,13 @@ extension ExtractedWhatsAppBackup {
         }
 
         throw DomainError.mediaNotFound(path: relativePath)
+    }
+
+    private func directFileURLCandidates(for normalizedPath: String) -> [URL] {
+        [
+            url.appendingPathComponent(normalizedPath),
+            url.appendingPathComponent("Message").appendingPathComponent(normalizedPath)
+        ]
     }
 
     func fileDetails(containing relativePath: String) throws -> [WhatsAppFileDetails] {

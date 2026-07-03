@@ -225,13 +225,16 @@ extension WABackup {
             return nil
         }
 
+        guard let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db) else {
+            return nil
+        }
+
         let mediaFilename = try fetchMediaFilename(
-            forMediaItem: mediaItemId,
+            forMediaItem: mediaItem,
             from: whatsAppBackup,
             toDirectory: directoryToSaveMedia,
-            from: db
         )
-        let caption = try fetchCaption(mediaItemId: mediaItemId, from: db)
+        let caption = mediaItem.title.flatMap { $0.isEmpty ? nil : $0 }
 
         let seconds: Int?
         let latitude: Double?
@@ -239,16 +242,15 @@ extension WABackup {
 
         if let messageType = SupportedMessageType(rawValue: message.messageType),
            messageType == .video || messageType == .audio {
-            seconds = try fetchDuration(mediaItemId: mediaItemId, from: db)
+            seconds = mediaItem.movieDuration.map(Int.init)
         } else {
             seconds = nil
         }
 
         if let messageType = SupportedMessageType(rawValue: message.messageType),
            messageType == .location {
-            let location = try fetchLocation(mediaItemId: mediaItemId, from: db)
-            latitude = location.0
-            longitude = location.1
+            latitude = mediaItem.latitude
+            longitude = mediaItem.longitude
         } else {
             latitude = nil
             longitude = nil
@@ -258,13 +260,11 @@ extension WABackup {
     }
 
     func fetchMediaFilename(
-        forMediaItem mediaItemId: Int64,
+        forMediaItem mediaItem: MediaItem,
         from whatsAppBackup: ExtractedWhatsAppBackup,
-        toDirectory directoryURL: URL?,
-        from db: Database
+        toDirectory directoryURL: URL?
     ) throws -> String? {
-        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
-           let mediaLocalPath = mediaItem.localPath,
+        if let mediaLocalPath = mediaItem.localPath,
            let sourceURL = try? whatsAppBackup.fileURL(endingWith: mediaLocalPath) {
             let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
             try mediaCopier?.copy(sourceURL: sourceURL, named: fileName, to: directoryURL)
@@ -309,15 +309,6 @@ extension WABackup {
         return try memberIds.compactMap { memberId in
             try GroupMember.fetchGroupMember(byId: memberId, from: db)
         }
-    }
-
-    func fetchDuration(mediaItemId: Int64, from db: Database) throws -> Int? {
-        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
-           let duration = mediaItem.movieDuration {
-            return Int(duration)
-        }
-
-        return nil
     }
 
     func fetchReactions(forMessageId messageId: Int, from db: Database) throws -> [Reaction]? {
@@ -407,24 +398,6 @@ extension WABackup {
             fallbackSource: .messageJid,
             from: db
         )
-    }
-
-    func fetchCaption(mediaItemId: Int64, from db: Database) throws -> String? {
-        if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
-           let caption = mediaItem.title,
-           !caption.isEmpty {
-            return caption
-        }
-
-        return nil
-    }
-
-    func fetchLocation(mediaItemId: Int64, from db: Database) throws -> (Double?, Double?) {
-        guard let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db) else {
-            return (nil, nil)
-        }
-
-        return (mediaItem.latitude, mediaItem.longitude)
     }
 
     func obtainSenderInfo(
