@@ -360,7 +360,7 @@ struct CLIApplication {
         pretty: Bool,
         standardOutput: OutputWriter
     ) throws {
-        let source = try connectWhatsAppBackup(at: whatsAppBackupPath)
+        let source = try openWhatsAppBackup(at: whatsAppBackupPath)
         let photosURL = try photosDirectory.map(createDirectoryIfNeeded(at:))
         let chats = try source.waBackup.getChats(directoryToSavePhotos: photosURL)
 
@@ -386,7 +386,7 @@ struct CLIApplication {
         pretty: Bool,
         standardOutput: OutputWriter
     ) throws {
-        let source = try connectWhatsAppBackup(at: whatsAppBackupPath)
+        let source = try openWhatsAppBackup(at: whatsAppBackupPath)
         let exportDirectoryURL = try outputDirectory.map(createDirectoryIfNeeded(at:))
         let jsonOutputURL = try outputJSON.map { try resolveOutputJSONURL(at: $0) }
         let mediaURL = exportDirectoryURL
@@ -430,11 +430,11 @@ struct CLIApplication {
         standardOutput("Extracted WhatsApp backup \(backup.identifier) to \(extractedBackup.path)")
     }
 
-    private func connectWhatsAppBackup(at whatsAppBackupPath: String) throws -> ConnectedBackupSource {
+    private func openWhatsAppBackup(at whatsAppBackupPath: String) throws -> OpenedWhatsAppBackup {
         let backupURL = URL(fileURLWithPath: whatsAppBackupPath, isDirectory: true)
         let waBackup = try WABackup(whatsAppBackupAt: backupURL)
 
-        return ConnectedBackupSource(
+        return OpenedWhatsAppBackup(
             waBackup: waBackup,
             headerLine: "WhatsApp backup: \(backupURL.path)",
             outputDescription: "WhatsApp backup \(backupURL.path)"
@@ -613,7 +613,7 @@ struct CLIApplication {
     }
 }
 
-private struct ConnectedBackupSource {
+private struct OpenedWhatsAppBackup {
     let waBackup: WABackup
     let headerLine: String
     let outputDescription: String

@@ -388,7 +388,7 @@ public class WABackup {
     }
 
     var chatDatabase: DatabaseQueue?
-    var fileSource: (any WhatsAppFileSource)?
+    var whatsAppBackup: ExtractedWhatsAppBackup?
     var ownerJid: String?
     var mediaCopier: MediaCopier?
     var addressBookIndex: AddressBookIndex?
@@ -400,13 +400,25 @@ public class WABackup {
         self.phoneBackup = BackupManager(backupPath: iPhoneBackupsPath)
     }
 
-    /// Creates an API instance connected to an extracted WhatsApp backup directory.
+    /// Creates an API instance opened on an extracted WhatsApp backup directory.
     public convenience init(whatsAppBackupAt directory: URL) throws {
         self.init()
-        try connect(toWhatsAppBackupAt: directory)
+        let backup = ExtractedWhatsAppBackup(url: directory)
+        let chatStorageURL = try backup.fileURL(endingWith: "ChatStorage.sqlite")
+        let dbQueue = try DatabaseQueue(path: chatStorageURL.path)
+
+        try checkSchema(of: dbQueue)
+
+        chatDatabase = dbQueue
+        whatsAppBackup = backup
+        ownerJid = try dbQueue.performRead { try Message.fetchOwnerJid(from: $0) }
+        mediaCopier = MediaCopier(delegate: delegate)
+        addressBookIndex = try? AddressBookIndex.loadIfPresent(from: backup)
+        lidAccountIndex = try? LidAccountIndex.loadIfPresent(from: backup)
+        pushNamePhoneJidIndex = try dbQueue.performRead { try PushNamePhoneJidIndex.load(from: $0) }
     }
 
-    /// Creates an API instance connected to an extracted WhatsApp backup path.
+    /// Creates an API instance opened on an extracted WhatsApp backup path.
     public convenience init(whatsAppBackupPath: String) throws {
         try self.init(whatsAppBackupAt: URL(fileURLWithPath: whatsAppBackupPath, isDirectory: true))
     }

@@ -70,16 +70,15 @@ final class ErrorHandlingTests: XCTestCase {
         }
     }
 
-    func testConnectExtractedBackupRejectsUnsupportedSchema() throws {
+    func testOpeningExtractedBackupRejectsUnsupportedSchema() throws {
         let fixture = try PublicTestSupport.makeTemporaryBackup { db in
             try db.execute(sql: "CREATE TABLE NotWhatsApp (id INTEGER PRIMARY KEY)")
         }
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
         let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
-        let waBackup = WABackup()
 
-        XCTAssertThrowsError(try waBackup.connect(to: extractedBackup)) { error in
+        XCTAssertThrowsError(try WABackup(whatsAppBackupAt: extractedBackup.url)) { error in
             guard case DatabaseErrorWA.unsupportedSchema = error else {
                 return XCTFail("Expected DatabaseErrorWA.unsupportedSchema, got \(error)")
             }

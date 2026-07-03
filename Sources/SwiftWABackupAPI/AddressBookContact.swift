@@ -114,8 +114,8 @@ struct AddressBookIndex {
         self.byPhone = byPhone
     }
 
-    static func loadIfPresent(from fileSource: any WhatsAppFileSource) throws -> AddressBookIndex? {
-        guard let fileURL = try? fileSource.urlForWhatsAppFile(endsWith: "ContactsV2.sqlite") else {
+    static func loadIfPresent(from backup: ExtractedWhatsAppBackup) throws -> AddressBookIndex? {
+        guard let fileURL = try? backup.fileURL(endingWith: "ContactsV2.sqlite") else {
             return nil
         }
 

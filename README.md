@@ -17,7 +17,7 @@ The public API is centered on `WABackup`:
 - Discover available iPhone backups with `getBackups()`
 - Inspect backups with encryption diagnostics via `inspectBackups()`
 - Extract WhatsApp's app-group files into a regular directory with `IPhoneBackup.extractWhatsAppBackup(to:)`
-- Connect to an extracted WhatsApp directory with `connect(to:)`, `connect(toWhatsAppBackupAt:)`, or `WABackup(whatsAppBackupAt:)`
+- Open an extracted WhatsApp directory with `WABackup(whatsAppBackupAt:)` or `WABackup(whatsAppBackupPath:)`
 - List chats with `getChats(directoryToSavePhotos:)`
 - Export a chat with `getChat(chatId:directoryToSaveMedia:)`
 
@@ -57,7 +57,7 @@ On many systems you will need to grant Full Disk Access to the host app or termi
 Add the package dependency in `Package.swift` using the release rule that matches how you publish or consume the package:
 
 ```swift
-.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "3.0.0")
+.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "3.0.1")
 ```
 
 Version `3.0.0` introduced a breaking architecture change:

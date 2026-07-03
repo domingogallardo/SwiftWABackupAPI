@@ -9,7 +9,7 @@ import GRDB
 public extension WABackup {
     /// Retrieves a full chat export.
     func getChat(chatId: Int, directoryToSaveMedia directory: URL?) throws -> ChatDumpPayload {
-        guard let dbQueue = chatDatabase, let fileSource = fileSource else {
+        guard let dbQueue = chatDatabase, let whatsAppBackup else {
             throw DatabaseErrorWA.connection(DatabaseError(message: "Database or backup not found"))
         }
 
@@ -19,13 +19,13 @@ public extension WABackup {
             messages,
             chatType: chatInfo.chatType,
             directoryToSaveMedia: directory,
-            fileSource: fileSource,
+            whatsAppBackup: whatsAppBackup,
             from: dbQueue
         )
         let contacts = try buildContactList(
             for: chatInfo,
             from: dbQueue,
-            fileSource: fileSource,
+            whatsAppBackup: whatsAppBackup,
             directory: directory
         )
 
@@ -64,7 +64,7 @@ extension WABackup {
         _ messages: [Message],
         chatType: ChatInfo.ChatType,
         directoryToSaveMedia: URL?,
-        fileSource: any WhatsAppFileSource,
+        whatsAppBackup: ExtractedWhatsAppBackup,
         from dbQueue: DatabaseQueue
     ) throws -> [MessageInfo] {
         var messagesInfo: [MessageInfo] = []
@@ -75,7 +75,7 @@ extension WABackup {
                     message,
                     chatType: chatType,
                     directoryToSaveMedia: directoryToSaveMedia,
-                    fileSource: fileSource,
+                    whatsAppBackup: whatsAppBackup,
                     from: db
                 )
                 messagesInfo.append(messageInfo)
@@ -89,7 +89,7 @@ extension WABackup {
         _ message: Message,
         chatType: ChatInfo.ChatType,
         directoryToSaveMedia: URL?,
-        fileSource: any WhatsAppFileSource,
+        whatsAppBackup: ExtractedWhatsAppBackup,
         from db: Database
     ) throws -> MessageInfo {
         guard let messageType = SupportedMessageType(rawValue: message.messageType) else {
@@ -115,7 +115,7 @@ extension WABackup {
         if let mediaInfo = try handleMedia(
             for: message,
             directoryToSaveMedia: directoryToSaveMedia,
-            fileSource: fileSource,
+            whatsAppBackup: whatsAppBackup,
             from: db
         ) {
             messageInfo.mediaFilename = mediaInfo.mediaFilename
@@ -211,7 +211,7 @@ extension WABackup {
     func handleMedia(
         for message: Message,
         directoryToSaveMedia: URL?,
-        fileSource: any WhatsAppFileSource,
+        whatsAppBackup: ExtractedWhatsAppBackup,
         from db: Database
     ) throws -> (
         mediaFilename: String?,
@@ -227,7 +227,7 @@ extension WABackup {
 
         let mediaFilename = try fetchMediaFilename(
             forMediaItem: mediaItemId,
-            from: fileSource,
+            from: whatsAppBackup,
             toDirectory: directoryToSaveMedia,
             from: db
         )
@@ -259,13 +259,13 @@ extension WABackup {
 
     func fetchMediaFilename(
         forMediaItem mediaItemId: Int64,
-        from fileSource: any WhatsAppFileSource,
+        from whatsAppBackup: ExtractedWhatsAppBackup,
         toDirectory directoryURL: URL?,
         from db: Database
     ) throws -> String? {
         if let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
            let mediaLocalPath = mediaItem.localPath,
-           let sourceURL = try? fileSource.urlForWhatsAppFile(endsWith: mediaLocalPath) {
+           let sourceURL = try? whatsAppBackup.fileURL(endingWith: mediaLocalPath) {
             let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
             try mediaCopier?.copy(sourceURL: sourceURL, named: fileName, to: directoryURL)
             return fileName

@@ -97,8 +97,8 @@ struct LidAccountIndex {
         self.byLidJid = byLidJid
     }
 
-    static func loadIfPresent(from fileSource: any WhatsAppFileSource) throws -> LidAccountIndex? {
-        guard let fileURL = try? fileSource.urlForWhatsAppFile(endsWith: "LID.sqlite") else {
+    static func loadIfPresent(from backup: ExtractedWhatsAppBackup) throws -> LidAccountIndex? {
+        guard let fileURL = try? backup.fileURL(endingWith: "LID.sqlite") else {
             return nil
         }
 

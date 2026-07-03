@@ -1,5 +1,5 @@
 //
-//  WhatsAppFileSource.swift
+//  ExtractedWhatsAppBackup.swift
 //  SwiftWABackupAPI
 //
 
@@ -25,11 +25,6 @@ private struct WhatsAppBackupEntry {
     let type: EntryType
 }
 
-protocol WhatsAppFileSource {
-    func urlForWhatsAppFile(endsWith relativePath: String) throws -> URL
-    func whatsAppFileDetails(containing relativePath: String) throws -> [WhatsAppFileDetails]
-}
-
 /// Represents a WhatsApp app-group backup previously extracted from an iPhone backup.
 public struct ExtractedWhatsAppBackup {
     /// Root directory that contains the extracted WhatsApp files.
@@ -51,8 +46,8 @@ public struct ExtractedWhatsAppBackup {
     }
 }
 
-extension ExtractedWhatsAppBackup: WhatsAppFileSource {
-    func urlForWhatsAppFile(endsWith relativePath: String) throws -> URL {
+extension ExtractedWhatsAppBackup {
+    func fileURL(endingWith relativePath: String) throws -> URL {
         let normalizedPath = normalizedWhatsAppRelativePath(relativePath)
         let directURL = url.appendingPathComponent(normalizedPath)
 
@@ -68,7 +63,7 @@ extension ExtractedWhatsAppBackup: WhatsAppFileSource {
         throw DomainError.mediaNotFound(path: relativePath)
     }
 
-    func whatsAppFileDetails(containing relativePath: String) throws -> [WhatsAppFileDetails] {
+    func fileDetails(containing relativePath: String) throws -> [WhatsAppFileDetails] {
         let normalizedPath = normalizedWhatsAppRelativePath(relativePath)
         let files = try enumerateFiles()
 

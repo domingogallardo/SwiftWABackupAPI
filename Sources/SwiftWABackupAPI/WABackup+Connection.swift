@@ -25,33 +25,6 @@ public extension WABackup {
         }
     }
 
-    /// Connects the API to a WhatsApp backup previously extracted into a regular directory tree.
-    func connect(to backup: ExtractedWhatsAppBackup) throws {
-        try connect(using: backup)
-    }
-
-    /// Connects the API to a WhatsApp backup directory previously produced by
-    /// `IPhoneBackup.extractWhatsAppBackup(to:overwriteExisting:)`.
-    func connect(toWhatsAppBackupAt directory: URL) throws {
-        try connect(to: ExtractedWhatsAppBackup(url: directory))
-    }
-}
-
-extension WABackup {
-    func connect(using fileSource: any WhatsAppFileSource) throws {
-        let chatStorageUrl = try fileSource.urlForWhatsAppFile(endsWith: "ChatStorage.sqlite")
-        let dbQueue = try DatabaseQueue(path: chatStorageUrl.path)
-
-        try checkSchema(of: dbQueue)
-
-        chatDatabase = dbQueue
-        self.fileSource = fileSource
-        ownerJid = try dbQueue.performRead { try Message.fetchOwnerJid(from: $0) }
-        mediaCopier = MediaCopier(delegate: delegate)
-        addressBookIndex = try? AddressBookIndex.loadIfPresent(from: fileSource)
-        lidAccountIndex = try? LidAccountIndex.loadIfPresent(from: fileSource)
-        pushNamePhoneJidIndex = try dbQueue.performRead { try PushNamePhoneJidIndex.load(from: $0) }
-    }
 }
 
 extension WABackup {

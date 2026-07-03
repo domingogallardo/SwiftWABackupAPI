@@ -55,9 +55,9 @@ LID.sqlite
 Media/...
 ```
 
-The extracted directory can then be wrapped as `ExtractedWhatsAppBackup` and
-passed to `connect(to:)`, or opened directly with `WABackup(whatsAppBackupAt:)`.
-Once connected this way, chat listing, chat export, media copying, contact lookup, and LID resolution read from the
+The extracted directory can then be opened directly with
+`WABackup(whatsAppBackupAt:)`. Once opened this way, chat listing, chat export,
+media copying, contact lookup, and LID resolution read from the
 extracted folder directly instead of querying the original iPhone backup's
 `Manifest.db`.
 
@@ -206,7 +206,7 @@ The library surfaces granular error enums so consumers can react appropriately:
 - `DomainError` – higher-level logic errors (media not found, unsupported message types).
 
 These errors are thrown from API entry points (`getBackups`, `inspectBackups`,
-`connect(to:)`, `getChat`, etc.) and are covered by the happy-path
+`WABackup(whatsAppBackupAt:)`, `getChat`, etc.) and are covered by the happy-path
 tests; you can trigger them manually by corrupting the fixture or requesting
 unsupported resources.
 

@@ -10,7 +10,7 @@ extension WABackup {
     func buildContactList(
         for chatInfo: ChatInfo,
         from dbQueue: DatabaseQueue,
-        fileSource: any WhatsAppFileSource,
+        whatsAppBackup: ExtractedWhatsAppBackup,
         directory: URL?
     ) throws -> [ContactInfo] {
         var contacts: [ContactInfo] = []
@@ -18,7 +18,7 @@ extension WABackup {
 
         var ownerContact = ContactInfo(name: "Me", phone: ownerPhone)
         if let directory {
-            ownerContact = try copyContactMedia(for: ownerContact, from: fileSource, to: directory)
+            ownerContact = try copyContactMedia(for: ownerContact, from: whatsAppBackup, to: directory)
         }
         contacts.append(ownerContact)
 
@@ -29,7 +29,7 @@ extension WABackup {
                 if otherPhone != ownerPhone {
                     var otherContact = ContactInfo(name: chatInfo.name, phone: otherPhone)
                     if let directory {
-                        otherContact = try copyContactMedia(for: otherContact, from: fileSource, to: directory)
+                        otherContact = try copyContactMedia(for: otherContact, from: whatsAppBackup, to: directory)
                     }
                     contacts.append(otherContact)
                 }
@@ -51,7 +51,7 @@ extension WABackup {
                         phone: phone
                     )
                     if let directory {
-                        contact = try copyContactMedia(for: contact, from: fileSource, to: directory)
+                        contact = try copyContactMedia(for: contact, from: whatsAppBackup, to: directory)
                     }
                     contacts.append(contact)
                 }
@@ -63,12 +63,12 @@ extension WABackup {
 
     func copyContactMedia(
         for contact: ContactInfo,
-        from fileSource: any WhatsAppFileSource,
+        from whatsAppBackup: ExtractedWhatsAppBackup,
         to directory: URL?
     ) throws -> ContactInfo {
         var updated = contact
         let prefix = "Media/Profile/\(contact.phone)"
-        let files = try fileSource.whatsAppFileDetails(containing: prefix)
+        let files = try whatsAppBackup.fileDetails(containing: prefix)
 
         let latest = FileUtils.latestFile(for: prefix, fileExtension: "jpg", in: files)
             ?? FileUtils.latestFile(for: prefix, fileExtension: "thumb", in: files)

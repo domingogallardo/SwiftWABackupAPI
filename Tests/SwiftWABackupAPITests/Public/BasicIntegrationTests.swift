@@ -69,14 +69,12 @@ final class BackupDiscoveryTests: XCTestCase {
         XCTAssertNil(info.backup?.isEncrypted)
     }
 
-    func testConnectsExtractedWhatsAppBackup() throws {
+    func testOpensExtractedWhatsAppBackup() throws {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
         let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
 
-        let waBackup = WABackup()
-
-        XCTAssertNoThrow(try waBackup.connect(to: extractedBackup))
+        XCTAssertNoThrow(try WABackup(whatsAppBackupAt: extractedBackup.url))
     }
 }
 
@@ -202,8 +200,7 @@ final class ExtractedWhatsAppBackupTests: XCTestCase {
 
         try PublicTestSupport.removeItemIfExists(at: fixture.rootURL)
 
-        let waBackup = WABackup()
-        try waBackup.connect(to: extractedBackup)
+        let waBackup = try WABackup(whatsAppBackupAt: extractedBackup.url)
         let dump = try waBackup.getChat(chatId: 44, directoryToSaveMedia: mediaOutput)
 
         XCTAssertEqual(dump.messages.count, 3)
