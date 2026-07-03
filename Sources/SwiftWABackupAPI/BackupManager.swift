@@ -375,9 +375,9 @@ extension IPhoneBackup {
                     db,
                     sql: """
                     SELECT fileID FROM Files WHERE relativePath LIKE ?
-                    AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'
+                    AND domain = ?
                     """,
-                    arguments: ["%" + relativePath]
+                    arguments: ["%" + relativePath, whatsAppBackupDomain]
                 )
 
                 if let fileID: String = row?["fileID"] {
@@ -405,9 +405,9 @@ extension IPhoneBackup {
                     db,
                     sql: """
                     SELECT fileID, relativePath FROM Files WHERE relativePath LIKE ?
-                    AND domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'
+                    AND domain = ?
                     """,
-                    arguments: ["%" + relativePath + "%"]
+                    arguments: ["%" + relativePath + "%", whatsAppBackupDomain]
                 )
 
                 for row in rows {

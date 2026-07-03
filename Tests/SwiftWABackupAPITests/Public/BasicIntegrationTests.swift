@@ -7,7 +7,7 @@ final class BackupDiscoveryTests: XCTestCase {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let waBackup = WABackup(backupPath: fixture.rootURL.path)
+        let waBackup = WABackup(iPhoneBackupsPath: fixture.rootURL.path)
         let backups = try waBackup.getBackups()
 
         XCTAssertEqual(backups.validBackups.count, 1, "Expected exactly one generated valid backup")
@@ -24,7 +24,7 @@ final class BackupDiscoveryTests: XCTestCase {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let waBackup = WABackup(backupPath: fixture.rootURL.path)
+        let waBackup = WABackup(iPhoneBackupsPath: fixture.rootURL.path)
         let infos = try waBackup.inspectBackups()
         let info = try XCTUnwrap(infos.first)
 
@@ -40,7 +40,7 @@ final class BackupDiscoveryTests: XCTestCase {
         let fixture = try PublicTestSupport.makeTemporaryBackup(name: "encrypted-backup", isEncrypted: true) { _ in }
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let waBackup = WABackup(backupPath: fixture.rootURL.path)
+        let waBackup = WABackup(iPhoneBackupsPath: fixture.rootURL.path)
         let infos = try waBackup.inspectBackups()
         let info = try XCTUnwrap(infos.first)
 
@@ -55,7 +55,7 @@ final class BackupDiscoveryTests: XCTestCase {
         let fixture = try PublicTestSupport.makeTemporaryBackup(name: "unknown-encryption-backup", isEncrypted: nil) { _ in }
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let waBackup = WABackup(backupPath: fixture.rootURL.path)
+        let waBackup = WABackup(iPhoneBackupsPath: fixture.rootURL.path)
         let infos = try waBackup.inspectBackups()
         let info = try XCTUnwrap(infos.first)
 
@@ -69,13 +69,14 @@ final class BackupDiscoveryTests: XCTestCase {
         XCTAssertNil(info.backup?.isEncrypted)
     }
 
-    func testConnectChatStorageDatabase() throws {
+    func testConnectsExtractedWhatsAppBackup() throws {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
 
-        let waBackup = WABackup(backupPath: fixture.rootURL.path)
+        let waBackup = WABackup()
 
-        XCTAssertNoThrow(try waBackup.connectChatStorageDb(from: fixture.backup))
+        XCTAssertNoThrow(try waBackup.connect(to: extractedBackup))
     }
 }
 
@@ -171,5 +172,71 @@ final class MediaExportSmokeTests: XCTestCase {
                 atPath: temporaryDirectory.appendingPathComponent("fea35851-6a2c-45a3-a784-003d25576b45.pdf").path
             )
         )
+    }
+}
+
+final class ExtractedWhatsAppBackupTests: XCTestCase {
+    func testExtractedBackupCanBeUsedAfterDeletingOriginalIPhoneBackup() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        let extractedRoot = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-extracted")
+        let mediaOutput = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-extracted-media")
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+        defer { try? PublicTestSupport.removeItemIfExists(at: extractedRoot) }
+        defer { try? PublicTestSupport.removeItemIfExists(at: mediaOutput) }
+
+        let extractedDirectory = extractedRoot.appendingPathComponent("WhatsApp", isDirectory: true)
+        let extractedBackup = try fixture.backup.extractWhatsAppBackup(to: extractedDirectory)
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: extractedDirectory.appendingPathComponent("ChatStorage.sqlite").path
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: extractedDirectory
+                    .appendingPathComponent("Media/Document/fea35851-6a2c-45a3-a784-003d25576b45.pdf")
+                    .path
+            )
+        )
+
+        try PublicTestSupport.removeItemIfExists(at: fixture.rootURL)
+
+        let waBackup = WABackup()
+        try waBackup.connect(to: extractedBackup)
+        let dump = try waBackup.getChat(chatId: 44, directoryToSaveMedia: mediaOutput)
+
+        XCTAssertEqual(dump.messages.count, 3)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: mediaOutput.appendingPathComponent("fea35851-6a2c-45a3-a784-003d25576b45.pdf").path
+            )
+        )
+    }
+
+    func testExtractionCreatesManifestDirectories() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        try PublicTestSupport.addMissingManifestEntry(
+            to: fixture,
+            relativePath: "AppState",
+            fileHash: "0ddcaff156ac0f2fccea18f2d987d98e82d8878a",
+            flags: 2
+        )
+
+        let extractedRoot = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-directory-extracted")
+        defer { try? PublicTestSupport.removeItemIfExists(at: extractedRoot) }
+
+        XCTAssertNoThrow(try fixture.backup.extractWhatsAppBackup(to: extractedRoot))
+
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: extractedRoot.appendingPathComponent("AppState").path,
+                isDirectory: &isDirectory
+            )
+        )
+        XCTAssertTrue(isDirectory.boolValue)
     }
 }

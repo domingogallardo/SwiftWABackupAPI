@@ -248,9 +248,20 @@ enum PublicTestSupport {
 
     static func makeConnectedSampleBackup() throws -> (waBackup: WABackup, fixture: PublicTemporaryBackupFixture) {
         let fixture = try makeSampleBackup()
-        let waBackup = WABackup(backupPath: fixture.rootURL.path)
-        try waBackup.connectChatStorageDb(from: fixture.backup)
+        let waBackup = try makeConnectedBackup(from: fixture)
         return (waBackup, fixture)
+    }
+
+    static func makeConnectedBackup(from fixture: PublicTemporaryBackupFixture) throws -> WABackup {
+        let extractedBackup = try extractWhatsAppBackup(from: fixture)
+        return try WABackup(whatsAppBackupAt: extractedBackup.url)
+    }
+
+    static func extractWhatsAppBackup(from fixture: PublicTemporaryBackupFixture) throws -> ExtractedWhatsAppBackup {
+        try fixture.backup.extractWhatsAppBackup(
+            to: fixture.rootURL.appendingPathComponent("ExtractedWhatsApp", isDirectory: true),
+            overwriteExisting: true
+        )
     }
 
     static func makeTemporaryDirectory(prefix: String) throws -> URL {
@@ -327,19 +338,21 @@ enum PublicTestSupport {
                 CREATE TABLE Files (
                     fileID TEXT,
                     relativePath TEXT,
-                    domain TEXT
+                    domain TEXT,
+                    flags INTEGER
                 )
                 """)
 
             try db.execute(
                 sql: """
-                    INSERT INTO Files (fileID, relativePath, domain)
-                    VALUES (?, ?, ?)
+                    INSERT INTO Files (fileID, relativePath, domain, flags)
+                    VALUES (?, ?, ?, ?)
                     """,
                 arguments: [
                     chatStorageHash,
                     "ChatStorage.sqlite",
-                    "AppDomainGroup-group.net.whatsapp.WhatsApp.shared"
+                    "AppDomainGroup-group.net.whatsapp.WhatsApp.shared",
+                    1
                 ]
             )
         }
@@ -350,13 +363,14 @@ enum PublicTestSupport {
         try manifestQueue.write { db in
             try db.execute(
                 sql: """
-                    INSERT INTO Files (fileID, relativePath, domain)
-                    VALUES (?, ?, ?)
+                    INSERT INTO Files (fileID, relativePath, domain, flags)
+                    VALUES (?, ?, ?, ?)
                     """,
                 arguments: [
                     storedFile.fileHash,
                     storedFile.relativePath,
-                    "AppDomainGroup-group.net.whatsapp.WhatsApp.shared"
+                    "AppDomainGroup-group.net.whatsapp.WhatsApp.shared",
+                    1
                 ]
             )
         }
@@ -375,13 +389,14 @@ enum PublicTestSupport {
         try manifestQueue.write { db in
             try db.execute(
                 sql: """
-                    INSERT INTO Files (fileID, relativePath, domain)
-                    VALUES (?, ?, ?)
+                    INSERT INTO Files (fileID, relativePath, domain, flags)
+                    VALUES (?, ?, ?, ?)
                     """,
                 arguments: [
                     fileHash,
                     "ContactsV2.sqlite",
-                    "AppDomainGroup-group.net.whatsapp.WhatsApp.shared"
+                    "AppDomainGroup-group.net.whatsapp.WhatsApp.shared",
+                    1
                 ]
             )
         }
@@ -416,13 +431,14 @@ enum PublicTestSupport {
         try manifestQueue.write { db in
             try db.execute(
                 sql: """
-                    INSERT INTO Files (fileID, relativePath, domain)
-                    VALUES (?, ?, ?)
+                    INSERT INTO Files (fileID, relativePath, domain, flags)
+                    VALUES (?, ?, ?, ?)
                     """,
                 arguments: [
                     fileHash,
                     "LID.sqlite",
-                    "AppDomainGroup-group.net.whatsapp.WhatsApp.shared"
+                    "AppDomainGroup-group.net.whatsapp.WhatsApp.shared",
+                    1
                 ]
             )
         }
@@ -442,6 +458,29 @@ enum PublicTestSupport {
                 )
                 """)
             try setup(db)
+        }
+    }
+
+    static func addMissingManifestEntry(
+        to fixture: PublicTemporaryBackupFixture,
+        relativePath: String,
+        fileHash: String,
+        flags: Int = 1
+    ) throws {
+        let manifestQueue = try DatabaseQueue(path: fixture.backupURL.appendingPathComponent("Manifest.db").path)
+        try manifestQueue.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO Files (fileID, relativePath, domain, flags)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [
+                    fileHash,
+                    relativePath,
+                    "AppDomainGroup-group.net.whatsapp.WhatsApp.shared",
+                    flags
+                ]
+            )
         }
     }
 

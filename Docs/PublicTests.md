@@ -20,6 +20,7 @@ Public suites run by default:
 - `swift test --filter BackupDiscoveryTests`
 - `swift test --filter ChatSmokeTests`
 - `swift test --filter MediaExportSmokeTests`
+- `swift test --filter ExtractedWhatsAppBackupTests`
 - `swift test --filter ErrorHandlingTests`
 - `swift test --filter InternalHelperTests`
 - `swift test --filter SampleBackupInvariantTests`

@@ -4,7 +4,7 @@ import XCTest
 
 final class ErrorHandlingTests: XCTestCase {
     func testGetBackupsThrowsForMissingRootDirectory() {
-        let waBackup = WABackup(backupPath: "/tmp/SwiftWABackupAPI/non-existent-\(UUID().uuidString)")
+        let waBackup = WABackup(iPhoneBackupsPath: "/tmp/SwiftWABackupAPI/non-existent-\(UUID().uuidString)")
 
         XCTAssertThrowsError(try waBackup.getBackups()) { error in
             guard case BackupError.directoryAccess = error else {
@@ -21,7 +21,7 @@ final class ErrorHandlingTests: XCTestCase {
         try FileManager.default.createDirectory(at: backupURL, withIntermediateDirectories: true)
         try Data().write(to: backupURL.appendingPathComponent("Info.plist"))
 
-        let waBackup = WABackup(backupPath: rootURL.path)
+        let waBackup = WABackup(iPhoneBackupsPath: rootURL.path)
         let backups = try waBackup.getBackups()
 
         XCTAssertTrue(backups.validBackups.isEmpty)
@@ -39,7 +39,7 @@ final class ErrorHandlingTests: XCTestCase {
         try FileManager.default.createDirectory(at: backupURL, withIntermediateDirectories: true)
         try Data().write(to: backupURL.appendingPathComponent("Info.plist"))
 
-        let waBackup = WABackup(backupPath: rootURL.path)
+        let waBackup = WABackup(iPhoneBackupsPath: rootURL.path)
         let infos = try waBackup.inspectBackups()
         let info = try XCTUnwrap(infos.first)
 
@@ -51,7 +51,7 @@ final class ErrorHandlingTests: XCTestCase {
     }
 
     func testGetChatsFailsWhenDatabaseIsNotConnected() {
-        let waBackup = WABackup(backupPath: FileManager.default.temporaryDirectory.path)
+        let waBackup = WABackup(iPhoneBackupsPath: FileManager.default.temporaryDirectory.path)
 
         XCTAssertThrowsError(try waBackup.getChats()) { error in
             guard case DatabaseErrorWA.connection = error else {
@@ -61,7 +61,7 @@ final class ErrorHandlingTests: XCTestCase {
     }
 
     func testGetChatFailsWhenDatabaseIsNotConnected() {
-        let waBackup = WABackup(backupPath: FileManager.default.temporaryDirectory.path)
+        let waBackup = WABackup(iPhoneBackupsPath: FileManager.default.temporaryDirectory.path)
 
         XCTAssertThrowsError(try waBackup.getChat(chatId: 44, directoryToSaveMedia: nil)) { error in
             guard case DatabaseErrorWA.connection = error else {
@@ -70,15 +70,16 @@ final class ErrorHandlingTests: XCTestCase {
         }
     }
 
-    func testConnectChatStorageDbRejectsUnsupportedSchema() throws {
+    func testConnectExtractedBackupRejectsUnsupportedSchema() throws {
         let fixture = try PublicTestSupport.makeTemporaryBackup { db in
             try db.execute(sql: "CREATE TABLE NotWhatsApp (id INTEGER PRIMARY KEY)")
         }
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let waBackup = WABackup(backupPath: fixture.rootURL.path)
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
+        let waBackup = WABackup()
 
-        XCTAssertThrowsError(try waBackup.connectChatStorageDb(from: fixture.backup)) { error in
+        XCTAssertThrowsError(try waBackup.connect(to: extractedBackup)) { error in
             guard case DatabaseErrorWA.unsupportedSchema = error else {
                 return XCTFail("Expected DatabaseErrorWA.unsupportedSchema, got \(error)")
             }

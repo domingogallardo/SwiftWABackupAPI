@@ -114,12 +114,12 @@ struct AddressBookIndex {
         self.byPhone = byPhone
     }
 
-    static func loadIfPresent(from backup: IPhoneBackup) throws -> AddressBookIndex? {
-        guard let fileHash = try? backup.fetchWAFileHash(endsWith: "ContactsV2.sqlite") else {
+    static func loadIfPresent(from fileSource: any WhatsAppFileSource) throws -> AddressBookIndex? {
+        guard let fileURL = try? fileSource.urlForWhatsAppFile(endsWith: "ContactsV2.sqlite") else {
             return nil
         }
 
-        let dbQueue = try DatabaseQueue(path: backup.getUrl(fileHash: fileHash).path)
+        let dbQueue = try DatabaseQueue(path: fileURL.path)
 
         return try dbQueue.performRead { db in
             try AddressBookContact.checkSchema(in: db)

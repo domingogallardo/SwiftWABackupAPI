@@ -42,6 +42,34 @@ Current encryption detection is based on `Manifest.plist["IsEncrypted"]`:
 The chat and export APIs still assume the caller passes a backup that is ready
 to use, typically by checking `inspectBackups()` first.
 
+## Extracted WhatsApp Backups
+
+`IPhoneBackup.extractWhatsAppBackup(to:)` copies every file from WhatsApp's iOS
+app-group domain into a regular directory tree. The destination preserves the
+WhatsApp relative paths stored in `Manifest.db`, for example:
+
+```text
+ChatStorage.sqlite
+ContactsV2.sqlite
+LID.sqlite
+Media/...
+```
+
+The extracted directory can then be wrapped as `ExtractedWhatsAppBackup` and
+passed to `connect(to:)`, or opened directly with `WABackup(whatsAppBackupAt:)`.
+Once connected this way, chat listing, chat export, media copying, contact lookup, and LID resolution read from the
+extracted folder directly instead of querying the original iPhone backup's
+`Manifest.db`.
+
+The iOS `Manifest.db` stores both files and directories. Directory entries are
+recreated as directories in the extracted tree, while file entries are copied
+from their hashed backup location.
+
+Chat listing and export intentionally use only the extracted WhatsApp backup.
+This keeps the read path independent from the hashed iPhone-backup layout and
+allows callers to delete/archive the original full-device backup after
+extraction.
+
 ## Core Tables and Columns
 
 | Table | Purpose | Key Columns Used |
@@ -178,7 +206,7 @@ The library surfaces granular error enums so consumers can react appropriately:
 - `DomainError` – higher-level logic errors (media not found, unsupported message types).
 
 These errors are thrown from API entry points (`getBackups`, `inspectBackups`,
-`connectChatStorageDb`, `getChat`, etc.) and are covered by the happy-path
+`connect(to:)`, `getChat`, etc.) and are covered by the happy-path
 tests; you can trigger them manually by corrupting the fixture or requesting
 unsupported resources.
 

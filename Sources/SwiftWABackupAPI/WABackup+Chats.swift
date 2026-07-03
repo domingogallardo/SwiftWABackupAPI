@@ -9,7 +9,7 @@ import GRDB
 public extension WABackup {
     /// Retrieves all supported chats from the connected WhatsApp database.
     func getChats(directoryToSavePhotos directory: URL? = nil) throws -> [ChatInfo] {
-        guard let dbQueue = chatDatabase, let iPhoneBackup = iPhoneBackup else {
+        guard let dbQueue = chatDatabase, let fileSource = fileSource else {
             throw DatabaseErrorWA.connection(DatabaseError(message: "Database not connected"))
         }
 
@@ -29,7 +29,7 @@ public extension WABackup {
                         for: chatSession.contactJid,
                         chatId: Int(chatSession.id),
                         to: directory,
-                        from: iPhoneBackup
+                        from: fileSource
                     )
                 } else {
                     photoFilename = nil
@@ -68,7 +68,7 @@ extension WABackup {
         for contactJid: String,
         chatId: Int,
         to directory: URL,
-        from backup: IPhoneBackup
+        from fileSource: any WhatsAppFileSource
     ) throws -> String? {
         let basePath: String
 
@@ -81,7 +81,7 @@ extension WABackup {
             return nil
         }
 
-        let files = backup.fetchWAFileDetails(contains: basePath)
+        let files = try fileSource.whatsAppFileDetails(containing: basePath)
         guard let latest = FileUtils.latestFile(for: basePath, fileExtension: "jpg", in: files)
             ?? FileUtils.latestFile(for: basePath, fileExtension: "thumb", in: files) else {
             return nil
@@ -90,7 +90,7 @@ extension WABackup {
         let ext = latest.filename.hasSuffix(".jpg") ? ".jpg" : ".thumb"
         let fileName = "chat_\(chatId)\(ext)"
 
-        try mediaCopier?.copy(hash: latest.fileHash, named: fileName, to: directory)
+        try mediaCopier?.copy(sourceURL: latest.sourceURL, named: fileName, to: directory)
         return fileName
     }
 }

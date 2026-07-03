@@ -29,8 +29,7 @@ public enum BackupDiscoveryStatus: String, Codable {
 
 /// Diagnostic information returned by `inspectBackups()`.
 ///
-/// Use `status == .ready` before passing `backup` to APIs that assume an
-/// unencrypted backup, such as `connectChatStorageDb(from:)`.
+/// Use `status == .ready` before extracting WhatsApp data from `backup`.
 public struct BackupDiscoveryInfo: Encodable {
     /// Directory name used by Finder/iTunes to identify the backup.
     public let identifier: String
@@ -55,10 +54,9 @@ public struct BackupDiscoveryInfo: Encodable {
 
     private let discoveredBackup: IPhoneBackup?
 
-    /// Resolved backup value that can be passed to the rest of the API.
+    /// Resolved iPhone backup value that can be used for WhatsApp extraction.
     ///
-    /// Callers should still check `status == .ready` before using it with
-    /// APIs that require a verified unencrypted backup.
+    /// Callers should still check `status == .ready` before extracting from it.
     public var backup: IPhoneBackup? {
         discoveredBackup
     }

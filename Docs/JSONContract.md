@@ -40,10 +40,10 @@ The contract is verified by the local private regression suite that accompanies 
 Notes:
 
 - `backup` is intentionally excluded from the JSON contract. It is an in-memory
-  `IPhoneBackup` value exposed by the Swift API for callers that want to reuse
+  `IPhoneBackup` value exposed by the Swift API for callers that want to extract
   the inspected backup object.
 - `status = "ready"` is the recommended gate before calling
-  `connectChatStorageDb(from:)`.
+  `IPhoneBackup.extractWhatsAppBackup(to:)`.
 
 ## `Reaction`
 

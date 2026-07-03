@@ -34,6 +34,25 @@ enum FileUtils {
         return latest
     }
 
+    static func latestFile(for prefixFilename: String,
+                           fileExtension: String,
+                           in files: [WhatsAppFileDetails]) -> WhatsAppFileDetails? {
+
+        var latest: WhatsAppFileDetails?
+        var latestTimestamp = 0
+
+        for item in files {
+            if let ts = extractTimeSuffix(from: prefixFilename,
+                                          fileExtension: fileExtension,
+                                          fileName: item.filename),
+               ts > latestTimestamp {
+                latestTimestamp = ts
+                latest = item
+            }
+        }
+        return latest
+    }
+
     /// Extracts the timestamp suffix used by WhatsApp profile photos
     /// (`Media/Profile/<JID>-<timestamp>.jpg`).
     static func extractTimeSuffix(from prefixFilename: String,

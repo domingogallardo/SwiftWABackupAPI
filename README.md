@@ -1,8 +1,8 @@
 # SwiftWABackupAPI
 
-`SwiftWABackupAPI` is a Swift package for exploring WhatsApp data stored inside iPhone backups that contain WhatsApp data. It includes backup-discovery diagnostics for encrypted backups, while the chat and export APIs still operate on backups that are confirmed to be non-encrypted. It powers the companion macOS CLI application [WABackupExtractor](https://github.com/domingogallardo/WABackupExtractor), but it can also be consumed directly from your own Swift tools and apps.
+`SwiftWABackupAPI` is a Swift package for extracting WhatsApp data from iPhone backups and then exploring it from a regular WhatsApp backup directory. It includes backup-discovery diagnostics for encrypted backups; chat listing and export operate on the extracted WhatsApp copy, not on the original full-device backup. It powers the companion macOS CLI application [WABackupExtractor](https://github.com/domingogallardo/WABackupExtractor), but it can also be consumed directly from your own Swift tools and apps.
 
-A full Python port of this library is also available as [PyWABackupAPI](https://github.com/domingogallardo/PyWABackupAPI).
+The former Python port, [PyWABackupAPI](https://github.com/domingogallardo/PyWABackupAPI), remains available as legacy code but is no longer maintained. From version 3.0.0 onward, SwiftWABackupAPI is the maintained implementation.
 
 ## Privacy Warning
 
@@ -16,7 +16,8 @@ The public API is centered on `WABackup`:
 
 - Discover available iPhone backups with `getBackups()`
 - Inspect backups with encryption diagnostics via `inspectBackups()`
-- Connect to a WhatsApp `ChatStorage.sqlite` database with `connectChatStorageDb(from:)`
+- Extract WhatsApp's app-group files into a regular directory with `IPhoneBackup.extractWhatsAppBackup(to:)`
+- Connect to an extracted WhatsApp directory with `connect(to:)`, `connect(toWhatsAppBackupAt:)`, or `WABackup(whatsAppBackupAt:)`
 - List chats with `getChats(directoryToSavePhotos:)`
 - Export a chat with `getChat(chatId:directoryToSaveMedia:)`
 
@@ -24,6 +25,7 @@ Returned models are `Encodable` and designed to be easy to serialize:
 
 - `BackupDiscoveryInfo`
 - `BackupDiscoveryStatus`
+- `ExtractedWhatsAppBackup`
 - `ChatInfo`
 - `MessageInfo`
 - `MessageAuthor`
@@ -36,10 +38,11 @@ Returned models are `Encodable` and designed to be easy to serialize:
 - A macOS environment with access to an iPhone backup directory
 - Permission to read the backup folder
 - A backup that contains WhatsApp data
+- An extracted WhatsApp backup directory for chat listing and export
 
-For chat listing and export, the selected backup must be non-encrypted. Use
-`inspectBackups()` if you need an explicit readiness check before calling
-`connectChatStorageDb(from:)`.
+For extraction, the selected iPhone backup must be non-encrypted. Use
+`inspectBackups()` if you need an explicit readiness check before copying
+WhatsApp data out of the full-device backup.
 
 By default, `WABackup` looks under:
 
@@ -54,8 +57,15 @@ On many systems you will need to grant Full Disk Access to the host app or termi
 Add the package dependency in `Package.swift` using the release rule that matches how you publish or consume the package:
 
 ```swift
-.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "2.1.0")
+.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "3.0.0")
 ```
+
+Version `3.0.0` introduced a breaking architecture change:
+
+- WhatsApp data must be extracted from an iPhone backup before listing or exporting chats
+- `list-chats` and `export-chat` now read from `--whatsapp-backup-path`
+- direct chat access from the original iPhone backup was removed
+- PyWABackupAPI is no longer maintained in parallel
 
 Version `2.0.0` introduced a breaking API change:
 
@@ -70,7 +80,7 @@ Then add the product to your target dependencies:
 
 ## Basic Usage
 
-Recommended discovery flow:
+Recommended flow:
 
 ```swift
 import Foundation
@@ -82,15 +92,18 @@ guard let backup = inspections.first(where: { $0.status == .ready })?.backup els
     throw NSError(domain: "Example", code: 1)
 }
 
-try backupAPI.connectChatStorageDb(from: backup)
+let extractedDirectory = URL(fileURLWithPath: "/tmp/whatsapp-backup", isDirectory: true)
+let extracted = try backup.extractWhatsAppBackup(to: extractedDirectory, overwriteExisting: true)
 
-let chats = try backupAPI.getChats()
-let payload = try backupAPI.getChat(chatId: chats[0].id, directoryToSaveMedia: nil)
+let whatsApp = try WABackup(whatsAppBackupAt: extracted.url)
+let chats = try whatsApp.getChats()
+let payload = try whatsApp.getChat(chatId: chats[0].id, directoryToSaveMedia: nil)
 print(payload.chatInfo.name)
 print(payload.messages.count)
 ```
 
-Compatibility flow retained for existing callers:
+`getBackups()` is available when you only need the historical
+`validBackups` / `invalidBackups` split:
 
 ```swift
 let backupAPI = WABackup()
@@ -98,13 +111,10 @@ let backups = try backupAPI.getBackups()
 guard let backup = backups.validBackups.first else {
     throw NSError(domain: "Example", code: 2)
 }
-
-try backupAPI.connectChatStorageDb(from: backup)
 ```
 
-`getBackups()` is retained as the legacy discovery API. It keeps the historical
-`validBackups` / `invalidBackups` split. `inspectBackups()` is the recommended
-entry point when you need encryption-aware discovery or per-backup diagnostics.
+`inspectBackups()` is the recommended entry point when you need
+encryption-aware discovery or per-backup diagnostics.
 
 Each `BackupDiscoveryInfo` includes:
 
@@ -114,24 +124,29 @@ Each `BackupDiscoveryInfo` includes:
 - `backup` when the candidate can still be represented as an `IPhoneBackup`
 
 `BackupDiscoveryInfo.backup` is intentionally not part of the JSON contract. It
-is the in-memory value you can pass to `connectChatStorageDb(from:)` after
-checking `status == .ready`.
+is the in-memory `IPhoneBackup` value you can extract from after checking
+`status == .ready`.
 
 If you want exported media and copied profile images:
 
 ```swift
 let outputDirectory = URL(fileURLWithPath: "/tmp/wa-export", isDirectory: true)
-let chats = try backupAPI.getChats(directoryToSavePhotos: outputDirectory)
-let payload = try backupAPI.getChat(chatId: chats[0].id, directoryToSaveMedia: outputDirectory)
+let chats = try whatsApp.getChats(directoryToSavePhotos: outputDirectory)
+let payload = try whatsApp.getChat(chatId: chats[0].id, directoryToSaveMedia: outputDirectory)
 ```
+
+The extracted directory preserves WhatsApp relative paths such as
+`ChatStorage.sqlite`, `ContactsV2.sqlite`, `LID.sqlite`, and `Media/...`, so
+chat reads and media exports do not need the iPhone backup's `Manifest.db`.
 
 ## Command Line Interface
 
-The package also ships with a small companion executable named `SwiftWABackupCLI`. It mirrors the basic workflows exposed by the Python port [PyWABackupAPI](https://github.com/domingogallardo/PyWABackupAPI):
+The package also ships with a small companion executable named `SwiftWABackupCLI`:
 
 - discover backups with `list-backups`
 - list chats with `list-chats`
 - export a full chat with `export-chat`
+- extract WhatsApp's app-group files with `extract-whatsapp-backup`
 
 Run it directly from the package root:
 
@@ -151,12 +166,22 @@ swift run SwiftWABackupCLI list-backups \
 whether it is ready, encrypted, or otherwise unusable. In JSON mode, the new
 `backups` array exposes `status`, `isEncrypted`, `isReady`, and `issue`.
 
-List chats from a specific backup:
+Extract the WhatsApp app-group tree from an iPhone backup:
+
+```bash
+swift run SwiftWABackupCLI extract-whatsapp-backup \
+  --backup-path "$HOME/Library/Application Support/MobileSync/Backup" \
+  --backup-id "00008101-000478893600801E" \
+  --output-dir /tmp/whatsapp-backup
+```
+
+Use `--overwrite` when you want existing files in the destination to be replaced.
+
+List chats from the extracted WhatsApp backup:
 
 ```bash
 swift run SwiftWABackupCLI list-chats \
-  --backup-path "$HOME/Library/Application Support/MobileSync/Backup" \
-  --backup-id "00008101-000478893600801E" \
+  --whatsapp-backup-path /tmp/whatsapp-backup \
   --json --pretty
 ```
 
@@ -164,8 +189,7 @@ Export one chat to JSON and copy message media:
 
 ```bash
 swift run SwiftWABackupCLI export-chat \
-  --backup-path "$HOME/Library/Application Support/MobileSync/Backup" \
-  --backup-id "00008101-000478893600801E" \
+  --whatsapp-backup-path /tmp/whatsapp-backup \
   --chat-id 44 \
   --output-dir /tmp/chat-44 \
   --pretty
@@ -175,8 +199,7 @@ Export only the JSON payload to a file:
 
 ```bash
 swift run SwiftWABackupCLI export-chat \
-  --backup-path "$HOME/Library/Application Support/MobileSync/Backup" \
-  --backup-id "00008101-000478893600801E" \
+  --whatsapp-backup-path /tmp/whatsapp-backup \
   --chat-id 44 \
   --output-json /tmp/chat-44.json \
   --pretty
@@ -184,13 +207,10 @@ swift run SwiftWABackupCLI export-chat \
 
 `--output-dir` creates the directory if it does not exist, writes `chat-<id>.json` inside it, and copies exported media into that same directory. `--output-json` writes only the JSON file.
 
-If `--backup-id` is omitted, the CLI uses the first ready backup it finds in
-the given root directory. Encrypted backups and backups with unknown encryption
-status are rejected by `list-chats` and `export-chat`.
-
-The CLI now surfaces backup diagnostics directly in `list-backups`, and
-`list-chats` / `export-chat` only operate on backups that are explicitly ready
-for chat access.
+If `--backup-id` is omitted for `extract-whatsapp-backup`, the CLI uses the
+first ready iPhone backup it finds in the given root directory. `list-chats` and
+`export-chat` never read the iPhone backup; they require
+`--whatsapp-backup-path`.
 
 ## JSON Export
 

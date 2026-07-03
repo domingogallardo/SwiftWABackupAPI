@@ -97,12 +97,12 @@ struct LidAccountIndex {
         self.byLidJid = byLidJid
     }
 
-    static func loadIfPresent(from backup: IPhoneBackup) throws -> LidAccountIndex? {
-        guard let fileHash = try? backup.fetchWAFileHash(endsWith: "LID.sqlite") else {
+    static func loadIfPresent(from fileSource: any WhatsAppFileSource) throws -> LidAccountIndex? {
+        guard let fileURL = try? fileSource.urlForWhatsAppFile(endsWith: "LID.sqlite") else {
             return nil
         }
 
-        let dbQueue = try DatabaseQueue(path: backup.getUrl(fileHash: fileHash).path)
+        let dbQueue = try DatabaseQueue(path: fileURL.path)
 
         return try dbQueue.performRead { db in
             try LidAccount.checkSchema(in: db)

@@ -59,14 +59,34 @@ final class CLICommandParserTests: XCTestCase {
         XCTAssertEqual(validBackups.first?["isEncrypted"] as? Bool, true)
     }
 
-    func testListChatsJSONUsesFirstValidBackupByDefault() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
-        _ = waBackup
+    func testListChatsRequiresWhatsAppBackupPath() throws {
+        let result = runCLI(arguments: [
+            "list-chats",
+            "--json"
+        ])
+
+        XCTAssertEqual(result.code, 1)
+        XCTAssertTrue(result.standardError.contains("Missing required argument --whatsapp-backup-path."))
+    }
+
+    func testListChatsJSONUsesWhatsAppBackupPath() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let temporaryRoot = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-cli-list-extracted")
+        defer { try? PublicTestSupport.removeItemIfExists(at: temporaryRoot) }
+        let extractedDirectory = temporaryRoot.appendingPathComponent("WhatsApp", isDirectory: true)
+
+        let extractResult = runCLI(arguments: [
+            "extract-whatsapp-backup",
+            "--backup-path", fixture.rootURL.path,
+            "--output-dir", extractedDirectory.path
+        ])
+        XCTAssertEqual(extractResult.code, 0)
 
         let result = runCLI(arguments: [
             "list-chats",
-            "--backup-path", fixture.rootURL.path,
+            "--whatsapp-backup-path", extractedDirectory.path,
             "--json"
         ])
 
@@ -79,25 +99,10 @@ final class CLICommandParserTests: XCTestCase {
         XCTAssertEqual(chats?.first?["id"] as? Int, 44)
     }
 
-    func testListChatsRejectsEncryptedBackupById() throws {
-        let fixture = try PublicTestSupport.makeTemporaryBackup(name: "encrypted-backup", isEncrypted: true) { _ in }
-        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
-
-        let result = runCLI(arguments: [
-            "list-chats",
-            "--backup-path", fixture.rootURL.path,
-            "--backup-id", fixture.backup.identifier,
-            "--json"
-        ])
-
-        XCTAssertEqual(result.code, 1)
-        XCTAssertTrue(result.standardError.contains("is not ready for chat access"))
-        XCTAssertTrue(result.standardError.contains("Backup is encrypted."))
-    }
-
     func testExportChatWritesOnlyJSONToOutputJSON() throws {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
 
         let outputDirectory = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-cli-output")
         defer { try? PublicTestSupport.removeItemIfExists(at: outputDirectory) }
@@ -106,7 +111,7 @@ final class CLICommandParserTests: XCTestCase {
 
         let result = runCLI(arguments: [
             "export-chat",
-            "--backup-path", fixture.rootURL.path,
+            "--whatsapp-backup-path", extractedBackup.path,
             "--chat-id", "44",
             "--output-json", outputFile.path,
             "--pretty"
@@ -125,6 +130,7 @@ final class CLICommandParserTests: XCTestCase {
     func testExportChatWritesDirectoryBundleToOutputDir() throws {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
 
         let temporaryRoot = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-cli-output-dir")
         defer { try? PublicTestSupport.removeItemIfExists(at: temporaryRoot) }
@@ -132,7 +138,7 @@ final class CLICommandParserTests: XCTestCase {
 
         let result = runCLI(arguments: [
             "export-chat",
-            "--backup-path", fixture.rootURL.path,
+            "--whatsapp-backup-path", extractedBackup.path,
             "--chat-id", "44",
             "--output-dir", outputDirectory.path,
             "--pretty"
@@ -146,6 +152,68 @@ final class CLICommandParserTests: XCTestCase {
         XCTAssertTrue(
             FileManager.default.fileExists(
                 atPath: outputDirectory.appendingPathComponent("fea35851-6a2c-45a3-a784-003d25576b45.pdf").path
+            )
+        )
+    }
+
+    func testExportChatUsesWhatsAppBackupPath() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let temporaryRoot = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-cli-export-extracted")
+        defer { try? PublicTestSupport.removeItemIfExists(at: temporaryRoot) }
+        let extractedDirectory = temporaryRoot.appendingPathComponent("WhatsApp", isDirectory: true)
+        let outputDirectory = temporaryRoot.appendingPathComponent("chat-export", isDirectory: true)
+
+        let extractResult = runCLI(arguments: [
+            "extract-whatsapp-backup",
+            "--backup-path", fixture.rootURL.path,
+            "--output-dir", extractedDirectory.path
+        ])
+        XCTAssertEqual(extractResult.code, 0)
+
+        let result = runCLI(arguments: [
+            "export-chat",
+            "--whatsapp-backup-path", extractedDirectory.path,
+            "--chat-id", "44",
+            "--output-dir", outputDirectory.path,
+            "--pretty"
+        ])
+
+        let expectedFile = outputDirectory.appendingPathComponent("chat-44.json")
+
+        XCTAssertEqual(result.code, 0)
+        XCTAssertTrue(result.standardOutput.contains("WhatsApp backup"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: expectedFile.path))
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: outputDirectory.appendingPathComponent("fea35851-6a2c-45a3-a784-003d25576b45.pdf").path
+            )
+        )
+    }
+
+    func testExtractWhatsAppBackupWritesReconstructedTree() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let temporaryRoot = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-cli-extract")
+        defer { try? PublicTestSupport.removeItemIfExists(at: temporaryRoot) }
+        let outputDirectory = temporaryRoot.appendingPathComponent("WhatsApp", isDirectory: true)
+
+        let result = runCLI(arguments: [
+            "extract-whatsapp-backup",
+            "--backup-path", fixture.rootURL.path,
+            "--output-dir", outputDirectory.path
+        ])
+
+        XCTAssertEqual(result.code, 0)
+        XCTAssertTrue(result.standardOutput.contains("Extracted WhatsApp backup"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputDirectory.appendingPathComponent("ChatStorage.sqlite").path))
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: outputDirectory
+                    .appendingPathComponent("Media/Document/fea35851-6a2c-45a3-a784-003d25576b45.pdf")
+                    .path
             )
         )
     }

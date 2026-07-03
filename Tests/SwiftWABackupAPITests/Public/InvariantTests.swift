@@ -387,8 +387,7 @@ private enum InvariantFixtureFactory {
             )
         }
 
-        let waBackup = WABackup(backupPath: fixture.rootURL.path)
-        try waBackup.connectChatStorageDb(from: fixture.backup)
+        let waBackup = try PublicTestSupport.makeConnectedBackup(from: fixture)
         return (waBackup, fixture)
     }
 
@@ -468,8 +467,7 @@ private enum InvariantFixtureFactory {
             )
         }
 
-        let waBackup = WABackup(backupPath: fixture.rootURL.path)
-        try waBackup.connectChatStorageDb(from: fixture.backup)
+        let waBackup = try PublicTestSupport.makeConnectedBackup(from: fixture)
         return (waBackup, fixture)
     }
 
@@ -578,8 +576,7 @@ private enum InvariantFixtureFactory {
             )
         }
 
-        let waBackup = WABackup(backupPath: fixture.rootURL.path)
-        try waBackup.connectChatStorageDb(from: fixture.backup)
+        let waBackup = try PublicTestSupport.makeConnectedBackup(from: fixture)
         return (waBackup, fixture)
     }
 
@@ -1040,8 +1037,7 @@ private enum InvariantFixtureFactory {
             )
         }
 
-        let waBackup = WABackup(backupPath: fixture.rootURL.path)
-        try waBackup.connectChatStorageDb(from: fixture.backup)
+        let waBackup = try PublicTestSupport.makeConnectedBackup(from: fixture)
         return (waBackup, fixture)
     }
 
@@ -1204,8 +1200,7 @@ private enum InvariantFixtureFactory {
             )
         }
 
-        let waBackup = WABackup(backupPath: fixture.rootURL.path)
-        try waBackup.connectChatStorageDb(from: fixture.backup)
+        let waBackup = try PublicTestSupport.makeConnectedBackup(from: fixture)
         return (waBackup, fixture)
     }
 
@@ -1256,8 +1251,7 @@ private enum InvariantFixtureFactory {
             )
         }
 
-        let waBackup = WABackup(backupPath: fixture.rootURL.path)
-        try waBackup.connectChatStorageDb(from: fixture.backup)
+        let waBackup = try PublicTestSupport.makeConnectedBackup(from: fixture)
         return (waBackup, fixture)
     }
 

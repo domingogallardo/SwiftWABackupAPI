@@ -10,20 +10,19 @@
 import Foundation
 
 struct MediaCopier {
-    let backup: IPhoneBackup
     weak var delegate: WABackupDelegate?
 
-    /// Copies a hashed backup file into the destination directory when one is provided.
+    /// Copies a WhatsApp file into the destination directory when one is provided.
     /// If the target already exists, the copy is skipped.
     /// The delegate is notified whenever the file is processed.
     @discardableResult
-    func copy(hash: String,
+    func copy(sourceURL: URL,
               named fileName: String,
               to directoryURL: URL?) throws -> String {
 
         if let dir = directoryURL {
             let targetURL = dir.appendingPathComponent(fileName)
-            try copyIfNeeded(hashFile: hash, to: targetURL)
+            try copyIfNeeded(from: sourceURL, to: targetURL)
         }
 
         delegate?.didWriteMediaFile(fileName: fileName)
@@ -31,8 +30,7 @@ struct MediaCopier {
     }
 
     // MARK: - Private
-    private func copyIfNeeded(hashFile: String, to targetURL: URL) throws {
-        let sourceURL = backup.getUrl(fileHash: hashFile)
+    private func copyIfNeeded(from sourceURL: URL, to targetURL: URL) throws {
         let fm = FileManager.default
         guard !fm.fileExists(atPath: targetURL.path) else { return }
 

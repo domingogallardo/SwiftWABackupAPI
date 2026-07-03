@@ -20,25 +20,30 @@ enum HelpTopic {
     case listBackups
     case listChats
     case exportChat
+    case extractWhatsAppBackup
 }
 
 enum CLICommand {
     case help(HelpTopic)
     case listBackups(backupPath: String, json: Bool, pretty: Bool)
     case listChats(
-        backupPath: String,
-        backupId: String?,
+        whatsAppBackupPath: String,
         photosDirectory: String?,
         json: Bool,
         pretty: Bool
     )
     case exportChat(
-        backupPath: String,
-        backupId: String?,
+        whatsAppBackupPath: String,
         chatId: Int,
         outputJSON: String?,
         outputDirectory: String?,
         pretty: Bool
+    )
+    case extractWhatsAppBackup(
+        backupPath: String,
+        backupId: String?,
+        outputDirectory: String,
+        overwriteExisting: Bool
     )
 }
 
@@ -89,8 +94,7 @@ struct CLICommandParser {
                 return .help(.listChats)
             }
 
-            var backupPath = "~/Library/Application Support/MobileSync/Backup/"
-            var backupId: String?
+            var whatsAppBackupPath: String?
             var photosDirectory: String?
             var json = false
             var pretty = false
@@ -99,11 +103,8 @@ struct CLICommandParser {
             while index < arguments.count {
                 let argument = arguments[index]
                 switch argument {
-                case "--backup-path":
-                    backupPath = try requireValue(for: argument, at: index)
-                    index += 2
-                case "--backup-id":
-                    backupId = try requireValue(for: argument, at: index)
+                case "--whatsapp-backup-path":
+                    whatsAppBackupPath = try requireValue(for: argument, at: index)
                     index += 2
                 case "--photos-dir":
                     photosDirectory = try requireValue(for: argument, at: index)
@@ -119,9 +120,12 @@ struct CLICommandParser {
                 }
             }
 
+            guard let whatsAppBackupPath else {
+                throw CLIError.invalidArguments("Missing required argument --whatsapp-backup-path.")
+            }
+
             return .listChats(
-                backupPath: backupPath,
-                backupId: backupId,
+                whatsAppBackupPath: whatsAppBackupPath,
                 photosDirectory: photosDirectory,
                 json: json,
                 pretty: pretty
@@ -132,8 +136,7 @@ struct CLICommandParser {
                 return .help(.exportChat)
             }
 
-            var backupPath = "~/Library/Application Support/MobileSync/Backup/"
-            var backupId: String?
+            var whatsAppBackupPath: String?
             var chatId: Int?
             var outputJSON: String?
             var outputDirectory: String?
@@ -143,11 +146,8 @@ struct CLICommandParser {
             while index < arguments.count {
                 let argument = arguments[index]
                 switch argument {
-                case "--backup-path":
-                    backupPath = try requireValue(for: argument, at: index)
-                    index += 2
-                case "--backup-id":
-                    backupId = try requireValue(for: argument, at: index)
+                case "--whatsapp-backup-path":
+                    whatsAppBackupPath = try requireValue(for: argument, at: index)
                     index += 2
                 case "--chat-id":
                     let rawValue = try requireValue(for: argument, at: index)
@@ -184,13 +184,58 @@ struct CLICommandParser {
                 throw CLIError.invalidArguments("Use either --output-json or --output-dir, but not both.")
             }
 
+            guard let whatsAppBackupPath else {
+                throw CLIError.invalidArguments("Missing required argument --whatsapp-backup-path.")
+            }
+
             return .exportChat(
-                backupPath: backupPath,
-                backupId: backupId,
+                whatsAppBackupPath: whatsAppBackupPath,
                 chatId: chatId,
                 outputJSON: outputJSON,
                 outputDirectory: outputDirectory,
                 pretty: pretty
+            )
+
+        case "extract-whatsapp-backup":
+            if arguments.dropFirst().contains("--help") || arguments.dropFirst().contains("-h") {
+                return .help(.extractWhatsAppBackup)
+            }
+
+            var backupPath = "~/Library/Application Support/MobileSync/Backup/"
+            var backupId: String?
+            var outputDirectory: String?
+            var overwriteExisting = false
+
+            var index = 1
+            while index < arguments.count {
+                let argument = arguments[index]
+                switch argument {
+                case "--backup-path":
+                    backupPath = try requireValue(for: argument, at: index)
+                    index += 2
+                case "--backup-id":
+                    backupId = try requireValue(for: argument, at: index)
+                    index += 2
+                case "--output-dir":
+                    outputDirectory = try requireValue(for: argument, at: index)
+                    index += 2
+                case "--overwrite":
+                    overwriteExisting = true
+                    index += 1
+                default:
+                    throw CLIError.invalidArguments("Unknown argument '\(argument)'.")
+                }
+            }
+
+            guard let outputDirectory else {
+                throw CLIError.invalidArguments("Missing required argument --output-dir.")
+            }
+
+            return .extractWhatsAppBackup(
+                backupPath: backupPath,
+                backupId: backupId,
+                outputDirectory: outputDirectory,
+                overwriteExisting: overwriteExisting
             )
 
         default:
@@ -230,23 +275,40 @@ struct CLIApplication {
                     pretty: pretty,
                     standardOutput: standardOutput
                 )
-            case .listChats(let backupPath, let backupId, let photosDirectory, let json, let pretty):
+            case .listChats(let whatsAppBackupPath, let photosDirectory, let json, let pretty):
                 try handleListChats(
-                    backupPath: backupPath,
-                    backupId: backupId,
+                    whatsAppBackupPath: whatsAppBackupPath,
                     photosDirectory: photosDirectory,
                     json: json,
                     pretty: pretty,
                     standardOutput: standardOutput
                 )
-            case .exportChat(let backupPath, let backupId, let chatId, let outputJSON, let outputDirectory, let pretty):
+            case .exportChat(
+                let whatsAppBackupPath,
+                let chatId,
+                let outputJSON,
+                let outputDirectory,
+                let pretty
+            ):
                 try handleExportChat(
-                    backupPath: backupPath,
-                    backupId: backupId,
+                    whatsAppBackupPath: whatsAppBackupPath,
                     chatId: chatId,
                     outputJSON: outputJSON,
                     outputDirectory: outputDirectory,
                     pretty: pretty,
+                    standardOutput: standardOutput
+                )
+            case .extractWhatsAppBackup(
+                let backupPath,
+                let backupId,
+                let outputDirectory,
+                let overwriteExisting
+            ):
+                try handleExtractWhatsAppBackup(
+                    backupPath: backupPath,
+                    backupId: backupId,
+                    outputDirectory: outputDirectory,
+                    overwriteExisting: overwriteExisting,
                     standardOutput: standardOutput
                 )
             }
@@ -267,7 +329,7 @@ struct CLIApplication {
         pretty: Bool,
         standardOutput: OutputWriter
     ) throws {
-        let waBackup = WABackup(backupPath: backupPath)
+        let waBackup = WABackup(iPhoneBackupsPath: backupPath)
         let inspections = try waBackup.inspectBackups()
         let backups = try waBackup.getBackups()
 
@@ -292,23 +354,22 @@ struct CLIApplication {
     }
 
     private func handleListChats(
-        backupPath: String,
-        backupId: String?,
+        whatsAppBackupPath: String,
         photosDirectory: String?,
         json: Bool,
         pretty: Bool,
         standardOutput: OutputWriter
     ) throws {
-        let (waBackup, backup) = try resolveConnectedBackup(backupPath: backupPath, backupId: backupId)
+        let source = try connectWhatsAppBackup(at: whatsAppBackupPath)
         let photosURL = try photosDirectory.map(createDirectoryIfNeeded(at:))
-        let chats = try waBackup.getChats(directoryToSavePhotos: photosURL)
+        let chats = try source.waBackup.getChats(directoryToSavePhotos: photosURL)
 
         if json {
             standardOutput(try renderJSON(chats, pretty: pretty))
             return
         }
 
-        standardOutput("Backup: \(backup.identifier)")
+        standardOutput(source.headerLine)
         for chat in chats {
             standardOutput(
                 "\(chat.id)\t\(chat.chatType.rawValue)\t\(chat.numberMessages)\t"
@@ -318,19 +379,18 @@ struct CLIApplication {
     }
 
     private func handleExportChat(
-        backupPath: String,
-        backupId: String?,
+        whatsAppBackupPath: String,
         chatId: Int,
         outputJSON: String?,
         outputDirectory: String?,
         pretty: Bool,
         standardOutput: OutputWriter
     ) throws {
-        let (waBackup, backup) = try resolveConnectedBackup(backupPath: backupPath, backupId: backupId)
+        let source = try connectWhatsAppBackup(at: whatsAppBackupPath)
         let exportDirectoryURL = try outputDirectory.map(createDirectoryIfNeeded(at:))
         let jsonOutputURL = try outputJSON.map { try resolveOutputJSONURL(at: $0) }
         let mediaURL = exportDirectoryURL
-        let payload = try waBackup.getChat(chatId: chatId, directoryToSaveMedia: mediaURL)
+        let payload = try source.waBackup.getChat(chatId: chatId, directoryToSaveMedia: mediaURL)
         let rendered = try renderJSON(payload, pretty: pretty)
 
         if let exportDirectoryURL {
@@ -340,27 +400,55 @@ struct CLIApplication {
                 withIntermediateDirectories: true
             )
             try rendered.write(to: outputURL, atomically: true, encoding: .utf8)
-            standardOutput("Wrote chat \(chatId) from backup \(backup.identifier) to \(outputURL.path)")
+            standardOutput("Wrote chat \(chatId) from \(source.outputDescription) to \(outputURL.path)")
         } else if let jsonOutputURL {
             try FileManager.default.createDirectory(
                 at: jsonOutputURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
             try rendered.write(to: jsonOutputURL, atomically: true, encoding: .utf8)
-            standardOutput("Wrote chat \(chatId) from backup \(backup.identifier) to \(jsonOutputURL.path)")
+            standardOutput("Wrote chat \(chatId) from \(source.outputDescription) to \(jsonOutputURL.path)")
         } else {
             standardOutput(rendered)
         }
     }
 
-    private func resolveConnectedBackup(
+    private func handleExtractWhatsAppBackup(
+        backupPath: String,
+        backupId: String?,
+        outputDirectory: String,
+        overwriteExisting: Bool,
+        standardOutput: OutputWriter
+    ) throws {
+        let backup = try resolveReadyBackup(backupPath: backupPath, backupId: backupId)
+        let outputURL = URL(fileURLWithPath: outputDirectory, isDirectory: true)
+        let extractedBackup = try backup.extractWhatsAppBackup(
+            to: outputURL,
+            overwriteExisting: overwriteExisting
+        )
+
+        standardOutput("Extracted WhatsApp backup \(backup.identifier) to \(extractedBackup.path)")
+    }
+
+    private func connectWhatsAppBackup(at whatsAppBackupPath: String) throws -> ConnectedBackupSource {
+        let backupURL = URL(fileURLWithPath: whatsAppBackupPath, isDirectory: true)
+        let waBackup = try WABackup(whatsAppBackupAt: backupURL)
+
+        return ConnectedBackupSource(
+            waBackup: waBackup,
+            headerLine: "WhatsApp backup: \(backupURL.path)",
+            outputDescription: "WhatsApp backup \(backupURL.path)"
+        )
+    }
+
+    private func resolveReadyBackup(
         backupPath: String,
         backupId: String?
-    ) throws -> (waBackup: WABackup, backup: IPhoneBackup) {
-        let waBackup = WABackup(backupPath: backupPath)
+    ) throws -> IPhoneBackup {
+        let waBackup = WABackup(iPhoneBackupsPath: backupPath)
         let inspections = try waBackup.inspectBackups()
-
         let inspection: BackupDiscoveryInfo
+
         if let backupId {
             guard let matched = inspections.first(where: { $0.identifier == backupId }) else {
                 throw CLIError.backupNotFound(backupId)
@@ -382,8 +470,7 @@ struct CLIApplication {
             )
         }
 
-        try waBackup.connectChatStorageDb(from: backup)
-        return (waBackup, backup)
+        return backup
     }
 
     private func renderBackupInspectionLine(_ inspection: BackupDiscoveryInfo) -> String {
@@ -473,8 +560,10 @@ struct CLIApplication {
 
             Commands:
               list-backups   Discover backups under a root folder.
-              list-chats     List chats for a backup.
-              export-chat    Export a chat as JSON or as a full directory bundle.
+              list-chats     List chats from an extracted WhatsApp backup.
+              export-chat    Export a chat from an extracted WhatsApp backup.
+              extract-whatsapp-backup
+                  Copy WhatsApp files out of an iPhone backup.
 
             Run 'SwiftWABackupCLI <command> --help' for command-specific options.
             """
@@ -492,8 +581,8 @@ struct CLIApplication {
             Usage: SwiftWABackupCLI list-chats [options]
 
             Options:
-              --backup-path <path>   Root directory that contains iPhone backups.
-              --backup-id <id>       Backup identifier. Defaults to the first valid backup.
+              --whatsapp-backup-path <path>
+                                      Extracted WhatsApp backup directory.
               --photos-dir <path>    Optional directory where chat photos will be copied.
               --json                 Emit JSON instead of text output.
               --pretty               Pretty-print JSON output.
@@ -503,15 +592,31 @@ struct CLIApplication {
             Usage: SwiftWABackupCLI export-chat [options]
 
             Options:
-              --backup-path <path>   Root directory that contains iPhone backups.
-              --backup-id <id>       Backup identifier. Defaults to the first valid backup.
+              --whatsapp-backup-path <path>
+                                      Extracted WhatsApp backup directory.
               --chat-id <id>         Chat identifier to export.
               --output-json <path>   Optional JSON file path. Exports only the JSON payload.
               --output-dir <path>    Optional export directory. Writes chat-<id>.json and copies media there.
               --pretty               Pretty-print JSON output.
             """
+        case .extractWhatsAppBackup:
+            return """
+            Usage: SwiftWABackupCLI extract-whatsapp-backup [options]
+
+            Options:
+              --backup-path <path>   Root directory that contains iPhone backups.
+              --backup-id <id>       Backup identifier. Defaults to the first valid backup.
+              --output-dir <path>    Directory where the WhatsApp tree will be reconstructed.
+              --overwrite            Replace existing files in the output directory.
+            """
         }
     }
+}
+
+private struct ConnectedBackupSource {
+    let waBackup: WABackup
+    let headerLine: String
+    let outputDescription: String
 }
 
 private struct BackupListPayload: Encodable {

@@ -376,7 +376,7 @@ extension DatabaseQueue {
     }
 }
 
-/// Main entry point for exploring a WhatsApp iPhone backup.
+/// Main entry point for discovering iPhone backups and reading extracted WhatsApp backups.
 public class WABackup {
     var phoneBackup: BackupManager
 
@@ -388,15 +388,26 @@ public class WABackup {
     }
 
     var chatDatabase: DatabaseQueue?
-    var iPhoneBackup: IPhoneBackup?
+    var fileSource: (any WhatsAppFileSource)?
     var ownerJid: String?
     var mediaCopier: MediaCopier?
     var addressBookIndex: AddressBookIndex?
     var lidAccountIndex: LidAccountIndex?
     var pushNamePhoneJidIndex: PushNamePhoneJidIndex?
 
-    /// Creates a backup explorer rooted at the provided iPhone backup directory.
-    public init(backupPath: String = "~/Library/Application Support/MobileSync/Backup/") {
-        self.phoneBackup = BackupManager(backupPath: backupPath)
+    /// Creates an API instance rooted at the provided iPhone backups directory.
+    public init(iPhoneBackupsPath: String = "~/Library/Application Support/MobileSync/Backup/") {
+        self.phoneBackup = BackupManager(backupPath: iPhoneBackupsPath)
+    }
+
+    /// Creates an API instance connected to an extracted WhatsApp backup directory.
+    public convenience init(whatsAppBackupAt directory: URL) throws {
+        self.init()
+        try connect(toWhatsAppBackupAt: directory)
+    }
+
+    /// Creates an API instance connected to an extracted WhatsApp backup path.
+    public convenience init(whatsAppBackupPath: String) throws {
+        try self.init(whatsAppBackupAt: URL(fileURLWithPath: whatsAppBackupPath, isDirectory: true))
     }
 }
