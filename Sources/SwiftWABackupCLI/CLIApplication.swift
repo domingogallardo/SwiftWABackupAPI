@@ -3,21 +3,21 @@ import SwiftWABackupAPI
 
 enum CLIError: LocalizedError {
     case invalidArguments(String)
-    case backupNotFound(String)
+    case iPhoneBackupNotFound(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidArguments(let message):
             return message
-        case .backupNotFound(let identifier):
-            return "Backup '\(identifier)' not found."
+        case .iPhoneBackupNotFound(let identifier):
+            return "iPhone backup '\(identifier)' not found."
         }
     }
 }
 
 enum HelpTopic {
     case root
-    case listBackups
+    case listIPhoneBackups
     case listChats
     case exportChat
     case extractWhatsAppBackup
@@ -25,7 +25,7 @@ enum HelpTopic {
 
 enum CLICommand {
     case help(HelpTopic)
-    case listBackups(backupPath: String, json: Bool, pretty: Bool)
+    case listIPhoneBackups(iPhoneBackupsPath: String, json: Bool, pretty: Bool)
     case listChats(
         whatsAppBackupPath: String,
         photosDirectory: String?,
@@ -40,8 +40,8 @@ enum CLICommand {
         pretty: Bool
     )
     case extractWhatsAppBackup(
-        backupPath: String,
-        backupId: String?,
+        iPhoneBackupsPath: String,
+        iPhoneBackupId: String?,
         outputDirectory: String,
         overwriteExisting: Bool
     )
@@ -60,12 +60,12 @@ struct CLICommandParser {
         }
 
         switch first {
-        case "list-backups":
+        case "list-iphone-backups":
             if arguments.dropFirst().contains("--help") || arguments.dropFirst().contains("-h") {
-                return .help(.listBackups)
+                return .help(.listIPhoneBackups)
             }
 
-            var backupPath = "~/Library/Application Support/MobileSync/Backup/"
+            var iPhoneBackupsPath = "~/Library/Application Support/MobileSync/Backup/"
             var json = false
             var pretty = false
 
@@ -73,8 +73,8 @@ struct CLICommandParser {
             while index < arguments.count {
                 let argument = arguments[index]
                 switch argument {
-                case "--backup-path":
-                    backupPath = try requireValue(for: argument, at: index)
+                case "--iphone-backups-path":
+                    iPhoneBackupsPath = try requireValue(for: argument, at: index)
                     index += 2
                 case "--json":
                     json = true
@@ -87,7 +87,7 @@ struct CLICommandParser {
                 }
             }
 
-            return .listBackups(backupPath: backupPath, json: json, pretty: pretty)
+            return .listIPhoneBackups(iPhoneBackupsPath: iPhoneBackupsPath, json: json, pretty: pretty)
 
         case "list-chats":
             if arguments.dropFirst().contains("--help") || arguments.dropFirst().contains("-h") {
@@ -201,8 +201,8 @@ struct CLICommandParser {
                 return .help(.extractWhatsAppBackup)
             }
 
-            var backupPath = "~/Library/Application Support/MobileSync/Backup/"
-            var backupId: String?
+            var iPhoneBackupsPath = "~/Library/Application Support/MobileSync/Backup/"
+            var iPhoneBackupId: String?
             var outputDirectory: String?
             var overwriteExisting = false
 
@@ -210,11 +210,11 @@ struct CLICommandParser {
             while index < arguments.count {
                 let argument = arguments[index]
                 switch argument {
-                case "--backup-path":
-                    backupPath = try requireValue(for: argument, at: index)
+                case "--iphone-backups-path":
+                    iPhoneBackupsPath = try requireValue(for: argument, at: index)
                     index += 2
-                case "--backup-id":
-                    backupId = try requireValue(for: argument, at: index)
+                case "--iphone-backup-id":
+                    iPhoneBackupId = try requireValue(for: argument, at: index)
                     index += 2
                 case "--output-dir":
                     outputDirectory = try requireValue(for: argument, at: index)
@@ -232,8 +232,8 @@ struct CLICommandParser {
             }
 
             return .extractWhatsAppBackup(
-                backupPath: backupPath,
-                backupId: backupId,
+                iPhoneBackupsPath: iPhoneBackupsPath,
+                iPhoneBackupId: iPhoneBackupId,
                 outputDirectory: outputDirectory,
                 overwriteExisting: overwriteExisting
             )
@@ -268,9 +268,9 @@ struct CLIApplication {
             case .help(let topic):
                 standardOutput(Self.usage(for: topic))
                 return 0
-            case .listBackups(let backupPath, let json, let pretty):
-                try handleListBackups(
-                    backupPath: backupPath,
+            case .listIPhoneBackups(let iPhoneBackupsPath, let json, let pretty):
+                try handleListIPhoneBackups(
+                    iPhoneBackupsPath: iPhoneBackupsPath,
                     json: json,
                     pretty: pretty,
                     standardOutput: standardOutput
@@ -299,14 +299,14 @@ struct CLIApplication {
                     standardOutput: standardOutput
                 )
             case .extractWhatsAppBackup(
-                let backupPath,
-                let backupId,
+                let iPhoneBackupsPath,
+                let iPhoneBackupId,
                 let outputDirectory,
                 let overwriteExisting
             ):
                 try handleExtractWhatsAppBackup(
-                    backupPath: backupPath,
-                    backupId: backupId,
+                    iPhoneBackupsPath: iPhoneBackupsPath,
+                    iPhoneBackupId: iPhoneBackupId,
                     outputDirectory: outputDirectory,
                     overwriteExisting: overwriteExisting,
                     standardOutput: standardOutput
@@ -323,33 +323,30 @@ struct CLIApplication {
         }
     }
 
-    private func handleListBackups(
-        backupPath: String,
+    private func handleListIPhoneBackups(
+        iPhoneBackupsPath: String,
         json: Bool,
         pretty: Bool,
         standardOutput: OutputWriter
     ) throws {
-        let waBackup = WABackup(iPhoneBackupsPath: backupPath)
-        let inspections = try waBackup.inspectBackups()
-        let backups = try waBackup.getBackups()
+        let waBackup = WABackup(iPhoneBackupsPath: iPhoneBackupsPath)
+        let inspections = try waBackup.inspectIPhoneBackups()
 
         if json {
-            let payload = BackupListPayload(
-                backups: inspections.map(BackupListPayload.Backup.init),
-                validBackups: backups.validBackups.map(BackupListPayload.ValidBackup.init),
-                invalidBackups: backups.invalidBackups.map(\.path)
+            let payload = IPhoneBackupListPayload(
+                iPhoneBackups: inspections.map(IPhoneBackupListPayload.IPhoneBackupInspection.init)
             )
             standardOutput(try renderJSON(payload, pretty: pretty))
             return
         }
 
         if inspections.isEmpty {
-            standardOutput("No backups found.")
+            standardOutput("No iPhone backups found.")
             return
         }
 
         for inspection in inspections {
-            standardOutput(renderBackupInspectionLine(inspection))
+            standardOutput(renderIPhoneBackupInspectionLine(inspection))
         }
     }
 
@@ -414,13 +411,16 @@ struct CLIApplication {
     }
 
     private func handleExtractWhatsAppBackup(
-        backupPath: String,
-        backupId: String?,
+        iPhoneBackupsPath: String,
+        iPhoneBackupId: String?,
         outputDirectory: String,
         overwriteExisting: Bool,
         standardOutput: OutputWriter
     ) throws {
-        let backup = try resolveReadyBackup(backupPath: backupPath, backupId: backupId)
+        let backup = try resolveReadyIPhoneBackup(
+            iPhoneBackupsPath: iPhoneBackupsPath,
+            iPhoneBackupId: iPhoneBackupId
+        )
         let outputURL = URL(fileURLWithPath: outputDirectory, isDirectory: true)
         let extractedBackup = try backup.extractWhatsAppBackup(
             to: outputURL,
@@ -441,39 +441,39 @@ struct CLIApplication {
         )
     }
 
-    private func resolveReadyBackup(
-        backupPath: String,
-        backupId: String?
+    private func resolveReadyIPhoneBackup(
+        iPhoneBackupsPath: String,
+        iPhoneBackupId: String?
     ) throws -> IPhoneBackup {
-        let waBackup = WABackup(iPhoneBackupsPath: backupPath)
-        let inspections = try waBackup.inspectBackups()
-        let inspection: BackupDiscoveryInfo
+        let waBackup = WABackup(iPhoneBackupsPath: iPhoneBackupsPath)
+        let inspections = try waBackup.inspectIPhoneBackups()
+        let inspection: IPhoneBackupDiscoveryInfo
 
-        if let backupId {
-            guard let matched = inspections.first(where: { $0.identifier == backupId }) else {
-                throw CLIError.backupNotFound(backupId)
+        if let iPhoneBackupId {
+            guard let matched = inspections.first(where: { $0.identifier == iPhoneBackupId }) else {
+                throw CLIError.iPhoneBackupNotFound(iPhoneBackupId)
             }
             inspection = matched
         } else {
             guard let first = inspections.first(where: \.isReady) else {
                 throw CLIError.invalidArguments(
-                    "No ready backups found. Run 'list-backups' to inspect encryption status and backup diagnostics."
+                    "No ready iPhone backups found. Run 'list-iphone-backups' to inspect encryption status and backup diagnostics."
                 )
             }
             inspection = first
         }
 
-        guard inspection.isReady, let backup = inspection.backup else {
-            let issue = inspection.issue ?? "Backup status is \(inspection.status.rawValue)."
+        guard inspection.isReady, let backup = inspection.iPhoneBackup else {
+            let issue = inspection.issue ?? "iPhone backup status is \(inspection.status.rawValue)."
             throw CLIError.invalidArguments(
-                "Backup '\(inspection.identifier)' is not ready for chat access: \(issue)"
+                "iPhone backup '\(inspection.identifier)' is not ready for WhatsApp extraction: \(issue)"
             )
         }
 
         return backup
     }
 
-    private func renderBackupInspectionLine(_ inspection: BackupDiscoveryInfo) -> String {
+    private func renderIPhoneBackupInspectionLine(_ inspection: IPhoneBackupDiscoveryInfo) -> String {
         let creationDate = inspection.creationDate.map(iso8601Formatter.string(from:)) ?? "-"
         let encryptionState: String
         if let isEncrypted = inspection.isEncrypted {
@@ -483,7 +483,7 @@ struct CLIApplication {
         }
 
         var columns = [
-            backupStatusLabel(for: inspection.status),
+            iPhoneBackupStatusLabel(for: inspection.status),
             inspection.identifier,
             creationDate,
             encryptionState,
@@ -497,7 +497,7 @@ struct CLIApplication {
         return columns.joined(separator: "\t")
     }
 
-    private func backupStatusLabel(for status: BackupDiscoveryStatus) -> String {
+    private func iPhoneBackupStatusLabel(for status: IPhoneBackupDiscoveryStatus) -> String {
         switch status {
         case .ready:
             return "READY"
@@ -559,22 +559,25 @@ struct CLIApplication {
             Usage: SwiftWABackupCLI <command> [options]
 
             Commands:
-              list-backups   Discover backups under a root folder.
-              list-chats     List chats from an extracted WhatsApp backup.
-              export-chat    Export a chat from an extracted WhatsApp backup.
+              list-iphone-backups
+                  Discover iPhone backups under a root folder.
+              list-chats
+                  List chats from an extracted WhatsApp backup.
+              export-chat
+                  Export a chat from an extracted WhatsApp backup.
               extract-whatsapp-backup
                   Copy WhatsApp files out of an iPhone backup.
 
             Run 'SwiftWABackupCLI <command> --help' for command-specific options.
             """
-        case .listBackups:
+        case .listIPhoneBackups:
             return """
-            Usage: SwiftWABackupCLI list-backups [options]
+            Usage: SwiftWABackupCLI list-iphone-backups [options]
 
             Options:
-              --backup-path <path>   Root directory that contains iPhone backups.
-              --json                 Emit JSON instead of text output.
-              --pretty               Pretty-print JSON output.
+              --iphone-backups-path <path>   Root directory that contains iPhone backups.
+              --json                         Emit JSON instead of text output.
+              --pretty                       Pretty-print JSON output.
             """
         case .listChats:
             return """
@@ -604,10 +607,10 @@ struct CLIApplication {
             Usage: SwiftWABackupCLI extract-whatsapp-backup [options]
 
             Options:
-              --backup-path <path>   Root directory that contains iPhone backups.
-              --backup-id <id>       Backup identifier. Defaults to the first valid backup.
-              --output-dir <path>    Directory where the WhatsApp tree will be reconstructed.
-              --overwrite            Replace existing files in the output directory.
+              --iphone-backups-path <path>   Root directory that contains iPhone backups.
+              --iphone-backup-id <id>        iPhone backup identifier. Defaults to the first ready backup.
+              --output-dir <path>            Directory where the WhatsApp tree will be reconstructed.
+              --overwrite                    Replace existing files in the output directory.
             """
         }
     }
@@ -619,42 +622,26 @@ private struct OpenedWhatsAppBackup {
     let outputDescription: String
 }
 
-private struct BackupListPayload: Encodable {
-    struct Backup: Encodable {
+private struct IPhoneBackupListPayload: Encodable {
+    struct IPhoneBackupInspection: Encodable {
         let identifier: String
         let path: String
         let creationDate: Date?
         let isEncrypted: Bool?
         let isReady: Bool
-        let status: BackupDiscoveryStatus
+        let status: IPhoneBackupDiscoveryStatus
         let issue: String?
 
-        init(_ backup: BackupDiscoveryInfo) {
-            identifier = backup.identifier
-            path = backup.path
-            creationDate = backup.creationDate
-            isEncrypted = backup.isEncrypted
-            isReady = backup.isReady
-            status = backup.status
-            issue = backup.issue
+        init(_ inspection: IPhoneBackupDiscoveryInfo) {
+            identifier = inspection.identifier
+            path = inspection.path
+            creationDate = inspection.creationDate
+            isEncrypted = inspection.isEncrypted
+            isReady = inspection.isReady
+            status = inspection.status
+            issue = inspection.issue
         }
     }
 
-    struct ValidBackup: Encodable {
-        let identifier: String
-        let path: String
-        let creationDate: Date
-        let isEncrypted: Bool?
-
-        init(_ backup: IPhoneBackup) {
-            identifier = backup.identifier
-            path = backup.path
-            creationDate = backup.creationDate
-            isEncrypted = backup.isEncrypted
-        }
-    }
-
-    let backups: [Backup]
-    let validBackups: [ValidBackup]
-    let invalidBackups: [String]
+    let iPhoneBackups: [IPhoneBackupInspection]
 }

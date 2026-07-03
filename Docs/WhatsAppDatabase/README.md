@@ -22,15 +22,15 @@ So, in the API model:
 - `@s.whatsapp.net` means the participant is already identified by phone-based JID.
 - `@lid` means the participant is identified by a non-phone/private WhatsApp identity that may or may not be resolvable to a phone number from local client data.
 
-## Backup Discovery and Encryption Diagnostics
+## iPhone Backup Discovery and Encryption Diagnostics
 
-The package now exposes two discovery layers:
+The package exposes two iPhone-backup discovery layers:
 
-- `getBackups()` is the legacy compatibility API. It classifies candidates only
-  as `validBackups` or `invalidBackups`.
-- `inspectBackups()` is the diagnostic API. It inspects `Status.plist`,
+- `getIPhoneBackups()` returns the iPhone backups that are ready for WhatsApp
+  extraction.
+- `inspectIPhoneBackups()` is the diagnostic API. It inspects `Status.plist`,
   `Manifest.db`, and, when available, `Manifest.plist` to report a structured
-  `BackupDiscoveryInfo` with a `status`, optional `isEncrypted`, and `isReady`.
+  `IPhoneBackupDiscoveryInfo` with a `status`, optional `isEncrypted`, and `isReady`.
 
 Current encryption detection is based on `Manifest.plist["IsEncrypted"]`:
 
@@ -39,8 +39,8 @@ Current encryption detection is based on `Manifest.plist["IsEncrypted"]`:
 - `status = encryptionStatusUnavailable` means WhatsApp data was found but
   `Manifest.plist` was missing, malformed, unreadable, or lacked `IsEncrypted`
 
-The chat and export APIs still assume the caller passes a backup that is ready
-to use, typically by checking `inspectBackups()` first.
+Extraction assumes the caller uses an iPhone backup that is ready, typically by
+checking `inspectIPhoneBackups()` first.
 
 ## Extracted WhatsApp Backups
 
@@ -186,10 +186,10 @@ Replies are encoded through media metadata rather than a direct foreign key:
 - The validated WhatsApp Web examples now line up with the current visible reaction behavior on the checked messages, including emoji plus the reacting participant's label and phone when the web shows one.
 - `SwiftWABackupAPITests.testMessageContentExtraction` exercises messages with and without reactions to confirm the parser output stays stable.
 
-## Media Retrieval & Manifest Lookup
+## Media Retrieval
 
-- Media files referenced in `ZWAMESSAGE` are stored in the iTunes backup under hashed paths. `IPhoneBackup.fetchWAFileHash` queries `Manifest.db` (`domain = 'AppDomainGroup-group.net.whatsapp.WhatsApp.shared'`) to translate a relative path such as `Media/345.../file.jpg` into the hash used on disk.
-- `MediaCopier` then copies the hashed file from `<backup>/<hash-prefix>/<hash>` to a caller-specified directory, renaming it to the original filename. Missing files raise `BackupError.fileCopy` so callers can handle partial exports gracefully.
+- Media files referenced in `ZWAMESSAGE` are read from the extracted WhatsApp backup directory using their preserved relative paths.
+- `MediaCopier` copies files from that extracted tree to a caller-specified directory, renaming them to their original filenames. Missing files raise `BackupError.fileCopy` so callers can handle partial exports gracefully.
 - Location messages reuse the same mechanism while also surfacing `ZLATITUDE`/`ZLONGITUDE`; video/audio messages add `ZMOVIEDURATION` as `seconds`.
 
 ### Profile Photo Retrieval
@@ -205,7 +205,7 @@ The library surfaces granular error enums so consumers can react appropriately:
 - `DatabaseErrorWA` – database connection problems, unexpected schemas, or missing rows.
 - `DomainError` – higher-level logic errors (media not found, unsupported message types).
 
-These errors are thrown from API entry points (`getBackups`, `inspectBackups`,
+These errors are thrown from API entry points (`getIPhoneBackups`, `inspectIPhoneBackups`,
 `WABackup(whatsAppBackupAt:)`, `getChat`, etc.) and are covered by the happy-path
 tests; you can trigger them manually by corrupting the fixture or requesting
 unsupported resources.

@@ -3,17 +3,17 @@ import XCTest
 @testable import SwiftWABackupAPI
 
 final class ErrorHandlingTests: XCTestCase {
-    func testGetBackupsThrowsForMissingRootDirectory() {
+    func testGetIPhoneBackupsThrowsForMissingRootDirectory() {
         let waBackup = WABackup(iPhoneBackupsPath: "/tmp/SwiftWABackupAPI/non-existent-\(UUID().uuidString)")
 
-        XCTAssertThrowsError(try waBackup.getBackups()) { error in
+        XCTAssertThrowsError(try waBackup.getIPhoneBackups()) { error in
             guard case BackupError.directoryAccess = error else {
                 return XCTFail("Expected BackupError.directoryAccess, got \(error)")
             }
         }
     }
 
-    func testGetBackupsReportsIncompleteBackupAsInvalid() throws {
+    func testGetIPhoneBackupsIgnoresIncompleteBackup() throws {
         let rootURL = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-invalid-backup")
         defer { try? PublicTestSupport.removeItemIfExists(at: rootURL) }
 
@@ -22,16 +22,12 @@ final class ErrorHandlingTests: XCTestCase {
         try Data().write(to: backupURL.appendingPathComponent("Info.plist"))
 
         let waBackup = WABackup(iPhoneBackupsPath: rootURL.path)
-        let backups = try waBackup.getBackups()
+        let backups = try waBackup.getIPhoneBackups()
 
-        XCTAssertTrue(backups.validBackups.isEmpty)
-        XCTAssertEqual(
-            backups.invalidBackups.map { $0.standardizedFileURL.path },
-            [backupURL.standardizedFileURL.path]
-        )
+        XCTAssertTrue(backups.isEmpty)
     }
 
-    func testInspectBackupsReportsIncompleteBackupDetails() throws {
+    func testInspectIPhoneBackupsReportsIncompleteBackupDetails() throws {
         let rootURL = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-invalid-backup-diagnostics")
         defer { try? PublicTestSupport.removeItemIfExists(at: rootURL) }
 
@@ -40,14 +36,14 @@ final class ErrorHandlingTests: XCTestCase {
         try Data().write(to: backupURL.appendingPathComponent("Info.plist"))
 
         let waBackup = WABackup(iPhoneBackupsPath: rootURL.path)
-        let infos = try waBackup.inspectBackups()
+        let infos = try waBackup.inspectIPhoneBackups()
         let info = try XCTUnwrap(infos.first)
 
         XCTAssertEqual(info.identifier, "incomplete-backup")
         XCTAssertEqual(info.status, .missingRequiredFile)
         XCTAssertFalse(info.isReady)
         XCTAssertEqual(info.issue, "Manifest.db is missing.")
-        XCTAssertNil(info.backup)
+        XCTAssertNil(info.iPhoneBackup)
     }
 
     func testGetChatsFailsWhenDatabaseIsNotConnected() {

@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-The Swift package is defined in `Package.swift`; all library code lives in `Sources/SwiftWABackupAPI`, with each domain concept separated into its own Swift file (for example `BackupManager.swift` for orchestration and `ReactionParser.swift` for message metadata). Tests reside in `Tests/SwiftWABackupAPITests/SwiftWABackupAPITests.swift` and rely on fixtures under `Tests/Data`, including `ChatStorage.sqlite` and companion JSON/text exports. When adding new modules, mirror this layout: place production types under `Sources/SwiftWABackupAPI` and stage any supporting sample artefacts in `Tests/Data`.
+The Swift package is defined in `Package.swift`; all library code lives in `Sources/SwiftWABackupAPI`, with each domain concept separated into its own Swift file (for example `IPhoneBackupManager.swift` for orchestration and `ReactionParser.swift` for message metadata). Tests reside in `Tests/SwiftWABackupAPITests/SwiftWABackupAPITests.swift` and rely on fixtures under `Tests/Data`, including `ChatStorage.sqlite` and companion JSON/text exports. When adding new modules, mirror this layout: place production types under `Sources/SwiftWABackupAPI` and stage any supporting sample artefacts in `Tests/Data`.
 
 ## Build, Test, and Development Commands
 - `swift build` — compile the package locally.

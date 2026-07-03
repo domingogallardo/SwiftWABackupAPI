@@ -1,7 +1,7 @@
 import Foundation
 
 /// High-level status reported while inspecting an iPhone backup candidate.
-public enum BackupDiscoveryStatus: String, Codable {
+public enum IPhoneBackupDiscoveryStatus: String, Codable {
     /// The backup contains WhatsApp data and is explicitly marked as not encrypted.
     case ready
 
@@ -27,10 +27,10 @@ public enum BackupDiscoveryStatus: String, Codable {
     case unreadableBackup
 }
 
-/// Diagnostic information returned by `inspectBackups()`.
+/// Diagnostic information returned by `inspectIPhoneBackups()`.
 ///
-/// Use `status == .ready` before extracting WhatsApp data from `backup`.
-public struct BackupDiscoveryInfo: Encodable {
+/// Use `status == .ready` before extracting WhatsApp data from `iPhoneBackup`.
+public struct IPhoneBackupDiscoveryInfo: Encodable {
     /// Directory name used by Finder/iTunes to identify the backup.
     public let identifier: String
 
@@ -43,22 +43,22 @@ public struct BackupDiscoveryInfo: Encodable {
     /// Encryption flag declared by `Manifest.plist` when available.
     public let isEncrypted: Bool?
 
-    /// Whether the backup is explicitly ready to be used with the chat APIs.
+    /// Whether the backup is explicitly ready for WhatsApp extraction.
     public let isReady: Bool
 
     /// High-level inspection result.
-    public let status: BackupDiscoveryStatus
+    public let status: IPhoneBackupDiscoveryStatus
 
     /// Optional diagnostic message for non-ready results.
     public let issue: String?
 
-    private let discoveredBackup: IPhoneBackup?
+    private let discoveredIPhoneBackup: IPhoneBackup?
 
     /// Resolved iPhone backup value that can be used for WhatsApp extraction.
     ///
     /// Callers should still check `status == .ready` before extracting from it.
-    public var backup: IPhoneBackup? {
-        discoveredBackup
+    public var iPhoneBackup: IPhoneBackup? {
+        discoveredIPhoneBackup
     }
 
     init(
@@ -66,9 +66,9 @@ public struct BackupDiscoveryInfo: Encodable {
         path: String,
         creationDate: Date?,
         isEncrypted: Bool?,
-        status: BackupDiscoveryStatus,
+        status: IPhoneBackupDiscoveryStatus,
         issue: String?,
-        backup: IPhoneBackup? = nil
+        iPhoneBackup: IPhoneBackup? = nil
     ) {
         self.identifier = identifier
         self.path = path
@@ -76,7 +76,7 @@ public struct BackupDiscoveryInfo: Encodable {
         self.isEncrypted = isEncrypted
         self.status = status
         self.issue = issue
-        self.discoveredBackup = backup
+        self.discoveredIPhoneBackup = iPhoneBackup
         self.isReady = status == .ready
     }
 

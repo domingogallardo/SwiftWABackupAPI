@@ -90,9 +90,9 @@ final class PublicJSONContractTests: XCTestCase {
         )
     }
 
-    func testBackupDiscoveryInfoReadyJSONContract() throws {
+    func testIPhoneBackupDiscoveryInfoReadyJSONContract() throws {
         let date = Date(timeIntervalSince1970: 1_712_143_456)
-        let info = BackupDiscoveryInfo(
+        let info = IPhoneBackupDiscoveryInfo(
             identifier: "sample-backup",
             path: "/tmp/sample-backup",
             creationDate: date,
@@ -118,15 +118,15 @@ final class PublicJSONContractTests: XCTestCase {
         )
     }
 
-    func testBackupDiscoveryInfoEncryptedJSONContract() throws {
+    func testIPhoneBackupDiscoveryInfoEncryptedJSONContract() throws {
         let date = Date(timeIntervalSince1970: 1_712_143_456)
-        let info = BackupDiscoveryInfo(
+        let info = IPhoneBackupDiscoveryInfo(
             identifier: "encrypted-backup",
             path: "/tmp/encrypted-backup",
             creationDate: date,
             isEncrypted: true,
             status: .encrypted,
-            issue: "Backup is encrypted."
+            issue: "iPhone backup is encrypted."
         )
 
         let json = try PublicTestSupport.canonicalJSONString(info)
@@ -139,7 +139,7 @@ final class PublicJSONContractTests: XCTestCase {
               "identifier" : "encrypted-backup",
               "isEncrypted" : true,
               "isReady" : false,
-              "issue" : "Backup is encrypted.",
+              "issue" : "iPhone backup is encrypted.",
               "path" : "\\/tmp\\/encrypted-backup",
               "status" : "encrypted"
             }

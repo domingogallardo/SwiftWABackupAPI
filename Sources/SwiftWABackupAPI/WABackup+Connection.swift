@@ -7,22 +7,14 @@ import Foundation
 import GRDB
 
 public extension WABackup {
-    /// Discovers iPhone backups under the configured backup path.
-    func getBackups() throws -> BackupFetchResult {
-        do {
-            return try phoneBackup.getBackups()
-        } catch {
-            throw BackupError.directoryAccess(error)
-        }
+    /// Returns iPhone backups that are ready for WhatsApp extraction.
+    func getIPhoneBackups() throws -> [IPhoneBackup] {
+        try iPhoneBackupManager.getIPhoneBackups()
     }
 
     /// Discovers iPhone backups together with diagnostic information such as encryption state.
-    func inspectBackups() throws -> [BackupDiscoveryInfo] {
-        do {
-            return try phoneBackup.inspectBackups()
-        } catch {
-            throw BackupError.directoryAccess(error)
-        }
+    func inspectIPhoneBackups() throws -> [IPhoneBackupDiscoveryInfo] {
+        try iPhoneBackupManager.inspectIPhoneBackups()
     }
 
 }

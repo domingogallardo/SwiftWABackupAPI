@@ -2,61 +2,60 @@ import Foundation
 import XCTest
 @testable import SwiftWABackupAPI
 
-final class BackupDiscoveryTests: XCTestCase {
-    func testBackupDiscoveryFindsGeneratedBackup() throws {
+final class IPhoneBackupDiscoveryTests: XCTestCase {
+    func testIPhoneBackupDiscoveryFindsGeneratedBackup() throws {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
         let waBackup = WABackup(iPhoneBackupsPath: fixture.rootURL.path)
-        let backups = try waBackup.getBackups()
+        let backups = try waBackup.getIPhoneBackups()
 
-        XCTAssertEqual(backups.validBackups.count, 1, "Expected exactly one generated valid backup")
-        XCTAssertTrue(backups.invalidBackups.isEmpty)
-        XCTAssertEqual(backups.validBackups[0].identifier, fixture.backup.identifier)
+        XCTAssertEqual(backups.count, 1, "Expected exactly one generated ready iPhone backup")
+        XCTAssertEqual(backups[0].identifier, fixture.backup.identifier)
         XCTAssertEqual(
-            URL(fileURLWithPath: backups.validBackups[0].path).standardizedFileURL.path,
+            URL(fileURLWithPath: backups[0].path).standardizedFileURL.path,
             URL(fileURLWithPath: fixture.backup.path).standardizedFileURL.path
         )
-        XCTAssertEqual(backups.validBackups[0].isEncrypted, false)
+        XCTAssertEqual(backups[0].isEncrypted, false)
     }
 
-    func testInspectBackupsReturnsReadyBackupDiagnostics() throws {
+    func testInspectIPhoneBackupsReturnsReadyBackupDiagnostics() throws {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
         let waBackup = WABackup(iPhoneBackupsPath: fixture.rootURL.path)
-        let infos = try waBackup.inspectBackups()
+        let infos = try waBackup.inspectIPhoneBackups()
         let info = try XCTUnwrap(infos.first)
 
         XCTAssertEqual(info.status, .ready)
         XCTAssertTrue(info.isReady)
         XCTAssertEqual(info.isEncrypted, false)
         XCTAssertNil(info.issue)
-        XCTAssertEqual(info.backup?.identifier, fixture.backup.identifier)
-        XCTAssertEqual(info.backup?.isEncrypted, false)
+        XCTAssertEqual(info.iPhoneBackup?.identifier, fixture.backup.identifier)
+        XCTAssertEqual(info.iPhoneBackup?.isEncrypted, false)
     }
 
-    func testInspectBackupsReturnsEncryptedBackupDiagnostics() throws {
+    func testInspectIPhoneBackupsReturnsEncryptedBackupDiagnostics() throws {
         let fixture = try PublicTestSupport.makeTemporaryBackup(name: "encrypted-backup", isEncrypted: true) { _ in }
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
         let waBackup = WABackup(iPhoneBackupsPath: fixture.rootURL.path)
-        let infos = try waBackup.inspectBackups()
+        let infos = try waBackup.inspectIPhoneBackups()
         let info = try XCTUnwrap(infos.first)
 
         XCTAssertEqual(info.status, .encrypted)
         XCTAssertFalse(info.isReady)
         XCTAssertEqual(info.isEncrypted, true)
-        XCTAssertEqual(info.issue, "Backup is encrypted.")
-        XCTAssertEqual(info.backup?.isEncrypted, true)
+        XCTAssertEqual(info.issue, "iPhone backup is encrypted.")
+        XCTAssertEqual(info.iPhoneBackup?.isEncrypted, true)
     }
 
-    func testInspectBackupsReportsUnknownEncryptionStateWhenManifestPlistIsMissing() throws {
+    func testInspectIPhoneBackupsReportsUnknownEncryptionStateWhenManifestPlistIsMissing() throws {
         let fixture = try PublicTestSupport.makeTemporaryBackup(name: "unknown-encryption-backup", isEncrypted: nil) { _ in }
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
         let waBackup = WABackup(iPhoneBackupsPath: fixture.rootURL.path)
-        let infos = try waBackup.inspectBackups()
+        let infos = try waBackup.inspectIPhoneBackups()
         let info = try XCTUnwrap(infos.first)
 
         XCTAssertEqual(info.status, .encryptionStatusUnavailable)
@@ -66,7 +65,7 @@ final class BackupDiscoveryTests: XCTestCase {
             info.issue,
             "Manifest.plist is missing, so encryption status could not be determined."
         )
-        XCTAssertNil(info.backup?.isEncrypted)
+        XCTAssertNil(info.iPhoneBackup?.isEncrypted)
     }
 
     func testOpensExtractedWhatsAppBackup() throws {

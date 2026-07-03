@@ -378,7 +378,7 @@ extension DatabaseQueue {
 
 /// Main entry point for discovering iPhone backups and reading extracted WhatsApp backups.
 public class WABackup {
-    var phoneBackup: BackupManager
+    var iPhoneBackupManager: IPhoneBackupManager
 
     /// Delegate used to observe media export events.
     public weak var delegate: WABackupDelegate? {
@@ -397,7 +397,7 @@ public class WABackup {
 
     /// Creates an API instance rooted at the provided iPhone backups directory.
     public init(iPhoneBackupsPath: String = "~/Library/Application Support/MobileSync/Backup/") {
-        self.phoneBackup = BackupManager(backupPath: iPhoneBackupsPath)
+        self.iPhoneBackupManager = IPhoneBackupManager(iPhoneBackupsPath: iPhoneBackupsPath)
     }
 
     /// Creates an API instance opened on an extracted WhatsApp backup directory.

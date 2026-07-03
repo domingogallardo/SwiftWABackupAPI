@@ -8,8 +8,8 @@ The tracked tests under `Tests/SwiftWABackupAPITests/Public/` are the self-conta
 - Fixture-backed regression tests stay outside the public folder and remain local-only.
 - Any helper used to pseudonymize public test identifiers or other sensitive literals should remain under `Private/`, not in the public tree.
 
-The public backup-discovery coverage now includes both the legacy discovery flow
-(`getBackups()`) and the diagnostic flow (`inspectBackups()`), including ready,
+The public iPhone-backup discovery coverage includes both the ready-backup flow
+(`getIPhoneBackups()`) and the diagnostic flow (`inspectIPhoneBackups()`), including ready,
 encrypted, unknown-encryption, and incomplete-backup cases.
 
 ## Running Tests
@@ -17,7 +17,7 @@ encrypted, unknown-encryption, and incomplete-backup cases.
 Public suites run by default:
 
 - `swift test`
-- `swift test --filter BackupDiscoveryTests`
+- `swift test --filter IPhoneBackupDiscoveryTests`
 - `swift test --filter ChatSmokeTests`
 - `swift test --filter MediaExportSmokeTests`
 - `swift test --filter ExtractedWhatsAppBackupTests`
@@ -28,8 +28,8 @@ Public suites run by default:
 - `swift test --filter GroupChatInvariantTests`
 - `swift test --filter PublicJSONContractTests`
 
-`PublicJSONContractTests` now covers both chat-export payloads and the
-diagnostic discovery payload returned by `inspectBackups()`.
+`PublicJSONContractTests` covers both chat-export payloads and the diagnostic
+iPhone-backup discovery payload returned by `inspectIPhoneBackups()`.
 
 Private fixture-backed suites require the large local backup and the opt-in gate:
 

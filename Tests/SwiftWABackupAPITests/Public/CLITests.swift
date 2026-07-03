@@ -10,13 +10,13 @@ final class CLICommandParserTests: XCTestCase {
         XCTAssertTrue(exitCode.standardOutput.contains("Usage: SwiftWABackupCLI <command> [options]"))
     }
 
-    func testListBackupsJSON() throws {
+    func testListIPhoneBackupsJSON() throws {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
         let result = runCLI(arguments: [
-            "list-backups",
-            "--backup-path", fixture.rootURL.path,
+            "list-iphone-backups",
+            "--iphone-backups-path", fixture.rootURL.path,
             "--json"
         ])
 
@@ -24,24 +24,21 @@ final class CLICommandParserTests: XCTestCase {
 
         let data = try XCTUnwrap(result.standardOutput.data(using: .utf8))
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let backups = try XCTUnwrap(object?["backups"] as? [[String: Any]])
-        let validBackups = try XCTUnwrap(object?["validBackups"] as? [[String: Any]])
+        let iPhoneBackups = try XCTUnwrap(object?["iPhoneBackups"] as? [[String: Any]])
 
-        XCTAssertEqual(backups.count, 1)
-        XCTAssertEqual(backups.first?["status"] as? String, "ready")
-        XCTAssertEqual(backups.first?["isEncrypted"] as? Bool, false)
-        XCTAssertEqual(validBackups.count, 1)
-        XCTAssertEqual(validBackups.first?["identifier"] as? String, fixture.backup.identifier)
-        XCTAssertEqual(validBackups.first?["isEncrypted"] as? Bool, false)
+        XCTAssertEqual(iPhoneBackups.count, 1)
+        XCTAssertEqual(iPhoneBackups.first?["identifier"] as? String, fixture.backup.identifier)
+        XCTAssertEqual(iPhoneBackups.first?["status"] as? String, "ready")
+        XCTAssertEqual(iPhoneBackups.first?["isEncrypted"] as? Bool, false)
     }
 
-    func testListBackupsJSONReportsEncryptedBackup() throws {
+    func testListIPhoneBackupsJSONReportsEncryptedBackup() throws {
         let fixture = try PublicTestSupport.makeTemporaryBackup(name: "encrypted-backup", isEncrypted: true) { _ in }
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
         let result = runCLI(arguments: [
-            "list-backups",
-            "--backup-path", fixture.rootURL.path,
+            "list-iphone-backups",
+            "--iphone-backups-path", fixture.rootURL.path,
             "--json"
         ])
 
@@ -49,14 +46,11 @@ final class CLICommandParserTests: XCTestCase {
 
         let data = try XCTUnwrap(result.standardOutput.data(using: .utf8))
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let backups = try XCTUnwrap(object?["backups"] as? [[String: Any]])
-        let validBackups = try XCTUnwrap(object?["validBackups"] as? [[String: Any]])
+        let iPhoneBackups = try XCTUnwrap(object?["iPhoneBackups"] as? [[String: Any]])
 
-        XCTAssertEqual(backups.count, 1)
-        XCTAssertEqual(backups.first?["status"] as? String, "encrypted")
-        XCTAssertEqual(backups.first?["isEncrypted"] as? Bool, true)
-        XCTAssertEqual(validBackups.count, 1)
-        XCTAssertEqual(validBackups.first?["isEncrypted"] as? Bool, true)
+        XCTAssertEqual(iPhoneBackups.count, 1)
+        XCTAssertEqual(iPhoneBackups.first?["status"] as? String, "encrypted")
+        XCTAssertEqual(iPhoneBackups.first?["isEncrypted"] as? Bool, true)
     }
 
     func testListChatsRequiresWhatsAppBackupPath() throws {
@@ -79,7 +73,7 @@ final class CLICommandParserTests: XCTestCase {
 
         let extractResult = runCLI(arguments: [
             "extract-whatsapp-backup",
-            "--backup-path", fixture.rootURL.path,
+            "--iphone-backups-path", fixture.rootURL.path,
             "--output-dir", extractedDirectory.path
         ])
         XCTAssertEqual(extractResult.code, 0)
@@ -167,7 +161,7 @@ final class CLICommandParserTests: XCTestCase {
 
         let extractResult = runCLI(arguments: [
             "extract-whatsapp-backup",
-            "--backup-path", fixture.rootURL.path,
+            "--iphone-backups-path", fixture.rootURL.path,
             "--output-dir", extractedDirectory.path
         ])
         XCTAssertEqual(extractResult.code, 0)
@@ -202,7 +196,7 @@ final class CLICommandParserTests: XCTestCase {
 
         let result = runCLI(arguments: [
             "extract-whatsapp-backup",
-            "--backup-path", fixture.rootURL.path,
+            "--iphone-backups-path", fixture.rootURL.path,
             "--output-dir", outputDirectory.path
         ])
 
