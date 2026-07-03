@@ -215,6 +215,27 @@ public extension IPhoneBackup {
     }
 }
 
+public extension ExtractedWhatsAppBackup {
+    /// Reads the portable summary generated at `.wa-backup/backup-info.json`.
+    func getBackupInfo() throws -> ExtractedWhatsAppBackupInfo {
+        let infoURL = url
+            .appendingPathComponent(".wa-backup", isDirectory: true)
+            .appendingPathComponent("backup-info.json")
+
+        do {
+            let data = try Data(contentsOf: infoURL)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(ExtractedWhatsAppBackupInfo.self, from: data)
+        } catch {
+            throw BackupError.invalidBackup(
+                url: url,
+                reason: "Could not read .wa-backup/backup-info.json: \(error.localizedDescription)"
+            )
+        }
+    }
+}
+
 private extension IPhoneBackup {
     func fetchAllWhatsAppBackupEntries() throws -> [WhatsAppBackupEntry] {
         let manifestDBPath = url.appendingPathComponent("Manifest.db").path
@@ -297,7 +318,8 @@ private extension IPhoneBackup {
     func writePortableMetadata(for entries: [WhatsAppBackupEntry], under rootURL: URL) throws {
         let sidecarURL = rootURL.appendingPathComponent(".wa-backup", isDirectory: true)
         try FileManager.default.createDirectory(at: sidecarURL, withIntermediateDirectories: true)
-        try writePortableIndex(for: entries, rootURL: rootURL, sidecarURL: sidecarURL)
+        let indexURL = try writePortableIndex(for: entries, rootURL: rootURL, sidecarURL: sidecarURL)
+        try writeBackupInfo(for: entries, rootURL: rootURL, sidecarURL: sidecarURL, indexURL: indexURL)
         try writePortableReadme(to: sidecarURL)
     }
 
@@ -305,7 +327,7 @@ private extension IPhoneBackup {
         for entries: [WhatsAppBackupEntry],
         rootURL: URL,
         sidecarURL: URL
-    ) throws {
+    ) throws -> URL {
         let fileManager = FileManager.default
         let indexURL = sidecarURL.appendingPathComponent("index.sqlite")
 
@@ -338,6 +360,8 @@ private extension IPhoneBackup {
                 in: db
             )
         }
+
+        return indexURL
     }
 
     func createPortableIndexSchema(in db: Database) throws {
@@ -667,6 +691,225 @@ private extension IPhoneBackup {
         return size.int64Value
     }
 
+    func writeBackupInfo(
+        for entries: [WhatsAppBackupEntry],
+        rootURL: URL,
+        sidecarURL: URL,
+        indexURL: URL
+    ) throws {
+        let backupInfo = makeBackupInfo(for: entries, rootURL: rootURL, indexURL: indexURL)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        let data = try encoder.encode(backupInfo)
+        let infoURL = sidecarURL.appendingPathComponent("backup-info.json")
+        try data.write(to: infoURL, options: .atomic)
+    }
+
+    func makeBackupInfo(
+        for entries: [WhatsAppBackupEntry],
+        rootURL: URL,
+        indexURL: URL
+    ) -> ExtractedWhatsAppBackupInfo {
+        var warnings: [String] = []
+        let fileEntries = entries.filter { $0.type == .file }
+        let directoryEntries = entries.filter { $0.type == .directory }
+        let otherEntries = entries.filter { $0.type == .other }
+
+        var copiedFiles = 0
+        var missingFiles = 0
+        var extractedBytes: Int64 = 0
+
+        for entry in fileEntries {
+            let targetURL = rootURL.appendingPathComponent(normalizedWhatsAppRelativePath(entry.filename))
+            guard FileManager.default.fileExists(atPath: targetURL.path) else {
+                missingFiles += 1
+                continue
+            }
+
+            copiedFiles += 1
+            extractedBytes += fileByteCount(at: targetURL) ?? 0
+        }
+
+        let mediaItemCounts = readMediaItemCounts(from: indexURL, warnings: &warnings)
+        let databaseCounts = readDatabaseCounts(rootURL: rootURL, warnings: &warnings)
+
+        return ExtractedWhatsAppBackupInfo(
+            schemaVersion: 1,
+            generator: "SwiftWABackupAPI",
+            generatedAt: Date(),
+            source: ExtractedWhatsAppBackupInfo.Source(
+                iPhoneBackupIdentifier: identifier,
+                iPhoneBackupCreationDate: creationDate,
+                isEncrypted: isEncrypted,
+                domain: whatsAppBackupDomain
+            ),
+            manifestCounts: ExtractedWhatsAppBackupInfo.ManifestCounts(
+                totalEntries: entries.count,
+                files: fileEntries.count,
+                directories: directoryEntries.count,
+                otherEntries: otherEntries.count
+            ),
+            copyCounts: ExtractedWhatsAppBackupInfo.CopyCounts(
+                copiedFiles: copiedFiles,
+                missingFiles: missingFiles
+            ),
+            mediaItemCounts: mediaItemCounts,
+            databaseCounts: databaseCounts,
+            sizes: ExtractedWhatsAppBackupInfo.Sizes(
+                extractedBytes: extractedBytes,
+                indexBytes: fileByteCount(at: indexURL)
+            ),
+            warnings: warnings
+        )
+    }
+
+    func readMediaItemCounts(
+        from indexURL: URL,
+        warnings: inout [String]
+    ) -> ExtractedWhatsAppBackupInfo.MediaItemCounts {
+        do {
+            let indexQueue = try DatabaseQueue(path: indexURL.path)
+            return try indexQueue.read { db in
+                let total = try countRowsIfPresent(in: db, table: "media_items") ?? 0
+                let resolved = try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM media_items WHERE resolution_status = ?",
+                    arguments: ["resolved"]
+                ) ?? 0
+                let missing = try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM media_items WHERE resolution_status = ?",
+                    arguments: ["missing"]
+                ) ?? 0
+
+                return ExtractedWhatsAppBackupInfo.MediaItemCounts(
+                    total: total,
+                    resolved: resolved,
+                    missing: missing
+                )
+            }
+        } catch {
+            warnings.append("Could not read media item counts from .wa-backup/index.sqlite: \(error.localizedDescription)")
+            return ExtractedWhatsAppBackupInfo.MediaItemCounts(total: 0, resolved: 0, missing: 0)
+        }
+    }
+
+    func readDatabaseCounts(
+        rootURL: URL,
+        warnings: inout [String]
+    ) -> ExtractedWhatsAppBackupInfo.DatabaseCounts {
+        var chats: Int?
+        var messages: Int?
+        var supportedMessages: Int?
+        var mediaItems: Int?
+        var contacts: Int?
+        var lidAccounts: Int?
+        var groupMembers: Int?
+        var profilePushNames: Int?
+
+        let chatStorageURL = rootURL.appendingPathComponent("ChatStorage.sqlite")
+        if FileManager.default.fileExists(atPath: chatStorageURL.path) {
+            do {
+                let chatStorageQueue = try DatabaseQueue(path: chatStorageURL.path)
+                try chatStorageQueue.read { db in
+                    chats = try countRowsIfPresent(in: db, table: ChatSession.tableName)
+                    messages = try countRowsIfPresent(in: db, table: Message.tableName)
+                    supportedMessages = try countSupportedMessagesIfPresent(in: db)
+                    mediaItems = try countRowsIfPresent(in: db, table: MediaItem.tableName)
+                    groupMembers = try countRowsIfPresent(in: db, table: GroupMember.tableName)
+                    profilePushNames = try countRowsIfPresent(in: db, table: ProfilePushName.tableName)
+                }
+            } catch {
+                warnings.append("Could not read ChatStorage.sqlite counts: \(error.localizedDescription)")
+            }
+        } else {
+            warnings.append("ChatStorage.sqlite not found in extracted backup.")
+        }
+
+        let contactsURL = rootURL.appendingPathComponent("ContactsV2.sqlite")
+        if FileManager.default.fileExists(atPath: contactsURL.path) {
+            do {
+                let contactsQueue = try DatabaseQueue(path: contactsURL.path)
+                try contactsQueue.read { db in
+                    contacts = try countRowsIfPresent(in: db, table: AddressBookContact.tableName)
+                }
+            } catch {
+                warnings.append("Could not read ContactsV2.sqlite counts: \(error.localizedDescription)")
+            }
+        }
+
+        let lidURL = rootURL.appendingPathComponent("LID.sqlite")
+        if FileManager.default.fileExists(atPath: lidURL.path) {
+            do {
+                let lidQueue = try DatabaseQueue(path: lidURL.path)
+                try lidQueue.read { db in
+                    lidAccounts = try countRowsIfPresent(in: db, table: LidAccount.tableName)
+                }
+            } catch {
+                warnings.append("Could not read LID.sqlite counts: \(error.localizedDescription)")
+            }
+        }
+
+        return ExtractedWhatsAppBackupInfo.DatabaseCounts(
+            chats: chats,
+            messages: messages,
+            supportedMessages: supportedMessages,
+            mediaItems: mediaItems,
+            contacts: contacts,
+            lidAccounts: lidAccounts,
+            groupMembers: groupMembers,
+            profilePushNames: profilePushNames
+        )
+    }
+
+    func countSupportedMessagesIfPresent(in db: Database) throws -> Int? {
+        guard try tableExists(Message.tableName, in: db),
+              try columnExists("ZMESSAGETYPE", in: Message.tableName, db: db) else {
+            return nil
+        }
+
+        let placeholders = SupportedMessageType.allValues.count.questionMarks
+        return try Int.fetchOne(
+            db,
+            sql: """
+                SELECT COUNT(*)
+                FROM \(Message.tableName)
+                WHERE ZMESSAGETYPE IN (\(placeholders))
+                """,
+            arguments: StatementArguments(SupportedMessageType.allValues)
+        )
+    }
+
+    func countRowsIfPresent(in db: Database, table: String) throws -> Int? {
+        guard try tableExists(table, in: db) else {
+            return nil
+        }
+
+        return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)")
+    }
+
+    func tableExists(_ table: String, in db: Database) throws -> Bool {
+        let count = try Int.fetchOne(
+            db,
+            sql: """
+                SELECT COUNT(*)
+                FROM sqlite_master
+                WHERE type = 'table'
+                  AND name = ?
+                """,
+            arguments: [table]
+        ) ?? 0
+
+        return count > 0
+    }
+
+    func columnExists(_ column: String, in table: String, db: Database) throws -> Bool {
+        let columns = try db.columns(in: table).map { $0.name.uppercased() }
+        return columns.contains(column.uppercased())
+    }
+
     func writePortableReadme(to sidecarURL: URL) throws {
         let readmeURL = sidecarURL.appendingPathComponent("README.md")
         let contents = """
@@ -678,6 +921,9 @@ private extension IPhoneBackup {
         ## Files
 
         - `index.sqlite` is a portable SQLite index for this extracted copy.
+        - `backup-info.json` is a portable JSON summary with source metadata,
+          file counts, byte counts, media resolution counts, and best-effort
+          WhatsApp database row counts.
         - Paths stored in the index are relative to the extracted WhatsApp backup
           root, not to the original iPhone backup and not to this `.wa-backup`
           directory.

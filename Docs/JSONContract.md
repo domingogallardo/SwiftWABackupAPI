@@ -45,6 +45,76 @@ Notes:
 - `status = "ready"` is the recommended gate before calling
   `IPhoneBackup.extractWhatsAppBackup(to:)`.
 
+## `ExtractedWhatsAppBackupInfo`
+
+`IPhoneBackup.extractWhatsAppBackup(to:)` writes this payload to
+`.wa-backup/backup-info.json` inside the extracted copy. It can also be loaded
+with `ExtractedWhatsAppBackup.getBackupInfo()`.
+
+```json
+{
+  "copyCounts": {
+    "copiedFiles": 9,
+    "missingFiles": 1
+  },
+  "databaseCounts": {
+    "chats": 2,
+    "contacts": 3,
+    "groupMembers": 6,
+    "lidAccounts": 1,
+    "mediaItems": 4,
+    "messages": 5,
+    "profilePushNames": 7,
+    "supportedMessages": 4
+  },
+  "generatedAt": "2024-04-03T11:24:16Z",
+  "generator": "SwiftWABackupAPI",
+  "manifestCounts": {
+    "directories": 1,
+    "files": 10,
+    "otherEntries": 1,
+    "totalEntries": 12
+  },
+  "mediaItemCounts": {
+    "missing": 1,
+    "resolved": 3,
+    "total": 4
+  },
+  "schemaVersion": 1,
+  "sizes": {
+    "extractedBytes": 123456,
+    "indexBytes": 2048
+  },
+  "source": {
+    "domain": "AppDomainGroup-group.net.whatsapp.WhatsApp.shared",
+    "iPhoneBackupCreationDate": "2024-04-03T11:24:16Z",
+    "iPhoneBackupIdentifier": "sample-backup",
+    "isEncrypted": false
+  },
+  "warnings": [
+    "Could not read ContactsV2.sqlite counts: sample warning"
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `schemaVersion` | `Int` | Yes | Version of the `backup-info.json` schema. |
+| `generator` | `String` | Yes | Tool that generated the summary. |
+| `generatedAt` | `String` | Yes | ISO 8601 generation timestamp. |
+| `source` | `Object` | Yes | Portable source backup metadata. It intentionally does not include the original absolute backup path. |
+| `source.iPhoneBackupIdentifier` | `String` | Yes | Directory name of the source iPhone backup. |
+| `source.iPhoneBackupCreationDate` | `String` | Yes | ISO 8601 creation date from the source iPhone backup. |
+| `source.isEncrypted` | `Bool` | No | Encryption flag from the source iPhone backup when available. |
+| `source.domain` | `String` | Yes | iOS backup domain extracted into this copy. |
+| `manifestCounts` | `Object` | Yes | Counts from the source iPhone backup manifest for the WhatsApp domain. |
+| `copyCounts` | `Object` | Yes | Counts for files present or missing in the extracted copy. |
+| `mediaItemCounts` | `Object` | Yes | Counts for `ZWAMEDIAITEM.ZMEDIALOCALPATH` rows resolved through `.wa-backup/index.sqlite`. |
+| `databaseCounts` | `Object` | Yes | Best-effort row counts from known WhatsApp SQLite databases. Individual optional fields are omitted when the table or database is absent. |
+| `sizes.extractedBytes` | `Int64` | Yes | Sum of copied WhatsApp-domain file sizes, excluding `.wa-backup` metadata. |
+| `sizes.indexBytes` | `Int64` | No | Size of `.wa-backup/index.sqlite` when available. |
+| `warnings` | `[String]` | Yes | Non-fatal diagnostics collected while reading optional databases or metadata. |
+
 ## `Reaction`
 
 ```json

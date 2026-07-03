@@ -26,6 +26,7 @@ Returned models are `Encodable` and designed to be easy to serialize:
 - `IPhoneBackupDiscoveryInfo`
 - `IPhoneBackupDiscoveryStatus`
 - `ExtractedWhatsAppBackup`
+- `ExtractedWhatsAppBackupInfo`
 - `ChatInfo`
 - `MessageInfo`
 - `MessageAuthor`
@@ -57,7 +58,7 @@ On many systems you will need to grant Full Disk Access to the host app or termi
 Add the package dependency in `Package.swift` using the release rule that matches how you publish or consume the package:
 
 ```swift
-.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "3.0.6")
+.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "3.0.7")
 ```
 
 Then add the product to your target dependencies:
@@ -82,6 +83,8 @@ guard let backup = inspections.first(where: { $0.status == .ready })?.iPhoneBack
 
 let extractedDirectory = URL(fileURLWithPath: "/tmp/whatsapp-backup", isDirectory: true)
 let extracted = try backup.extractWhatsAppBackup(to: extractedDirectory, overwriteExisting: true)
+let backupInfo = try extracted.getBackupInfo()
+print(backupInfo.copyCounts.copiedFiles)
 
 let whatsApp = try WABackup(whatsAppBackupAt: extracted.url)
 let chats = try whatsApp.getChats()
@@ -125,9 +128,13 @@ let payload = try whatsApp.getChat(chatId: chats[0].id, directoryToSaveMedia: ou
 The extracted directory preserves WhatsApp relative paths such as
 `ChatStorage.sqlite`, `ContactsV2.sqlite`, `LID.sqlite`, and `Media/...`, so
 chat reads and media exports do not need the iPhone backup's `Manifest.db`.
-Extraction also creates `.wa-backup/index.sqlite` and `.wa-backup/README.md`
-inside the extracted copy. These files document portable path-resolution
-metadata for external tools; the runtime does not need them for normal reads.
+Extraction also creates `.wa-backup/index.sqlite`, `.wa-backup/backup-info.json`,
+and `.wa-backup/README.md` inside the extracted copy. The SQLite index documents
+portable path-resolution metadata for external tools, while `backup-info.json`
+summarizes source metadata, copied files, byte counts, media resolution counts,
+and best-effort WhatsApp database row counts. The runtime does not need the
+SQLite index for normal reads, but apps can load the JSON summary with
+`ExtractedWhatsAppBackup.getBackupInfo()`.
 
 ## Command Line Interface
 
@@ -135,6 +142,7 @@ The package also ships with a small companion executable named `SwiftWABackupCLI
 
 - discover iPhone backups with `list-iphone-backups`
 - list chats with `list-chats`
+- inspect extracted backup metadata with `backup-info`
 - export a full chat with `export-chat`
 - extract WhatsApp's app-group files with `extract-whatsapp-backup`
 
@@ -173,6 +181,14 @@ List chats from the extracted WhatsApp backup:
 swift run SwiftWABackupCLI list-chats \
   --whatsapp-backup-path /tmp/whatsapp-backup \
   --json --pretty
+```
+
+Print the portable backup summary generated during extraction:
+
+```bash
+swift run SwiftWABackupCLI backup-info \
+  --whatsapp-backup-path /tmp/whatsapp-backup \
+  --pretty
 ```
 
 Export one chat to JSON and copy message media:

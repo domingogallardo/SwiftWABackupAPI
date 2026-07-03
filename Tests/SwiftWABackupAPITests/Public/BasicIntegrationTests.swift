@@ -215,9 +215,11 @@ final class ExtractedWhatsAppBackupTests: XCTestCase {
 
         let sidecarURL = extractedRoot.appendingPathComponent(".wa-backup", isDirectory: true)
         let indexURL = sidecarURL.appendingPathComponent("index.sqlite")
+        let backupInfoURL = sidecarURL.appendingPathComponent("backup-info.json")
         let readmeURL = sidecarURL.appendingPathComponent("README.md")
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: indexURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backupInfoURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: readmeURL.path))
 
         let indexQueue = try DatabaseQueue(path: indexURL.path)
@@ -268,8 +270,32 @@ final class ExtractedWhatsAppBackupTests: XCTestCase {
             XCTAssertEqual(mediaItemRow["resolution_status"], "resolved")
         }
 
+        let backupInfo = try ExtractedWhatsAppBackup(url: extractedRoot).getBackupInfo()
+        XCTAssertEqual(backupInfo.schemaVersion, 1)
+        XCTAssertEqual(backupInfo.generator, "SwiftWABackupAPI")
+        XCTAssertEqual(backupInfo.source.iPhoneBackupIdentifier, fixture.backup.identifier)
+        XCTAssertEqual(backupInfo.source.iPhoneBackupCreationDate, fixture.backup.creationDate)
+        XCTAssertEqual(backupInfo.source.isEncrypted, false)
+        XCTAssertEqual(backupInfo.source.domain, whatsAppBackupDomain)
+        XCTAssertEqual(backupInfo.manifestCounts.totalEntries, 2)
+        XCTAssertEqual(backupInfo.manifestCounts.files, 2)
+        XCTAssertEqual(backupInfo.manifestCounts.directories, 0)
+        XCTAssertEqual(backupInfo.manifestCounts.otherEntries, 0)
+        XCTAssertEqual(backupInfo.copyCounts.copiedFiles, 2)
+        XCTAssertEqual(backupInfo.copyCounts.missingFiles, 0)
+        XCTAssertEqual(backupInfo.mediaItemCounts.total, 1)
+        XCTAssertEqual(backupInfo.mediaItemCounts.resolved, 1)
+        XCTAssertEqual(backupInfo.mediaItemCounts.missing, 0)
+        XCTAssertEqual(backupInfo.databaseCounts.mediaItems, 1)
+        XCTAssertNil(backupInfo.databaseCounts.chats)
+        XCTAssertNil(backupInfo.databaseCounts.messages)
+        XCTAssertGreaterThan(backupInfo.sizes.extractedBytes, Int64("example-media".utf8.count))
+        XCTAssertGreaterThan(backupInfo.sizes.indexBytes ?? 0, 0)
+        XCTAssertTrue(backupInfo.warnings.isEmpty)
+
         let readme = try String(contentsOf: readmeURL, encoding: .utf8)
         XCTAssertTrue(readme.contains("Path Resolution Index"))
+        XCTAssertTrue(readme.contains("backup-info.json"))
         XCTAssertTrue(readme.contains("Message/Media"))
     }
 

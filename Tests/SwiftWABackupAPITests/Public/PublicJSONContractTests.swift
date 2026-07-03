@@ -147,6 +147,104 @@ final class PublicJSONContractTests: XCTestCase {
         )
     }
 
+    func testExtractedWhatsAppBackupInfoJSONContract() throws {
+        let date = Date(timeIntervalSince1970: 1_712_143_456)
+        let info = ExtractedWhatsAppBackupInfo(
+            schemaVersion: 1,
+            generator: "SwiftWABackupAPI",
+            generatedAt: date,
+            source: ExtractedWhatsAppBackupInfo.Source(
+                iPhoneBackupIdentifier: "sample-backup",
+                iPhoneBackupCreationDate: date,
+                isEncrypted: false,
+                domain: "AppDomainGroup-group.net.whatsapp.WhatsApp.shared"
+            ),
+            manifestCounts: ExtractedWhatsAppBackupInfo.ManifestCounts(
+                totalEntries: 12,
+                files: 10,
+                directories: 1,
+                otherEntries: 1
+            ),
+            copyCounts: ExtractedWhatsAppBackupInfo.CopyCounts(
+                copiedFiles: 9,
+                missingFiles: 1
+            ),
+            mediaItemCounts: ExtractedWhatsAppBackupInfo.MediaItemCounts(
+                total: 4,
+                resolved: 3,
+                missing: 1
+            ),
+            databaseCounts: ExtractedWhatsAppBackupInfo.DatabaseCounts(
+                chats: 2,
+                messages: 5,
+                supportedMessages: 4,
+                mediaItems: 4,
+                contacts: 3,
+                lidAccounts: 1,
+                groupMembers: 6,
+                profilePushNames: 7
+            ),
+            sizes: ExtractedWhatsAppBackupInfo.Sizes(
+                extractedBytes: 123_456,
+                indexBytes: 2_048
+            ),
+            warnings: [
+                "Could not read ContactsV2.sqlite counts: sample warning"
+            ]
+        )
+
+        let json = try PublicTestSupport.canonicalJSONString(info)
+
+        XCTAssertEqual(
+            json,
+            """
+            {
+              "copyCounts" : {
+                "copiedFiles" : 9,
+                "missingFiles" : 1
+              },
+              "databaseCounts" : {
+                "chats" : 2,
+                "contacts" : 3,
+                "groupMembers" : 6,
+                "lidAccounts" : 1,
+                "mediaItems" : 4,
+                "messages" : 5,
+                "profilePushNames" : 7,
+                "supportedMessages" : 4
+              },
+              "generatedAt" : "2024-04-03T11:24:16Z",
+              "generator" : "SwiftWABackupAPI",
+              "manifestCounts" : {
+                "directories" : 1,
+                "files" : 10,
+                "otherEntries" : 1,
+                "totalEntries" : 12
+              },
+              "mediaItemCounts" : {
+                "missing" : 1,
+                "resolved" : 3,
+                "total" : 4
+              },
+              "schemaVersion" : 1,
+              "sizes" : {
+                "extractedBytes" : 123456,
+                "indexBytes" : 2048
+              },
+              "source" : {
+                "domain" : "AppDomainGroup-group.net.whatsapp.WhatsApp.shared",
+                "iPhoneBackupCreationDate" : "2024-04-03T11:24:16Z",
+                "iPhoneBackupIdentifier" : "sample-backup",
+                "isEncrypted" : false
+              },
+              "warnings" : [
+                "Could not read ContactsV2.sqlite counts: sample warning"
+              ]
+            }
+            """
+        )
+    }
+
     func testMessageInfoJSONContract() throws {
         let date = Date(timeIntervalSince1970: 1_712_143_456)
         var messageInfo = MessageInfo(

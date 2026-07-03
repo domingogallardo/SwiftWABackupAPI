@@ -93,6 +93,32 @@ final class CLICommandParserTests: XCTestCase {
         XCTAssertEqual(chats?.first?["id"] as? Int, 44)
     }
 
+    func testBackupInfoOutputsGeneratedSummaryJSON() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
+
+        let result = runCLI(arguments: [
+            "backup-info",
+            "--whatsapp-backup-path", extractedBackup.path,
+            "--pretty"
+        ])
+
+        XCTAssertEqual(result.code, 0)
+
+        let data = try XCTUnwrap(result.standardOutput.data(using: .utf8))
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let source = try XCTUnwrap(object?["source"] as? [String: Any])
+        let copyCounts = try XCTUnwrap(object?["copyCounts"] as? [String: Any])
+        let databaseCounts = try XCTUnwrap(object?["databaseCounts"] as? [String: Any])
+
+        XCTAssertEqual(object?["schemaVersion"] as? Int, 1)
+        XCTAssertEqual(source["iPhoneBackupIdentifier"] as? String, fixture.backup.identifier)
+        XCTAssertEqual(copyCounts["missingFiles"] as? Int, 0)
+        XCTAssertEqual(databaseCounts["chats"] as? Int, 2)
+        XCTAssertEqual(databaseCounts["messages"] as? Int, 5)
+    }
+
     func testExportChatWritesOnlyJSONToOutputJSON() throws {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
