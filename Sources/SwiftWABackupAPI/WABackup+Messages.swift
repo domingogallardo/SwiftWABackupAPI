@@ -301,14 +301,17 @@ extension WABackup {
         from db: Database
     ) throws -> [GroupMember] {
         let activeMembers = try GroupMember.fetchActiveGroupMembers(forChatId: chatId, from: db)
-        if !activeMembers.isEmpty {
-            return activeMembers
-        }
-
-        let memberIds = try GroupMember.fetchGroupMemberIds(forChatId: chatId, from: db)
-        return try memberIds.compactMap { memberId in
+        let messageMemberIds = try GroupMember.fetchGroupMemberIds(forChatId: chatId, from: db)
+        let messageMembers = try messageMemberIds.compactMap { memberId in
             try GroupMember.fetchGroupMember(byId: memberId, from: db)
         }
+
+        var members = activeMembers
+        var seenMemberIds = Set(activeMembers.map(\.id))
+        for member in messageMembers where seenMemberIds.insert(member.id).inserted {
+            members.append(member)
+        }
+        return members
     }
 
     func fetchReactions(forMessageId messageId: Int, from db: Database) throws -> [Reaction]? {
