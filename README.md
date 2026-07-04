@@ -69,12 +69,14 @@ Then add the product to your target dependencies:
 
 ## Basic Usage
 
-Recommended flow:
+The workflow has two distinct phases. First, copy WhatsApp's files out of an
+iPhone backup into a regular local directory:
 
 ```swift
 import Foundation
 import SwiftWABackupAPI
 
+// extract-whatsapp-backup.swift
 let backupAPI = WABackup()
 let inspections = try backupAPI.inspectIPhoneBackups()
 guard let backup = inspections.first(where: { $0.status == .ready })?.iPhoneBackup else {
@@ -84,11 +86,22 @@ guard let backup = inspections.first(where: { $0.status == .ready })?.iPhoneBack
 let extractedDirectory = URL(fileURLWithPath: "/tmp/whatsapp-backup", isDirectory: true)
 let extracted = try backup.extractWhatsAppBackup(to: extractedDirectory, overwriteExisting: true)
 let backupInfo = try extracted.getBackupInfo()
-print(backupInfo.copyCounts.copiedFiles)
+print("Copied \(backupInfo.copyCounts.copiedFiles) files to \(extracted.url.path)")
+```
 
-let whatsApp = try WABackup(whatsAppBackupAt: extracted.url)
+After that, work only with the extracted WhatsApp directory. This second script
+does not need the original iPhone backup:
+
+```swift
+import Foundation
+import SwiftWABackupAPI
+
+// read-extracted-whatsapp-backup.swift
+let extractedDirectory = URL(fileURLWithPath: "/tmp/whatsapp-backup", isDirectory: true)
+let whatsApp = try WABackup(whatsAppBackupAt: extractedDirectory)
 let chats = try whatsApp.getChats()
 let payload = try whatsApp.getChat(chatId: chats[0].id, directoryToSaveMedia: nil)
+
 print(payload.chatInfo.name)
 print(payload.messages.count)
 ```
