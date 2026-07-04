@@ -283,6 +283,11 @@ public extension IPhoneBackup {
 }
 
 public extension ExtractedWhatsAppBackup {
+    /// Opens this extracted WhatsApp backup for chat listing and export.
+    func openReader() throws -> WhatsAppBackupReader {
+        try WhatsAppBackupReader(backup: self)
+    }
+
     /// Reads the portable summary generated at `.wa-backup/backup-info.json`.
     func getBackupInfo() throws -> ExtractedWhatsAppBackupInfo {
         let infoURL = url

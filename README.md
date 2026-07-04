@@ -12,21 +12,24 @@ Accessing or processing WhatsApp conversations without the explicit consent of t
 
 ## What The Package Exposes
 
-The public API is centered on `WABackup`:
+The public API is split into two phases:
 
-- Get iPhone backups ready for extraction with `getIPhoneBackups()`
-- Inspect iPhone backups with encryption diagnostics via `inspectIPhoneBackups()`
+- Discover and inspect iPhone backups with `IPhoneBackupManager`
 - Extract WhatsApp's app-group files into a regular directory with `IPhoneBackup.extractWhatsAppBackup(to:)`
-- Open an extracted WhatsApp directory with `WABackup(whatsAppBackupAt:)` or `WABackup(whatsAppBackupPath:)`
-- List chats with `getChats(directoryToSavePhotos:)`
-- Export a chat with `getChat(chatId:directoryToSaveMedia:)`
+- Treat the returned `ExtractedWhatsAppBackup` as the portable WhatsApp backup
+- Open the extracted backup with `WhatsAppBackupReader(backup:)` or `ExtractedWhatsAppBackup.openReader()`
+- List chats with `WhatsAppBackupReader.getChats(directoryToSavePhotos:)`
+- Export a chat with `WhatsAppBackupReader.getChat(chatId:directoryToSaveMedia:)`
 
-Returned models are `Encodable` and designed to be easy to serialize:
+Key public types include:
 
+- `IPhoneBackupManager`
 - `IPhoneBackupDiscoveryInfo`
 - `IPhoneBackupDiscoveryStatus`
+- `IPhoneBackup`
 - `ExtractedWhatsAppBackup`
 - `ExtractedWhatsAppBackupInfo`
+- `WhatsAppBackupReader`
 - `WABackupProgress`
 - `ChatInfo`
 - `MessageInfo`
@@ -43,10 +46,10 @@ Returned models are `Encodable` and designed to be easy to serialize:
 - An extracted WhatsApp backup directory for chat listing and export
 
 For extraction, the selected iPhone backup must be non-encrypted. Use
-`inspectIPhoneBackups()` if you need an explicit readiness check before copying
+`IPhoneBackupManager.inspectIPhoneBackups()` if you need an explicit readiness check before copying
 WhatsApp data out of the full-device backup.
 
-By default, `WABackup` looks under:
+By default, `IPhoneBackupManager` looks under:
 
 ```text
 ~/Library/Application Support/MobileSync/Backup/
@@ -59,7 +62,7 @@ On many systems you will need to grant Full Disk Access to the host app or termi
 Add the package dependency in `Package.swift` using the release rule that matches how you publish or consume the package:
 
 ```swift
-.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "3.0.7")
+.package(url: "https://github.com/domingogallardo/SwiftWABackupAPI.git", from: "4.0.0")
 ```
 
 Then add the product to your target dependencies:
@@ -78,8 +81,8 @@ import Foundation
 import SwiftWABackupAPI
 
 // extract-whatsapp-backup.swift
-let backupAPI = WABackup()
-let inspections = try backupAPI.inspectIPhoneBackups()
+let manager = IPhoneBackupManager()
+let inspections = try manager.inspectIPhoneBackups()
 guard let backup = inspections.first(where: { $0.status == .ready })?.iPhoneBackup else {
     throw NSError(domain: "Example", code: 1)
 }
@@ -99,9 +102,10 @@ import SwiftWABackupAPI
 
 // read-extracted-whatsapp-backup.swift
 let extractedDirectory = URL(fileURLWithPath: "/tmp/whatsapp-backup", isDirectory: true)
-let whatsApp = try WABackup(whatsAppBackupAt: extractedDirectory)
-let chats = try whatsApp.getChats()
-let payload = try whatsApp.getChat(chatId: chats[0].id, directoryToSaveMedia: nil)
+let extracted = ExtractedWhatsAppBackup(url: extractedDirectory)
+let reader = try extracted.openReader()
+let chats = try reader.getChats()
+let payload = try reader.getChat(chatId: chats[0].id)
 
 print(payload.chatInfo.name)
 print(payload.messages.count)
@@ -110,8 +114,8 @@ print(payload.messages.count)
 `getIPhoneBackups()` is available when you only need the ready iPhone backups:
 
 ```swift
-let backupAPI = WABackup()
-let backups = try backupAPI.getIPhoneBackups()
+let manager = IPhoneBackupManager()
+let backups = try manager.getIPhoneBackups()
 guard let backup = backups.first else {
     throw NSError(domain: "Example", code: 2)
 }
@@ -135,8 +139,8 @@ If you want exported media and copied profile images:
 
 ```swift
 let outputDirectory = URL(fileURLWithPath: "/tmp/wa-export", isDirectory: true)
-let chats = try whatsApp.getChats(directoryToSavePhotos: outputDirectory)
-let payload = try whatsApp.getChat(chatId: chats[0].id, directoryToSaveMedia: outputDirectory)
+let chats = try reader.getChats(directoryToSavePhotos: outputDirectory)
+let payload = try reader.getChat(chatId: chats[0].id, directoryToSaveMedia: outputDirectory)
 ```
 
 Long-running operations accept an optional progress handler:
@@ -153,7 +157,7 @@ let extracted = try backup.extractWhatsAppBackup(
     }
 }
 
-let payload = try whatsApp.getChat(
+let payload = try reader.getChat(
     chatId: chats[0].id,
     directoryToSaveMedia: outputDirectory
 ) { progress in
@@ -292,7 +296,7 @@ Recommended JSON settings:
 Example:
 
 ```swift
-let payload = try backupAPI.getChat(chatId: 44, directoryToSaveMedia: nil)
+let payload = try reader.getChat(chatId: 44)
 
 let encoder = JSONEncoder()
 encoder.dateEncodingStrategy = .iso8601
@@ -313,17 +317,17 @@ When an output directory is provided:
 - Chat avatars are copied as `chat_<chatId>.jpg` or `chat_<chatId>.thumb`
 - Contact avatars are copied as `<phone>.jpg` or `<phone>.thumb`
 
-You can observe writes through `WABackupDelegate`:
+You can observe writes through `WhatsAppBackupReaderDelegate`:
 
 ```swift
-final class ExportDelegate: WABackupDelegate {
+final class ExportDelegate: WhatsAppBackupReaderDelegate {
     func didWriteMediaFile(fileName: String) {
         print("Processed media file: \(fileName)")
     }
 }
 
 let delegate = ExportDelegate()
-backupAPI.delegate = delegate
+reader.delegate = delegate
 ```
 
 For progress bars, prefer the `progress` handler on `extractWhatsAppBackup`,
@@ -342,7 +346,8 @@ Example:
 
 ```swift
 do {
-    let chats = try backupAPI.getChats()
+    let reader = try ExtractedWhatsAppBackup(path: "/tmp/whatsapp-backup").openReader()
+    let chats = try reader.getChats()
     print(chats.count)
 } catch let error as BackupError {
     print("Backup error: \(error.localizedDescription)")

@@ -24,7 +24,7 @@ So, in the API model:
 
 ## iPhone Backup Discovery and Encryption Diagnostics
 
-The package exposes two iPhone-backup discovery layers:
+`IPhoneBackupManager` exposes two iPhone-backup discovery layers:
 
 - `getIPhoneBackups()` returns the iPhone backups that are ready for WhatsApp
   extraction.
@@ -56,10 +56,10 @@ Media/...
 ```
 
 The extracted directory can then be opened directly with
-`WABackup(whatsAppBackupAt:)`. Once opened this way, chat listing, chat export,
-media copying, contact lookup, and LID resolution read from the
-extracted folder directly instead of querying the original iPhone backup's
-`Manifest.db`.
+`ExtractedWhatsAppBackup.openReader()` or `WhatsAppBackupReader(backup:)`. Once
+opened this way, chat listing, chat export, media copying, contact lookup, and
+LID resolution read from the extracted folder directly instead of querying the
+original iPhone backup's `Manifest.db`.
 
 The iOS `Manifest.db` stores both files and directories. Directory entries are
 recreated as directories in the extracted tree, while file entries are copied
@@ -106,7 +106,7 @@ This table focuses on what the current implementation actually validates and exp
 | Type | Primary discriminator | Extra fields consulted | Current API output | Notes / open questions |
 | --- | --- | --- | --- | --- |
 | `Text` | `ZMESSAGETYPE = 0` | `ZTEXT` | `message` text plus cross-cutting fields such as `author`, `replyTo`, and `reactions` | Straightforward case. |
-| `Image` | `ZMESSAGETYPE = 1` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZMEDIALOCALPATH`, `ZWAMEDIAITEM.ZTITLE` | `mediaFilename`, optional `caption` | Media copy depends on the backup manifest lookup succeeding. |
+| `Image` | `ZMESSAGETYPE = 1` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZMEDIALOCALPATH`, `ZWAMEDIAITEM.ZTITLE` | `mediaFilename`, optional `caption` | Media copy depends on the referenced file existing in the extracted WhatsApp backup. |
 | `Video` | `ZMESSAGETYPE = 2` | Image fields plus `ZWAMEDIAITEM.ZMOVIEDURATION` | `mediaFilename`, optional `caption`, optional `seconds` | Duration is only surfaced for `Video` and `Audio`. |
 | `Audio` | `ZMESSAGETYPE = 3` | `ZMEDIAITEM`, `ZWAMEDIAITEM.ZMEDIALOCALPATH`, `ZWAMEDIAITEM.ZMOVIEDURATION` | `mediaFilename`, optional `seconds` | Audio captions are rare, but `caption` may still be populated from `ZTITLE` if present. |
 | `Contact` | `ZMESSAGETYPE = 4` | `ZTEXT`, optional `ZMEDIAITEM` if present | Generic `MessageInfo` with `messageType = "Contact"` | No validated structured contact payload is currently exposed. |
@@ -121,7 +121,7 @@ Cross-cutting enrichments that may apply to many rows regardless of their type:
 - `author` combines `ZISFROMME`, `ZGROUPMEMBER`, `ZFROMJID`, `ZWAGROUPMEMBER`, `ZWACHATSESSION`, `ZWAPROFILEPUSHNAME`, and, when available, the WhatsApp `LID.sqlite` account cache.
 - `replyTo` is resolved from `ZWAMESSAGE.ZPARENTMESSAGE` when present, otherwise from `ZMEDIAITEM` plus the binary blob stored in `ZWAMEDIAITEM.ZMETADATA`.
 - `reactions` come from `ZWAMESSAGEINFO.ZRECEIPTINFO`.
-- `mediaFilename` always requires a second lookup into the iTunes backup manifest to resolve the hashed file path.
+- `mediaFilename` is resolved against the extracted WhatsApp backup's preserved relative paths.
 
 ## Message Identity Resolution
 
@@ -151,7 +151,7 @@ When building `MessageInfo`, the API resolves a single structured participant id
    - If `ZGROUPMEMBER` is missing, the runtime falls back to `ZWAMESSAGE.ZFROMJID`.
 3. **Individual chats** – `ZCHATSESSION` points to `ZWACHATSESSION`, which supplies the participant JID and display name for incoming messages.
 
-This behaviour lives in `WABackup+Messages.swift` (`resolveParticipantIdentity`, `makeParticipantAuthor`) and is covered by the invariant and regression suites.
+This behaviour lives in `WhatsAppBackupReader+Messages.swift` (`resolveParticipantIdentity`, `makeParticipantAuthor`) and is covered by the invariant and regression suites.
 
 ### WhatsApp Web Alignment Notes
 
@@ -171,7 +171,7 @@ Replies are encoded through media metadata rather than a direct foreign key:
 1. If `ZWAMESSAGE.ZPARENTMESSAGE` is populated, the runtime uses it directly as the replied-to message ID.
 2. Otherwise, `ZWAMESSAGE.ZMEDIAITEM` may reference a `ZWAMEDIAITEM` row whose `ZMETADATA` holds a protobuf-style blob. Messages without either source keep `replyTo = nil`.
 3. `MediaItem.extractReplyStanzaId()` parses the modern top-level protobuf field that carries the quoted message stanza ID.
-4. `WABackup.fetchReplyMessageId` uses `Message.fetchMessageId(byStanzaId:)` to locate the original `ZWAMESSAGE.Z_PK`.
+4. `WhatsAppBackupReader.fetchReplyMessageId` uses `Message.fetchMessageId(byStanzaId:)` to locate the original `ZWAMESSAGE.Z_PK`.
 5. If found, `MessageInfo.replyTo` contains the target message ID; otherwise it remains `nil`.
 
 `SwiftWABackupAPITests.testMessageContentExtraction` exercises this behaviour, and the current implementation has also been checked against WhatsApp Web. It resolves modern quoted replies that are visibly rendered there through `ZPARENTMESSAGE` and modern protobuf-style metadata.
@@ -181,7 +181,7 @@ Replies are encoded through media metadata rather than a direct foreign key:
 - Reactions live in `ZWAMESSAGEINFO.ZRECEIPTINFO` as binary blobs. Entries only exist for messages that received reactions.
 - `ReactionParser` now walks the nested protobuf-style receipt entries inside `ZRECEIPTINFO`, extracting the reacting JID and emoji from structured length-delimited fields instead of scanning the blob byte-by-byte.
 - The runtime now emits reactions only when that structured metadata identifies both an emoji and a reacting participant JID. Ambiguous legacy blobs without a resolvable participant are ignored rather than guessed.
-- `WABackup.fetchReactions` resolves the reacting participant using the same identity sources already used elsewhere in the API, including direct-chat data, address-book data, WhatsApp push names, and `LID.sqlite` for `@lid` identities.
+- `WhatsAppBackupReader.fetchReactions` resolves the reacting participant using the same identity sources already used elsewhere in the API, including direct-chat data, address-book data, WhatsApp push names, and `LID.sqlite` for `@lid` identities.
 - Parsed reactions become `[Reaction]` values with an `emoji` and a structured `author`, attached to `MessageInfo.reactions`.
 - The validated WhatsApp Web examples now line up with the current visible reaction behavior on the checked messages, including emoji plus the reacting participant's label and phone when the web shows one.
 - `SwiftWABackupAPITests.testMessageContentExtraction` exercises messages with and without reactions to confirm the parser output stays stable.
@@ -205,10 +205,11 @@ The library surfaces granular error enums so consumers can react appropriately:
 - `DatabaseErrorWA` – database connection problems, unexpected schemas, or missing rows.
 - `DomainError` – higher-level logic errors (media not found, unsupported message types).
 
-These errors are thrown from API entry points (`getIPhoneBackups`, `inspectIPhoneBackups`,
-`WABackup(whatsAppBackupAt:)`, `getChat`, etc.) and are covered by the happy-path
-tests; you can trigger them manually by corrupting the fixture or requesting
-unsupported resources.
+These errors are thrown from API entry points (`IPhoneBackupManager.getIPhoneBackups`,
+`IPhoneBackupManager.inspectIPhoneBackups`, `ExtractedWhatsAppBackup.openReader()`,
+`WhatsAppBackupReader.getChat`, etc.) and are covered by the happy-path tests; you
+can trigger them manually by corrupting the fixture or requesting unsupported
+resources.
 
 ## Test Coverage
 

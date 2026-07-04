@@ -4,13 +4,13 @@
 //
 //  Created by Domingo Gallardo on 17/4/25.
 
-//  Encapsulates file-copy logic so it can be reused from WABackup.
+//  Encapsulates file-copy logic for chat and contact media exports.
 //
 
 import Foundation
 
 struct MediaCopier {
-    weak var delegate: WABackupDelegate?
+    weak var delegate: WhatsAppBackupReaderDelegate?
 
     /// Copies a WhatsApp file into the destination directory when one is provided.
     /// If the target already exists, the copy is skipped.

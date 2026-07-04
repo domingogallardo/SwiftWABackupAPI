@@ -8,8 +8,8 @@ final class IPhoneBackupDiscoveryTests: XCTestCase {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let waBackup = WABackup(iPhoneBackupsPath: fixture.rootURL.path)
-        let backups = try waBackup.getIPhoneBackups()
+        let manager = IPhoneBackupManager(iPhoneBackupsPath: fixture.rootURL.path)
+        let backups = try manager.getIPhoneBackups()
 
         XCTAssertEqual(backups.count, 1, "Expected exactly one generated ready iPhone backup")
         XCTAssertEqual(backups[0].identifier, fixture.backup.identifier)
@@ -24,8 +24,8 @@ final class IPhoneBackupDiscoveryTests: XCTestCase {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let waBackup = WABackup(iPhoneBackupsPath: fixture.rootURL.path)
-        let infos = try waBackup.inspectIPhoneBackups()
+        let manager = IPhoneBackupManager(iPhoneBackupsPath: fixture.rootURL.path)
+        let infos = try manager.inspectIPhoneBackups()
         let info = try XCTUnwrap(infos.first)
 
         XCTAssertEqual(info.status, .ready)
@@ -40,8 +40,8 @@ final class IPhoneBackupDiscoveryTests: XCTestCase {
         let fixture = try PublicTestSupport.makeTemporaryBackup(name: "encrypted-backup", isEncrypted: true) { _ in }
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let waBackup = WABackup(iPhoneBackupsPath: fixture.rootURL.path)
-        let infos = try waBackup.inspectIPhoneBackups()
+        let manager = IPhoneBackupManager(iPhoneBackupsPath: fixture.rootURL.path)
+        let infos = try manager.inspectIPhoneBackups()
         let info = try XCTUnwrap(infos.first)
 
         XCTAssertEqual(info.status, .encrypted)
@@ -55,8 +55,8 @@ final class IPhoneBackupDiscoveryTests: XCTestCase {
         let fixture = try PublicTestSupport.makeTemporaryBackup(name: "unknown-encryption-backup", isEncrypted: nil) { _ in }
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let waBackup = WABackup(iPhoneBackupsPath: fixture.rootURL.path)
-        let infos = try waBackup.inspectIPhoneBackups()
+        let manager = IPhoneBackupManager(iPhoneBackupsPath: fixture.rootURL.path)
+        let infos = try manager.inspectIPhoneBackups()
         let info = try XCTUnwrap(infos.first)
 
         XCTAssertEqual(info.status, .encryptionStatusUnavailable)
@@ -74,16 +74,17 @@ final class IPhoneBackupDiscoveryTests: XCTestCase {
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
         let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
 
-        XCTAssertNoThrow(try WABackup(whatsAppBackupAt: extractedBackup.url))
+        XCTAssertNoThrow(try WhatsAppBackupReader(backup: extractedBackup))
+        XCTAssertNoThrow(try extractedBackup.openReader())
     }
 }
 
 final class ChatSmokeTests: XCTestCase {
     func testGetChatsReturnsExpectedCounts() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let chats = try waBackup.getChats()
+        let chats = try reader.getChats()
 
         XCTAssertEqual(chats.count, 2, "Expected the generated sample backup to expose two chats")
         XCTAssertEqual(chats.filter { !$0.isArchived }.count, 2)
@@ -94,20 +95,20 @@ final class ChatSmokeTests: XCTestCase {
     }
 
     func testGetChatReturnsOnlySupportedPublicMessages() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let chatDump = try waBackup.getChat(chatId: 593, directoryToSaveMedia: nil)
+        let chatDump = try reader.getChat(chatId: 593, directoryToSaveMedia: nil)
 
         XCTAssertEqual(chatDump.messages.map(\.id), [200002])
         XCTAssertEqual(chatDump.chatInfo.numberMessages, 1)
     }
 
     func testGetChatReturnsChatDumpPayload() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let payload: ChatDumpPayload = try waBackup.getChat(chatId: 44, directoryToSaveMedia: nil)
+        let payload: ChatDumpPayload = try reader.getChat(chatId: 44)
 
         XCTAssertEqual(payload.chatInfo.id, 44)
         XCTAssertEqual(payload.chatInfo.name, "Alias Atlas")
@@ -116,10 +117,10 @@ final class ChatSmokeTests: XCTestCase {
     }
 
     func testKnownReplyIsResolved() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let chatDump = try waBackup.getChat(chatId: 44, directoryToSaveMedia: nil)
+        let chatDump = try reader.getChat(chatId: 44, directoryToSaveMedia: nil)
         let knownReply = try XCTUnwrap(chatDump.messages.first(where: { $0.id == 125482 }))
 
         XCTAssertEqual(knownReply.replyTo, 125479)
@@ -127,10 +128,10 @@ final class ChatSmokeTests: XCTestCase {
     }
 
     func testMessagesExposeStructuredAuthor() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let chatDump = try waBackup.getChat(chatId: 44, directoryToSaveMedia: nil)
+        let chatDump = try reader.getChat(chatId: 44, directoryToSaveMedia: nil)
         let incoming = try XCTUnwrap(chatDump.messages.first(where: { $0.id == 125482 }))
         let outgoing = try XCTUnwrap(chatDump.messages.first(where: { $0.id == 125479 }))
 
@@ -150,15 +151,15 @@ final class ChatSmokeTests: XCTestCase {
 
 final class MediaExportSmokeTests: XCTestCase {
     func testMediaExportNotifiesDelegateSetAfterConnecting() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
         let delegate = PublicMediaWriteDelegateSpy()
         let temporaryDirectory = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-media-export")
         defer { try? PublicTestSupport.removeItemIfExists(at: temporaryDirectory) }
 
-        waBackup.delegate = delegate
-        _ = try waBackup.getChat(chatId: 44, directoryToSaveMedia: temporaryDirectory)
+        reader.delegate = delegate
+        _ = try reader.getChat(chatId: 44, directoryToSaveMedia: temporaryDirectory)
 
         XCTAssertFalse(delegate.fileNames.isEmpty, "Expected at least one media export callback")
         XCTAssertTrue(
@@ -325,8 +326,8 @@ final class ExtractedWhatsAppBackupTests: XCTestCase {
 
         try PublicTestSupport.removeItemIfExists(at: fixture.rootURL)
 
-        let waBackup = try WABackup(whatsAppBackupAt: extractedBackup.url)
-        let dump = try waBackup.getChat(chatId: 44, directoryToSaveMedia: mediaOutput)
+        let reader = try extractedBackup.openReader()
+        let dump = try reader.getChat(chatId: 44, directoryToSaveMedia: mediaOutput)
 
         XCTAssertEqual(dump.messages.count, 3)
         XCTAssertTrue(

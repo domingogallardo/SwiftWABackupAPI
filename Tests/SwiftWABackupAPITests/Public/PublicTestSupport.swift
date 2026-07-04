@@ -246,15 +246,15 @@ enum PublicTestSupport {
         }
     }
 
-    static func makeConnectedSampleBackup() throws -> (waBackup: WABackup, fixture: PublicTemporaryBackupFixture) {
+    static func makeConnectedSampleBackup() throws -> (reader: WhatsAppBackupReader, fixture: PublicTemporaryBackupFixture) {
         let fixture = try makeSampleBackup()
-        let waBackup = try makeConnectedBackup(from: fixture)
-        return (waBackup, fixture)
+        let reader = try makeConnectedBackup(from: fixture)
+        return (reader, fixture)
     }
 
-    static func makeConnectedBackup(from fixture: PublicTemporaryBackupFixture) throws -> WABackup {
+    static func makeConnectedBackup(from fixture: PublicTemporaryBackupFixture) throws -> WhatsAppBackupReader {
         let extractedBackup = try extractWhatsAppBackup(from: fixture)
-        return try WABackup(whatsAppBackupAt: extractedBackup.url)
+        return try extractedBackup.openReader()
     }
 
     static func extractWhatsAppBackup(from fixture: PublicTemporaryBackupFixture) throws -> ExtractedWhatsAppBackup {
@@ -551,7 +551,7 @@ struct PublicBackupStoredFile {
     let contents: Data
 }
 
-final class PublicMediaWriteDelegateSpy: WABackupDelegate {
+final class PublicMediaWriteDelegateSpy: WhatsAppBackupReaderDelegate {
     private(set) var fileNames: [String] = []
 
     func didWriteMediaFile(fileName: String) {

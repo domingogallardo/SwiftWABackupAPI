@@ -360,8 +360,8 @@ public struct ChatDumpPayload: CustomStringConvertible, Encodable {
     }
 }
 
-/// Receives callbacks when media files are copied to disk.
-public protocol WABackupDelegate: AnyObject {
+/// Receives callbacks when media files are copied to disk by a WhatsApp backup reader.
+public protocol WhatsAppBackupReaderDelegate: AnyObject {
     /// Called after a media file is copied or already exists in the output directory.
     func didWriteMediaFile(fileName: String)
 }
@@ -376,50 +376,36 @@ extension DatabaseQueue {
     }
 }
 
-/// Main entry point for discovering iPhone backups and reading extracted WhatsApp backups.
-public class WABackup {
-    var iPhoneBackupManager: IPhoneBackupManager
-
+/// Opens and reads a portable WhatsApp backup extracted from an iPhone backup.
+public final class WhatsAppBackupReader {
     /// Delegate used to observe media export events.
-    public weak var delegate: WABackupDelegate? {
+    public weak var delegate: WhatsAppBackupReaderDelegate? {
         didSet {
-            mediaCopier?.delegate = delegate
+            mediaCopier.delegate = delegate
         }
     }
 
-    var chatDatabase: DatabaseQueue?
-    var whatsAppBackup: ExtractedWhatsAppBackup?
+    let chatDatabase: DatabaseQueue
+    let whatsAppBackup: ExtractedWhatsAppBackup
     var ownerJid: String?
-    var mediaCopier: MediaCopier?
+    var mediaCopier: MediaCopier
     var addressBookIndex: AddressBookIndex?
     var lidAccountIndex: LidAccountIndex?
     var pushNamePhoneJidIndex: PushNamePhoneJidIndex?
 
-    /// Creates an API instance rooted at the provided iPhone backups directory.
-    public init(iPhoneBackupsPath: String = "~/Library/Application Support/MobileSync/Backup/") {
-        self.iPhoneBackupManager = IPhoneBackupManager(iPhoneBackupsPath: iPhoneBackupsPath)
-    }
-
-    /// Creates an API instance opened on an extracted WhatsApp backup directory.
-    public convenience init(whatsAppBackupAt directory: URL) throws {
-        self.init()
-        let backup = ExtractedWhatsAppBackup(url: directory)
+    /// Opens an extracted WhatsApp backup directory for chat listing and export.
+    public init(backup: ExtractedWhatsAppBackup) throws {
         let chatStorageURL = try backup.fileURL(endingWith: "ChatStorage.sqlite")
         let dbQueue = try DatabaseQueue(path: chatStorageURL.path)
 
-        try checkSchema(of: dbQueue)
+        try Self.checkSchema(of: dbQueue)
 
         chatDatabase = dbQueue
         whatsAppBackup = backup
         ownerJid = try dbQueue.performRead { try Message.fetchOwnerJid(from: $0) }
-        mediaCopier = MediaCopier(delegate: delegate)
+        mediaCopier = MediaCopier(delegate: nil)
         addressBookIndex = try? AddressBookIndex.loadIfPresent(from: backup)
         lidAccountIndex = try? LidAccountIndex.loadIfPresent(from: backup)
         pushNamePhoneJidIndex = try dbQueue.performRead { try PushNamePhoneJidIndex.load(from: $0) }
-    }
-
-    /// Creates an API instance opened on an extracted WhatsApp backup path.
-    public convenience init(whatsAppBackupPath: String) throws {
-        try self.init(whatsAppBackupAt: URL(fileURLWithPath: whatsAppBackupPath, isDirectory: true))
     }
 }

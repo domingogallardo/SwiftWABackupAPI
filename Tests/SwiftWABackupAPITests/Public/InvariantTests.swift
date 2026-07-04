@@ -5,13 +5,13 @@ import GRDB
 
 final class SampleBackupInvariantTests: XCTestCase {
     func testListedChatMetadataMatchesChatExportHeader() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let chats = try waBackup.getChats()
+        let chats = try reader.getChats()
 
         for chat in chats {
-            let dump = try waBackup.getChat(chatId: chat.id, directoryToSaveMedia: nil)
+            let dump = try reader.getChat(chatId: chat.id, directoryToSaveMedia: nil)
 
             XCTAssertEqual(dump.chatInfo.id, chat.id)
             XCTAssertEqual(dump.chatInfo.contactJid, chat.contactJid)
@@ -24,23 +24,23 @@ final class SampleBackupInvariantTests: XCTestCase {
     }
 
     func testChatsAreSortedByDescendingLastMessageDate() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let chats = try waBackup.getChats()
+        let chats = try reader.getChats()
         let sortedIds = chats.sorted { $0.lastMessageDate > $1.lastMessageDate }.map(\.id)
 
         XCTAssertEqual(chats.map(\.id), sortedIds)
     }
 
     func testChatExportMessagesStayWithinRequestedChat() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let chats = try waBackup.getChats()
+        let chats = try reader.getChats()
 
         for chat in chats {
-            let dump = try waBackup.getChat(chatId: chat.id, directoryToSaveMedia: nil)
+            let dump = try reader.getChat(chatId: chat.id, directoryToSaveMedia: nil)
 
             XCTAssertEqual(dump.chatInfo.id, chat.id)
             XCTAssertEqual(dump.chatInfo.numberMessages, dump.messages.count)
@@ -52,13 +52,13 @@ final class SampleBackupInvariantTests: XCTestCase {
     }
 
     func testReplyTargetsAlwaysExistWithinSameChat() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let chats = try waBackup.getChats()
+        let chats = try reader.getChats()
 
         for chat in chats {
-            let dump = try waBackup.getChat(chatId: chat.id, directoryToSaveMedia: nil)
+            let dump = try reader.getChat(chatId: chat.id, directoryToSaveMedia: nil)
             let messageIds = Set(dump.messages.map(\.id))
 
             for message in dump.messages {
@@ -73,13 +73,13 @@ final class SampleBackupInvariantTests: XCTestCase {
     }
 
     func testIndividualIncomingMessagesResolveChatPartnerIdentity() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let chats = try waBackup.getChats()
+        let chats = try reader.getChats()
 
         for chat in chats where chat.chatType == .individual {
-            let dump = try waBackup.getChat(chatId: chat.id, directoryToSaveMedia: nil)
+            let dump = try reader.getChat(chatId: chat.id, directoryToSaveMedia: nil)
             let expectedPhone = chat.contactJid.extractedPhone
 
             for message in dump.messages {
@@ -99,13 +99,13 @@ final class SampleBackupInvariantTests: XCTestCase {
     }
 
     func testContactListsContainOwnerExactlyOnceAndUseUniquePhones() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let chats = try waBackup.getChats()
+        let chats = try reader.getChats()
 
         for chat in chats {
-            let dump = try waBackup.getChat(chatId: chat.id, directoryToSaveMedia: nil)
+            let dump = try reader.getChat(chatId: chat.id, directoryToSaveMedia: nil)
             let phones = dump.contacts.map(\.phone)
             let meContacts = dump.contacts.filter { $0.name == "Me" }
 
@@ -130,13 +130,13 @@ final class SampleBackupInvariantTests: XCTestCase {
     }
 
     func testReportedMediaFilesExistAfterExport() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
         let exportDirectory = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-media-invariants")
         defer { try? PublicTestSupport.removeItemIfExists(at: exportDirectory) }
 
-        let dump = try waBackup.getChat(chatId: 44, directoryToSaveMedia: exportDirectory)
+        let dump = try reader.getChat(chatId: 44, directoryToSaveMedia: exportDirectory)
 
         let reportedFiles = dump.messages.compactMap(\.mediaFilename)
         XCTAssertFalse(reportedFiles.isEmpty, "Expected at least one exported media file")
@@ -153,10 +153,10 @@ final class SampleBackupInvariantTests: XCTestCase {
 
 final class ChatDiscoveryInvariantTests: XCTestCase {
     func testGetChatsExcludesUnsupportedSessionTypes() throws {
-        let (waBackup, fixture) = try InvariantFixtureFactory.makeConnectedFilteredChatBackup()
+        let (reader, fixture) = try InvariantFixtureFactory.makeConnectedFilteredChatBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let chats = try waBackup.getChats()
+        let chats = try reader.getChats()
 
         XCTAssertEqual(chats.map(\.id), [800])
         XCTAssertEqual(chats.first?.name, "Visible Chat")
@@ -164,13 +164,13 @@ final class ChatDiscoveryInvariantTests: XCTestCase {
     }
 
     func testProfilePhotoExportWritesReportedFile() throws {
-        let (waBackup, fixture) = try InvariantFixtureFactory.makeConnectedProfilePhotoBackup()
+        let (reader, fixture) = try InvariantFixtureFactory.makeConnectedProfilePhotoBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
         let exportDirectory = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-photo-invariants")
         defer { try? PublicTestSupport.removeItemIfExists(at: exportDirectory) }
 
-        let chats = try waBackup.getChats(directoryToSavePhotos: exportDirectory)
+        let chats = try reader.getChats(directoryToSavePhotos: exportDirectory)
         let chat = try XCTUnwrap(chats.first(where: { $0.id == 810 }))
         let photoFilename = try XCTUnwrap(chat.photoFilename)
         let exportedURL = exportDirectory.appendingPathComponent(photoFilename)
@@ -180,11 +180,11 @@ final class ChatDiscoveryInvariantTests: XCTestCase {
     }
 
     func testIndividualLidChatsResolvePartnerPhoneThroughLidAccount() throws {
-        let (waBackup, fixture) = try InvariantFixtureFactory.makeConnectedIndividualLidBackup()
+        let (reader, fixture) = try InvariantFixtureFactory.makeConnectedIndividualLidBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let chat = try XCTUnwrap(try waBackup.getChats().first(where: { $0.id == 820 }))
-        let dump = try waBackup.getChat(chatId: chat.id, directoryToSaveMedia: nil)
+        let chat = try XCTUnwrap(try reader.getChats().first(where: { $0.id == 820 }))
+        let dump = try reader.getChat(chatId: chat.id, directoryToSaveMedia: nil)
         let incomingMessage = try XCTUnwrap(dump.messages.first(where: { !$0.isFromMe }))
 
         XCTAssertEqual(chat.contactJid, "40482648260486@lid")
@@ -195,11 +195,11 @@ final class ChatDiscoveryInvariantTests: XCTestCase {
     }
 
     func testLocationMessagesKeepNilCoordinatesWhenMediaItemLacksThem() throws {
-        let (waBackup, fixture) = try InvariantFixtureFactory.makeConnectedIncompleteLocationBackup()
+        let (reader, fixture) = try InvariantFixtureFactory.makeConnectedIncompleteLocationBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let chat = try XCTUnwrap(try waBackup.getChats().first(where: { $0.id == 830 }))
-        let dump = try waBackup.getChat(chatId: chat.id, directoryToSaveMedia: nil)
+        let chat = try XCTUnwrap(try reader.getChats().first(where: { $0.id == 830 }))
+        let dump = try reader.getChat(chatId: chat.id, directoryToSaveMedia: nil)
         let message = try XCTUnwrap(dump.messages.first(where: { $0.id == 830001 }))
 
         XCTAssertEqual(message.messageType, "Location")
@@ -210,11 +210,11 @@ final class ChatDiscoveryInvariantTests: XCTestCase {
 
 final class GroupChatInvariantTests: XCTestCase {
     func testGroupIncomingMessagesResolveMemberIdentity() throws {
-        let (waBackup, fixture) = try InvariantFixtureFactory.makeConnectedGroupBackup()
+        let (reader, fixture) = try InvariantFixtureFactory.makeConnectedGroupBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let chat = try XCTUnwrap(try waBackup.getChats().first(where: { $0.id == 700 }))
-        let dump = try waBackup.getChat(chatId: chat.id, directoryToSaveMedia: nil)
+        let chat = try XCTUnwrap(try reader.getChats().first(where: { $0.id == 700 }))
+        let dump = try reader.getChat(chatId: chat.id, directoryToSaveMedia: nil)
 
         let messageById = Dictionary(uniqueKeysWithValues: dump.messages.map { ($0.id, $0) })
 
@@ -286,10 +286,10 @@ final class GroupChatInvariantTests: XCTestCase {
     }
 
     func testGroupContactListContainsOwnerAndDistinctMembers() throws {
-        let (waBackup, fixture) = try InvariantFixtureFactory.makeConnectedGroupBackup()
+        let (reader, fixture) = try InvariantFixtureFactory.makeConnectedGroupBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let dump = try waBackup.getChat(chatId: 700, directoryToSaveMedia: nil)
+        let dump = try reader.getChat(chatId: 700, directoryToSaveMedia: nil)
         let phones = dump.contacts.map(\.phone)
 
         XCTAssertEqual(Set(phones).count, dump.contacts.count)
@@ -301,10 +301,10 @@ final class GroupChatInvariantTests: XCTestCase {
     }
 
     func testGroupContactListIncludesActiveMembershipAndHistoricalAuthors() throws {
-        let (waBackup, fixture) = try InvariantFixtureFactory.makeConnectedActiveGroupMembersBackup()
+        let (reader, fixture) = try InvariantFixtureFactory.makeConnectedActiveGroupMembersBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let dump = try waBackup.getChat(chatId: 710, directoryToSaveMedia: nil)
+        let dump = try reader.getChat(chatId: 710, directoryToSaveMedia: nil)
         let contactsByPhone = Dictionary(uniqueKeysWithValues: dump.contacts.map { ($0.phone, $0) })
 
         XCTAssertEqual(dump.contacts.count, 5)
@@ -321,7 +321,7 @@ final class GroupChatInvariantTests: XCTestCase {
 }
 
 private enum InvariantFixtureFactory {
-    static func makeConnectedFilteredChatBackup() throws -> (waBackup: WABackup, fixture: PublicTemporaryBackupFixture) {
+    static func makeConnectedFilteredChatBackup() throws -> (reader: WhatsAppBackupReader, fixture: PublicTemporaryBackupFixture) {
         let fixture = try PublicTestSupport.makeTemporaryBackup(name: "filtered-chat-backup") { db in
             try createCommonTables(in: db)
 
@@ -388,11 +388,11 @@ private enum InvariantFixtureFactory {
             )
         }
 
-        let waBackup = try PublicTestSupport.makeConnectedBackup(from: fixture)
-        return (waBackup, fixture)
+        let reader = try PublicTestSupport.makeConnectedBackup(from: fixture)
+        return (reader, fixture)
     }
 
-    static func makeConnectedProfilePhotoBackup() throws -> (waBackup: WABackup, fixture: PublicTemporaryBackupFixture) {
+    static func makeConnectedProfilePhotoBackup() throws -> (reader: WhatsAppBackupReader, fixture: PublicTemporaryBackupFixture) {
         let fixture = try PublicTestSupport.makeTemporaryBackup(
             name: "profile-photo-backup",
             additionalManifestEntries: [
@@ -468,11 +468,11 @@ private enum InvariantFixtureFactory {
             )
         }
 
-        let waBackup = try PublicTestSupport.makeConnectedBackup(from: fixture)
-        return (waBackup, fixture)
+        let reader = try PublicTestSupport.makeConnectedBackup(from: fixture)
+        return (reader, fixture)
     }
 
-    static func makeConnectedIndividualLidBackup() throws -> (waBackup: WABackup, fixture: PublicTemporaryBackupFixture) {
+    static func makeConnectedIndividualLidBackup() throws -> (reader: WhatsAppBackupReader, fixture: PublicTemporaryBackupFixture) {
         let fixture = try PublicTestSupport.makeTemporaryBackup(name: "individual-lid-backup") { db in
             try createCommonTables(in: db)
 
@@ -577,11 +577,11 @@ private enum InvariantFixtureFactory {
             )
         }
 
-        let waBackup = try PublicTestSupport.makeConnectedBackup(from: fixture)
-        return (waBackup, fixture)
+        let reader = try PublicTestSupport.makeConnectedBackup(from: fixture)
+        return (reader, fixture)
     }
 
-    static func makeConnectedGroupBackup() throws -> (waBackup: WABackup, fixture: PublicTemporaryBackupFixture) {
+    static func makeConnectedGroupBackup() throws -> (reader: WhatsAppBackupReader, fixture: PublicTemporaryBackupFixture) {
         let fixture = try PublicTestSupport.makeTemporaryBackup(name: "group-invariant-backup") { db in
             try createCommonTables(in: db)
 
@@ -1038,11 +1038,11 @@ private enum InvariantFixtureFactory {
             )
         }
 
-        let waBackup = try PublicTestSupport.makeConnectedBackup(from: fixture)
-        return (waBackup, fixture)
+        let reader = try PublicTestSupport.makeConnectedBackup(from: fixture)
+        return (reader, fixture)
     }
 
-    static func makeConnectedActiveGroupMembersBackup() throws -> (waBackup: WABackup, fixture: PublicTemporaryBackupFixture) {
+    static func makeConnectedActiveGroupMembersBackup() throws -> (reader: WhatsAppBackupReader, fixture: PublicTemporaryBackupFixture) {
         let fixture = try PublicTestSupport.makeTemporaryBackup(name: "active-group-members-backup") { db in
             try createCommonTables(in: db)
             try db.execute(sql: "ALTER TABLE ZWAGROUPMEMBER ADD COLUMN ZISACTIVE INTEGER")
@@ -1223,11 +1223,11 @@ private enum InvariantFixtureFactory {
             )
         }
 
-        let waBackup = try PublicTestSupport.makeConnectedBackup(from: fixture)
-        return (waBackup, fixture)
+        let reader = try PublicTestSupport.makeConnectedBackup(from: fixture)
+        return (reader, fixture)
     }
 
-    static func makeConnectedIncompleteLocationBackup() throws -> (waBackup: WABackup, fixture: PublicTemporaryBackupFixture) {
+    static func makeConnectedIncompleteLocationBackup() throws -> (reader: WhatsAppBackupReader, fixture: PublicTemporaryBackupFixture) {
         let fixture = try PublicTestSupport.makeTemporaryBackup(name: "incomplete-location-backup") { db in
             try createCommonTables(in: db)
 
@@ -1274,8 +1274,8 @@ private enum InvariantFixtureFactory {
             )
         }
 
-        let waBackup = try PublicTestSupport.makeConnectedBackup(from: fixture)
-        return (waBackup, fixture)
+        let reader = try PublicTestSupport.makeConnectedBackup(from: fixture)
+        return (reader, fixture)
     }
 
     private static func createCommonTables(in db: Database) throws {

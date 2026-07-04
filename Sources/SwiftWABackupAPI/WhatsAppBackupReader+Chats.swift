@@ -1,21 +1,17 @@
 //
-//  WABackup+Chats.swift
+//  WhatsAppBackupReader+Chats.swift
 //  SwiftWABackupAPI
 //
 
 import Foundation
 import GRDB
 
-public extension WABackup {
+public extension WhatsAppBackupReader {
     /// Retrieves all supported chats from the connected WhatsApp database.
     func getChats(
         directoryToSavePhotos directory: URL? = nil,
         progress: WABackupProgressHandler? = nil
     ) throws -> [ChatInfo] {
-        guard let dbQueue = chatDatabase, let whatsAppBackup else {
-            throw DatabaseErrorWA.connection(DatabaseError(message: "Database not connected"))
-        }
-
         reportProgress(
             progress,
             phase: .loadingChats,
@@ -23,7 +19,7 @@ public extension WABackup {
             unit: .chats
         )
 
-        let chatInfos = try dbQueue.performRead { db -> [ChatInfo] in
+        let chatInfos = try chatDatabase.performRead { db -> [ChatInfo] in
             let chatSessions = try ChatSession.fetchAllChats(from: db)
             reportProgress(
                 progress,
@@ -102,7 +98,7 @@ public extension WABackup {
     }
 }
 
-extension WABackup {
+extension WhatsAppBackupReader {
     func resolvedChatName(for chatSession: ChatSession) -> String {
         if let ownerJid, chatSession.contactJid == ownerJid {
             return "Me"
@@ -142,7 +138,7 @@ extension WABackup {
         let ext = latest.filename.hasSuffix(".jpg") ? ".jpg" : ".thumb"
         let fileName = "chat_\(chatId)\(ext)"
 
-        try mediaCopier?.copy(sourceURL: latest.sourceURL, named: fileName, to: directory, progress: progress)
+        try mediaCopier.copy(sourceURL: latest.sourceURL, named: fileName, to: directory, progress: progress)
         return fileName
     }
 }

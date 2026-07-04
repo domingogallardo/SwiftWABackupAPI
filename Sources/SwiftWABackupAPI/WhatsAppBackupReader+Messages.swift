@@ -1,22 +1,18 @@
 //
-//  WABackup+Messages.swift
+//  WhatsAppBackupReader+Messages.swift
 //  SwiftWABackupAPI
 //
 
 import Foundation
 import GRDB
 
-public extension WABackup {
+public extension WhatsAppBackupReader {
     /// Retrieves a full chat export.
     func getChat(
         chatId: Int,
-        directoryToSaveMedia directory: URL?,
+        directoryToSaveMedia directory: URL? = nil,
         progress: WABackupProgressHandler? = nil
     ) throws -> ChatDumpPayload {
-        guard let dbQueue = chatDatabase, let whatsAppBackup else {
-            throw DatabaseErrorWA.connection(DatabaseError(message: "Database or backup not found"))
-        }
-
         reportProgress(
             progress,
             phase: .exportingChat,
@@ -26,7 +22,7 @@ public extension WABackup {
             currentItem: "chat \(chatId)"
         )
 
-        let chatInfo = try fetchChatInfo(id: chatId, from: dbQueue)
+        let chatInfo = try fetchChatInfo(id: chatId, from: chatDatabase)
         reportProgress(
             progress,
             phase: .exportingChat,
@@ -43,7 +39,7 @@ public extension WABackup {
             unit: .messages,
             currentItem: chatInfo.name
         )
-        let messages = try fetchMessagesFromDatabase(chatId: chatId, from: dbQueue)
+        let messages = try fetchMessagesFromDatabase(chatId: chatId, from: chatDatabase)
         reportProgress(
             progress,
             phase: .loadingMessages,
@@ -58,7 +54,7 @@ public extension WABackup {
             chatType: chatInfo.chatType,
             directoryToSaveMedia: directory,
             whatsAppBackup: whatsAppBackup,
-            from: dbQueue,
+            from: chatDatabase,
             progress: progress
         )
         reportProgress(
@@ -72,7 +68,7 @@ public extension WABackup {
 
         let contacts = try buildContactList(
             for: chatInfo,
-            from: dbQueue,
+            from: chatDatabase,
             whatsAppBackup: whatsAppBackup,
             directory: directory,
             progress: progress
@@ -112,7 +108,7 @@ public extension WABackup {
     }
 }
 
-extension WABackup {
+extension WhatsAppBackupReader {
     func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) throws -> ChatInfo {
         try dbQueue.performRead { db in
             let chatSession = try ChatSession.fetchChat(byId: id, from: db)
@@ -366,7 +362,7 @@ extension WABackup {
         if let mediaLocalPath = mediaItem.localPath,
            let sourceURL = try? whatsAppBackup.fileURL(endingWith: mediaLocalPath) {
             let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
-            try mediaCopier?.copy(sourceURL: sourceURL, named: fileName, to: directoryURL, progress: progress)
+            try mediaCopier.copy(sourceURL: sourceURL, named: fileName, to: directoryURL, progress: progress)
             return fileName
         }
 

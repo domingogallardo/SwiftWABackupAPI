@@ -7,10 +7,10 @@ final class ProgressTests: XCTestCase {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
-        let waBackup = WABackup(iPhoneBackupsPath: fixture.rootURL.path)
+        let manager = IPhoneBackupManager(iPhoneBackupsPath: fixture.rootURL.path)
         var events: [WABackupProgress] = []
 
-        let infos = try waBackup.inspectIPhoneBackups { events.append($0) }
+        let infos = try manager.inspectIPhoneBackups { events.append($0) }
 
         XCTAssertEqual(infos.count, 1)
         XCTAssertTrue(events.contains { $0.phase == .discoveringIPhoneBackups })
@@ -56,11 +56,11 @@ final class ProgressTests: XCTestCase {
     }
 
     func testChatListingAndExportReportProgress() throws {
-        let (waBackup, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
 
         var listEvents: [WABackupProgress] = []
-        let chats = try waBackup.getChats { listEvents.append($0) }
+        let chats = try reader.getChats { listEvents.append($0) }
 
         XCTAssertEqual(chats.count, 2)
         XCTAssertTrue(listEvents.contains { $0.phase == .loadingChats })
@@ -71,7 +71,7 @@ final class ProgressTests: XCTestCase {
         defer { try? PublicTestSupport.removeItemIfExists(at: mediaDirectory) }
 
         var exportEvents: [WABackupProgress] = []
-        let payload = try waBackup.getChat(chatId: chat.id, directoryToSaveMedia: mediaDirectory) {
+        let payload = try reader.getChat(chatId: chat.id, directoryToSaveMedia: mediaDirectory) {
             exportEvents.append($0)
         }
 

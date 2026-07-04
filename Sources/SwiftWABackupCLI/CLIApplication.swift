@@ -413,8 +413,8 @@ struct CLIApplication {
         standardOutput: OutputWriter,
         progress: WABackupProgressHandler?
     ) throws {
-        let waBackup = WABackup(iPhoneBackupsPath: iPhoneBackupsPath)
-        let inspections = try waBackup.inspectIPhoneBackups(progress: progress)
+        let manager = IPhoneBackupManager(iPhoneBackupsPath: iPhoneBackupsPath)
+        let inspections = try manager.inspectIPhoneBackups(progress: progress)
 
         if json {
             let payload = IPhoneBackupListPayload(
@@ -444,7 +444,7 @@ struct CLIApplication {
     ) throws {
         let source = try openWhatsAppBackup(at: whatsAppBackupPath)
         let photosURL = try photosDirectory.map(createDirectoryIfNeeded(at:))
-        let chats = try source.waBackup.getChats(directoryToSavePhotos: photosURL, progress: progress)
+        let chats = try source.reader.getChats(directoryToSavePhotos: photosURL, progress: progress)
 
         if json {
             standardOutput(try renderJSON(chats, pretty: pretty))
@@ -496,7 +496,7 @@ struct CLIApplication {
         let exportDirectoryURL = try outputDirectory.map(createDirectoryIfNeeded(at:))
         let jsonOutputURL = try outputJSON.map { try resolveOutputJSONURL(at: $0) }
         let mediaURL = exportDirectoryURL
-        let payload = try source.waBackup.getChat(
+        let payload = try source.reader.getChat(
             chatId: chatId,
             directoryToSaveMedia: mediaURL,
             progress: progress
@@ -547,13 +547,13 @@ struct CLIApplication {
     }
 
     private func openWhatsAppBackup(at whatsAppBackupPath: String) throws -> OpenedWhatsAppBackup {
-        let backupURL = URL(fileURLWithPath: whatsAppBackupPath, isDirectory: true)
-        let waBackup = try WABackup(whatsAppBackupAt: backupURL)
+        let backup = ExtractedWhatsAppBackup(path: whatsAppBackupPath)
+        let reader = try backup.openReader()
 
         return OpenedWhatsAppBackup(
-            waBackup: waBackup,
-            headerLine: "WhatsApp backup: \(backupURL.path)",
-            outputDescription: "WhatsApp backup \(backupURL.path)"
+            reader: reader,
+            headerLine: "WhatsApp backup: \(backup.path)",
+            outputDescription: "WhatsApp backup \(backup.path)"
         )
     }
 
@@ -562,8 +562,8 @@ struct CLIApplication {
         iPhoneBackupId: String?,
         progress: WABackupProgressHandler?
     ) throws -> IPhoneBackup {
-        let waBackup = WABackup(iPhoneBackupsPath: iPhoneBackupsPath)
-        let inspections = try waBackup.inspectIPhoneBackups(progress: progress)
+        let manager = IPhoneBackupManager(iPhoneBackupsPath: iPhoneBackupsPath)
+        let inspections = try manager.inspectIPhoneBackups(progress: progress)
         let inspection: IPhoneBackupDiscoveryInfo
 
         if let iPhoneBackupId {
@@ -747,7 +747,7 @@ struct CLIApplication {
 }
 
 private struct OpenedWhatsAppBackup {
-    let waBackup: WABackup
+    let reader: WhatsAppBackupReader
     let headerLine: String
     let outputDescription: String
 }

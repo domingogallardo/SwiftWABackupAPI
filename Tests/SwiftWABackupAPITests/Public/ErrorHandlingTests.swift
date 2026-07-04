@@ -4,9 +4,9 @@ import XCTest
 
 final class ErrorHandlingTests: XCTestCase {
     func testGetIPhoneBackupsThrowsForMissingRootDirectory() {
-        let waBackup = WABackup(iPhoneBackupsPath: "/tmp/SwiftWABackupAPI/non-existent-\(UUID().uuidString)")
+        let manager = IPhoneBackupManager(iPhoneBackupsPath: "/tmp/SwiftWABackupAPI/non-existent-\(UUID().uuidString)")
 
-        XCTAssertThrowsError(try waBackup.getIPhoneBackups()) { error in
+        XCTAssertThrowsError(try manager.getIPhoneBackups()) { error in
             guard case BackupError.directoryAccess = error else {
                 return XCTFail("Expected BackupError.directoryAccess, got \(error)")
             }
@@ -21,8 +21,8 @@ final class ErrorHandlingTests: XCTestCase {
         try FileManager.default.createDirectory(at: backupURL, withIntermediateDirectories: true)
         try Data().write(to: backupURL.appendingPathComponent("Info.plist"))
 
-        let waBackup = WABackup(iPhoneBackupsPath: rootURL.path)
-        let backups = try waBackup.getIPhoneBackups()
+        let manager = IPhoneBackupManager(iPhoneBackupsPath: rootURL.path)
+        let backups = try manager.getIPhoneBackups()
 
         XCTAssertTrue(backups.isEmpty)
     }
@@ -35,8 +35,8 @@ final class ErrorHandlingTests: XCTestCase {
         try FileManager.default.createDirectory(at: backupURL, withIntermediateDirectories: true)
         try Data().write(to: backupURL.appendingPathComponent("Info.plist"))
 
-        let waBackup = WABackup(iPhoneBackupsPath: rootURL.path)
-        let infos = try waBackup.inspectIPhoneBackups()
+        let manager = IPhoneBackupManager(iPhoneBackupsPath: rootURL.path)
+        let infos = try manager.inspectIPhoneBackups()
         let info = try XCTUnwrap(infos.first)
 
         XCTAssertEqual(info.identifier, "incomplete-backup")
@@ -46,23 +46,28 @@ final class ErrorHandlingTests: XCTestCase {
         XCTAssertNil(info.iPhoneBackup)
     }
 
-    func testGetChatsFailsWhenDatabaseIsNotConnected() {
-        let waBackup = WABackup(iPhoneBackupsPath: FileManager.default.temporaryDirectory.path)
+    func testOpeningExtractedBackupFailsWhenChatStorageIsMissing() throws {
+        let rootURL = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-missing-chatstorage")
+        defer { try? PublicTestSupport.removeItemIfExists(at: rootURL) }
 
-        XCTAssertThrowsError(try waBackup.getChats()) { error in
-            guard case DatabaseErrorWA.connection = error else {
-                return XCTFail("Expected DatabaseErrorWA.connection, got \(error)")
+        XCTAssertThrowsError(try ExtractedWhatsAppBackup(url: rootURL).openReader()) { error in
+            guard case DomainError.mediaNotFound(let path) = error else {
+                return XCTFail("Expected DomainError.mediaNotFound, got \(error)")
             }
+            XCTAssertEqual(path, "ChatStorage.sqlite")
         }
     }
 
-    func testGetChatFailsWhenDatabaseIsNotConnected() {
-        let waBackup = WABackup(iPhoneBackupsPath: FileManager.default.temporaryDirectory.path)
+    func testOpeningExtractedBackupFailsWhenPathIsMissing() {
+        let backup = ExtractedWhatsAppBackup(
+            path: "/tmp/SwiftWABackupAPI/non-existent-whatsapp-\(UUID().uuidString)"
+        )
 
-        XCTAssertThrowsError(try waBackup.getChat(chatId: 44, directoryToSaveMedia: nil)) { error in
-            guard case DatabaseErrorWA.connection = error else {
-                return XCTFail("Expected DatabaseErrorWA.connection, got \(error)")
+        XCTAssertThrowsError(try backup.openReader()) { error in
+            guard case DomainError.mediaNotFound(let path) = error else {
+                return XCTFail("Expected DomainError.mediaNotFound, got \(error)")
             }
+            XCTAssertEqual(path, "ChatStorage.sqlite")
         }
     }
 
@@ -74,7 +79,7 @@ final class ErrorHandlingTests: XCTestCase {
 
         let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
 
-        XCTAssertThrowsError(try WABackup(whatsAppBackupAt: extractedBackup.url)) { error in
+        XCTAssertThrowsError(try extractedBackup.openReader()) { error in
             guard case DatabaseErrorWA.unsupportedSchema = error else {
                 return XCTFail("Expected DatabaseErrorWA.unsupportedSchema, got \(error)")
             }

@@ -1,12 +1,12 @@
 //
-//  WABackup+Contacts.swift
+//  WhatsAppBackupReader+Contacts.swift
 //  SwiftWABackupAPI
 //
 
 import Foundation
 import GRDB
 
-extension WABackup {
+extension WhatsAppBackupReader {
     func buildContactList(
         for chatInfo: ChatInfo,
         from dbQueue: DatabaseQueue,
@@ -156,7 +156,7 @@ extension WABackup {
         if let latest {
             let fileName = latest.filename
             let targetFileName = contact.phone + (fileName.hasSuffix(".jpg") ? ".jpg" : ".thumb")
-            try mediaCopier?.copy(sourceURL: latest.sourceURL, named: targetFileName, to: directory, progress: progress)
+            try mediaCopier.copy(sourceURL: latest.sourceURL, named: targetFileName, to: directory, progress: progress)
             updated.photoFilename = targetFileName
         }
 
