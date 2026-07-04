@@ -161,24 +161,65 @@ public extension IPhoneBackup {
     @discardableResult
     func extractWhatsAppBackup(
         to destinationDirectory: URL,
-        overwriteExisting: Bool = false
+        overwriteExisting: Bool = false,
+        progress: WABackupProgressHandler? = nil
     ) throws -> ExtractedWhatsAppBackup {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+        reportProgress(
+            progress,
+            phase: .loadingManifest,
+            completedUnitCount: 0,
+            unit: .manifestEntries,
+            currentItem: "Manifest.db"
+        )
         let entries = try fetchAllWhatsAppBackupEntries()
+        reportProgress(
+            progress,
+            phase: .loadingManifest,
+            completedUnitCount: entries.count,
+            totalUnitCount: entries.count,
+            unit: .manifestEntries,
+            currentItem: "Manifest.db"
+        )
 
-        for entry in entries {
+        reportProgress(
+            progress,
+            phase: .copyingBackupFiles,
+            completedUnitCount: 0,
+            totalUnitCount: entries.count,
+            unit: .manifestEntries
+        )
+
+        for (index, entry) in entries.enumerated() {
             let targetURL = try extractedTargetURL(
                 forWhatsAppRelativePath: entry.filename,
                 under: destinationDirectory
             )
+            let completed = index + 1
 
             switch entry.type {
             case .directory:
                 try fileManager.createDirectory(at: targetURL, withIntermediateDirectories: true)
+                reportProgress(
+                    progress,
+                    phase: .copyingBackupFiles,
+                    completedUnitCount: completed,
+                    totalUnitCount: entries.count,
+                    unit: .manifestEntries,
+                    currentItem: entry.filename
+                )
                 continue
 
             case .other:
+                reportProgress(
+                    progress,
+                    phase: .copyingBackupFiles,
+                    completedUnitCount: completed,
+                    totalUnitCount: entries.count,
+                    unit: .manifestEntries,
+                    currentItem: entry.filename
+                )
                 continue
 
             case .file:
@@ -193,6 +234,14 @@ public extension IPhoneBackup {
 
             if fileManager.fileExists(atPath: targetURL.path) {
                 guard overwriteExisting else {
+                    reportProgress(
+                        progress,
+                        phase: .copyingBackupFiles,
+                        completedUnitCount: completed,
+                        totalUnitCount: entries.count,
+                        unit: .manifestEntries,
+                        currentItem: entry.filename
+                    )
                     continue
                 }
 
@@ -208,10 +257,28 @@ public extension IPhoneBackup {
                     underlying: error
                 )
             }
+
+            reportProgress(
+                progress,
+                phase: .copyingBackupFiles,
+                completedUnitCount: completed,
+                totalUnitCount: entries.count,
+                unit: .manifestEntries,
+                currentItem: entry.filename
+            )
         }
 
-        try writePortableMetadata(for: entries, under: destinationDirectory)
-        return ExtractedWhatsAppBackup(url: destinationDirectory)
+        try writePortableMetadata(for: entries, under: destinationDirectory, progress: progress)
+        let extractedBackup = ExtractedWhatsAppBackup(url: destinationDirectory)
+        reportProgress(
+            progress,
+            phase: .completed,
+            completedUnitCount: 1,
+            totalUnitCount: 1,
+            unit: .phases,
+            currentItem: "extractWhatsAppBackup"
+        )
+        return extractedBackup
     }
 }
 
@@ -315,18 +382,66 @@ private extension IPhoneBackup {
         }
     }
 
-    func writePortableMetadata(for entries: [WhatsAppBackupEntry], under rootURL: URL) throws {
+    func writePortableMetadata(
+        for entries: [WhatsAppBackupEntry],
+        under rootURL: URL,
+        progress: WABackupProgressHandler? = nil
+    ) throws {
         let sidecarURL = rootURL.appendingPathComponent(".wa-backup", isDirectory: true)
+        reportProgress(
+            progress,
+            phase: .writingMetadata,
+            completedUnitCount: 0,
+            totalUnitCount: 3,
+            unit: .phases,
+            currentItem: ".wa-backup"
+        )
         try FileManager.default.createDirectory(at: sidecarURL, withIntermediateDirectories: true)
-        let indexURL = try writePortableIndex(for: entries, rootURL: rootURL, sidecarURL: sidecarURL)
-        try writeBackupInfo(for: entries, rootURL: rootURL, sidecarURL: sidecarURL, indexURL: indexURL)
+        let indexURL = try writePortableIndex(
+            for: entries,
+            rootURL: rootURL,
+            sidecarURL: sidecarURL,
+            progress: progress
+        )
+        reportProgress(
+            progress,
+            phase: .writingMetadata,
+            completedUnitCount: 1,
+            totalUnitCount: 3,
+            unit: .phases,
+            currentItem: "index.sqlite"
+        )
+        try writeBackupInfo(
+            for: entries,
+            rootURL: rootURL,
+            sidecarURL: sidecarURL,
+            indexURL: indexURL,
+            progress: progress
+        )
+        reportProgress(
+            progress,
+            phase: .writingMetadata,
+            completedUnitCount: 2,
+            totalUnitCount: 3,
+            unit: .phases,
+            currentItem: "backup-info.json"
+        )
         try writePortableReadme(to: sidecarURL)
+        reportProgress(
+            progress,
+            phase: .writingMetadata,
+            completedUnitCount: 3,
+            totalUnitCount: 3,
+            unit: .phases,
+            currentItem: "README.md"
+        )
     }
 
     func writePortableIndex(
         for entries: [WhatsAppBackupEntry],
         rootURL: URL,
-        sidecarURL: URL
+        sidecarURL: URL,
+        progress: WABackupProgressHandler? = nil
     ) throws -> URL {
         let fileManager = FileManager.default
         let indexURL = sidecarURL.appendingPathComponent("index.sqlite")
@@ -350,14 +465,16 @@ private extension IPhoneBackup {
             let fileEntriesByPath = try insertPortableIndexFiles(
                 entries,
                 rootURL: rootURL,
-                in: db
+                in: db,
+                progress: progress
             )
 
-            try insertPortableIndexPathAliases(entries, in: db)
+            try insertPortableIndexPathAliases(entries, in: db, progress: progress)
             try insertPortableIndexMediaItems(
                 fileEntriesByPath: fileEntriesByPath,
                 rootURL: rootURL,
-                in: db
+                in: db,
+                progress: progress
             )
         }
 
@@ -452,11 +569,19 @@ private extension IPhoneBackup {
     func insertPortableIndexFiles(
         _ entries: [WhatsAppBackupEntry],
         rootURL: URL,
-        in db: Database
+        in db: Database,
+        progress: WABackupProgressHandler? = nil
     ) throws -> [String: WhatsAppBackupEntry] {
         var fileEntriesByPath: [String: WhatsAppBackupEntry] = [:]
+        reportProgress(
+            progress,
+            phase: .indexingFiles,
+            completedUnitCount: 0,
+            totalUnitCount: entries.count,
+            unit: .manifestEntries
+        )
 
-        for entry in entries {
+        for (index, entry) in entries.enumerated() {
             let normalizedPath = normalizedWhatsAppRelativePath(entry.filename)
             let targetURL = rootURL.appendingPathComponent(normalizedPath)
             let existsOnDisk = FileManager.default.fileExists(atPath: targetURL.path) ? 1 : 0
@@ -491,6 +616,15 @@ private extension IPhoneBackup {
             if entry.type == .file {
                 fileEntriesByPath[normalizedPath] = entry
             }
+
+            reportProgress(
+                progress,
+                phase: .indexingFiles,
+                completedUnitCount: index + 1,
+                totalUnitCount: entries.count,
+                unit: .manifestEntries,
+                currentItem: entry.filename
+            )
         }
 
         return fileEntriesByPath
@@ -498,9 +632,18 @@ private extension IPhoneBackup {
 
     func insertPortableIndexPathAliases(
         _ entries: [WhatsAppBackupEntry],
-        in db: Database
+        in db: Database,
+        progress: WABackupProgressHandler? = nil
     ) throws {
-        for entry in entries {
+        reportProgress(
+            progress,
+            phase: .indexingPathAliases,
+            completedUnitCount: 0,
+            totalUnitCount: entries.count,
+            unit: .manifestEntries
+        )
+
+        for (index, entry) in entries.enumerated() {
             let normalizedPath = normalizedWhatsAppRelativePath(entry.filename)
             try insertPortableIndexPathAlias(
                 aliasPath: entry.filename,
@@ -545,6 +688,15 @@ private extension IPhoneBackup {
                     in: db
                 )
             }
+
+            reportProgress(
+                progress,
+                phase: .indexingPathAliases,
+                completedUnitCount: index + 1,
+                totalUnitCount: entries.count,
+                unit: .manifestEntries,
+                currentItem: entry.filename
+            )
         }
     }
 
@@ -584,7 +736,8 @@ private extension IPhoneBackup {
     func insertPortableIndexMediaItems(
         fileEntriesByPath: [String: WhatsAppBackupEntry],
         rootURL: URL,
-        in db: Database
+        in db: Database,
+        progress: WABackupProgressHandler? = nil
     ) throws {
         let chatStorageURL = rootURL.appendingPathComponent("ChatStorage.sqlite")
         guard FileManager.default.fileExists(atPath: chatStorageURL.path) else {
@@ -609,10 +762,25 @@ private extension IPhoneBackup {
                     """
                 )
             }
+            reportProgress(
+                progress,
+                phase: .indexingMediaItems,
+                completedUnitCount: 0,
+                totalUnitCount: mediaRows.count,
+                unit: .mediaItems
+            )
 
-            for row in mediaRows {
+            for (index, row) in mediaRows.enumerated() {
                 let mediaItemID = row.value(for: "Z_PK", default: Int64(0))
                 guard let localPath: String = row["ZMEDIALOCALPATH"] else {
+                    reportProgress(
+                        progress,
+                        phase: .indexingMediaItems,
+                        completedUnitCount: index + 1,
+                        totalUnitCount: mediaRows.count,
+                        unit: .mediaItems,
+                        currentItem: String(mediaItemID)
+                    )
                     continue
                 }
 
@@ -646,6 +814,14 @@ private extension IPhoneBackup {
                         resolvedEntry?.fileHash,
                         resolvedEntry?.filename
                     ]
+                )
+                reportProgress(
+                    progress,
+                    phase: .indexingMediaItems,
+                    completedUnitCount: index + 1,
+                    totalUnitCount: mediaRows.count,
+                    unit: .mediaItems,
+                    currentItem: localPath
                 )
             }
 
@@ -695,9 +871,15 @@ private extension IPhoneBackup {
         for entries: [WhatsAppBackupEntry],
         rootURL: URL,
         sidecarURL: URL,
-        indexURL: URL
+        indexURL: URL,
+        progress: WABackupProgressHandler? = nil
     ) throws {
-        let backupInfo = makeBackupInfo(for: entries, rootURL: rootURL, indexURL: indexURL)
+        let backupInfo = makeBackupInfo(
+            for: entries,
+            rootURL: rootURL,
+            indexURL: indexURL,
+            progress: progress
+        )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -710,7 +892,8 @@ private extension IPhoneBackup {
     func makeBackupInfo(
         for entries: [WhatsAppBackupEntry],
         rootURL: URL,
-        indexURL: URL
+        indexURL: URL,
+        progress: WABackupProgressHandler? = nil
     ) -> ExtractedWhatsAppBackupInfo {
         var warnings: [String] = []
         let fileEntries = entries.filter { $0.type == .file }
@@ -721,15 +904,40 @@ private extension IPhoneBackup {
         var missingFiles = 0
         var extractedBytes: Int64 = 0
 
-        for entry in fileEntries {
+        reportProgress(
+            progress,
+            phase: .calculatingBackupInfo,
+            completedUnitCount: 0,
+            totalUnitCount: fileEntries.count,
+            unit: .files,
+            currentItem: "backup-info.json"
+        )
+
+        for (index, entry) in fileEntries.enumerated() {
             let targetURL = rootURL.appendingPathComponent(normalizedWhatsAppRelativePath(entry.filename))
             guard FileManager.default.fileExists(atPath: targetURL.path) else {
                 missingFiles += 1
+                reportProgress(
+                    progress,
+                    phase: .calculatingBackupInfo,
+                    completedUnitCount: index + 1,
+                    totalUnitCount: fileEntries.count,
+                    unit: .files,
+                    currentItem: entry.filename
+                )
                 continue
             }
 
             copiedFiles += 1
             extractedBytes += fileByteCount(at: targetURL) ?? 0
+            reportProgress(
+                progress,
+                phase: .calculatingBackupInfo,
+                completedUnitCount: index + 1,
+                totalUnitCount: fileEntries.count,
+                unit: .files,
+                currentItem: entry.filename
+            )
         }
 
         let mediaItemCounts = readMediaItemCounts(from: indexURL, warnings: &warnings)

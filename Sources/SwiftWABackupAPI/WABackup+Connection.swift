@@ -8,13 +8,13 @@ import GRDB
 
 public extension WABackup {
     /// Returns iPhone backups that are ready for WhatsApp extraction.
-    func getIPhoneBackups() throws -> [IPhoneBackup] {
-        try iPhoneBackupManager.getIPhoneBackups()
+    func getIPhoneBackups(progress: WABackupProgressHandler? = nil) throws -> [IPhoneBackup] {
+        try iPhoneBackupManager.getIPhoneBackups(progress: progress)
     }
 
     /// Discovers iPhone backups together with diagnostic information such as encryption state.
-    func inspectIPhoneBackups() throws -> [IPhoneBackupDiscoveryInfo] {
-        try iPhoneBackupManager.inspectIPhoneBackups()
+    func inspectIPhoneBackups(progress: WABackupProgressHandler? = nil) throws -> [IPhoneBackupDiscoveryInfo] {
+        try iPhoneBackupManager.inspectIPhoneBackups(progress: progress)
     }
 
 }

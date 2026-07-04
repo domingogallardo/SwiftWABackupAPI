@@ -8,34 +8,65 @@ import GRDB
 
 public extension WABackup {
     /// Retrieves all supported chats from the connected WhatsApp database.
-    func getChats(directoryToSavePhotos directory: URL? = nil) throws -> [ChatInfo] {
+    func getChats(
+        directoryToSavePhotos directory: URL? = nil,
+        progress: WABackupProgressHandler? = nil
+    ) throws -> [ChatInfo] {
         guard let dbQueue = chatDatabase, let whatsAppBackup else {
             throw DatabaseErrorWA.connection(DatabaseError(message: "Database not connected"))
         }
 
+        reportProgress(
+            progress,
+            phase: .loadingChats,
+            completedUnitCount: 0,
+            unit: .chats
+        )
+
         let chatInfos = try dbQueue.performRead { db -> [ChatInfo] in
             let chatSessions = try ChatSession.fetchAllChats(from: db)
+            reportProgress(
+                progress,
+                phase: .loadingChats,
+                completedUnitCount: 0,
+                totalUnitCount: chatSessions.count,
+                unit: .chats
+            )
 
-            return try chatSessions.compactMap { chatSession -> ChatInfo? in
+            var chatInfos: [ChatInfo] = []
+            chatInfos.reserveCapacity(chatSessions.count)
+
+            for (index, chatSession) in chatSessions.enumerated() {
+                let completed = index + 1
+                let currentItem = chatSession.contactJid
+
                 guard chatSession.sessionType != 5 else {
-                    return nil
+                    reportProgress(
+                        progress,
+                        phase: .loadingChats,
+                        completedUnitCount: completed,
+                        totalUnitCount: chatSessions.count,
+                        unit: .chats,
+                        currentItem: currentItem
+                    )
+                    continue
                 }
 
                 let chatName = resolvedChatName(for: chatSession)
                 let photoFilename: String?
-
                 if let directory {
                     photoFilename = try fetchChatPhotoFilename(
                         for: chatSession.contactJid,
                         chatId: Int(chatSession.id),
                         to: directory,
-                        from: whatsAppBackup
+                        from: whatsAppBackup,
+                        progress: progress
                     )
                 } else {
                     photoFilename = nil
                 }
 
-                return ChatInfo(
+                chatInfos.append(ChatInfo(
                     id: Int(chatSession.id),
                     contactJid: chatSession.contactJid,
                     name: chatName,
@@ -43,11 +74,31 @@ public extension WABackup {
                     lastMessageDate: chatSession.lastMessageDate,
                     isArchived: chatSession.isArchived,
                     photoFilename: photoFilename
+                ))
+
+                reportProgress(
+                    progress,
+                    phase: .loadingChats,
+                    completedUnitCount: completed,
+                    totalUnitCount: chatSessions.count,
+                    unit: .chats,
+                    currentItem: chatName
                 )
             }
+
+            return chatInfos
         }
 
-        return sortChatsByDate(chatInfos)
+        let sortedChats = sortChatsByDate(chatInfos)
+        reportProgress(
+            progress,
+            phase: .completed,
+            completedUnitCount: 1,
+            totalUnitCount: 1,
+            unit: .phases,
+            currentItem: "getChats"
+        )
+        return sortedChats
     }
 }
 
@@ -68,7 +119,8 @@ extension WABackup {
         for contactJid: String,
         chatId: Int,
         to directory: URL,
-        from whatsAppBackup: ExtractedWhatsAppBackup
+        from whatsAppBackup: ExtractedWhatsAppBackup,
+        progress: WABackupProgressHandler? = nil
     ) throws -> String? {
         let basePath: String
 
@@ -90,7 +142,7 @@ extension WABackup {
         let ext = latest.filename.hasSuffix(".jpg") ? ".jpg" : ".thumb"
         let fileName = "chat_\(chatId)\(ext)"
 
-        try mediaCopier?.copy(sourceURL: latest.sourceURL, named: fileName, to: directory)
+        try mediaCopier?.copy(sourceURL: latest.sourceURL, named: fileName, to: directory, progress: progress)
         return fileName
     }
 }

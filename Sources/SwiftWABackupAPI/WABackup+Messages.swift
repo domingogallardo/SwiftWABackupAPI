@@ -8,32 +8,107 @@ import GRDB
 
 public extension WABackup {
     /// Retrieves a full chat export.
-    func getChat(chatId: Int, directoryToSaveMedia directory: URL?) throws -> ChatDumpPayload {
+    func getChat(
+        chatId: Int,
+        directoryToSaveMedia directory: URL?,
+        progress: WABackupProgressHandler? = nil
+    ) throws -> ChatDumpPayload {
         guard let dbQueue = chatDatabase, let whatsAppBackup else {
             throw DatabaseErrorWA.connection(DatabaseError(message: "Database or backup not found"))
         }
 
+        reportProgress(
+            progress,
+            phase: .exportingChat,
+            completedUnitCount: 0,
+            totalUnitCount: 4,
+            unit: .phases,
+            currentItem: "chat \(chatId)"
+        )
+
         let chatInfo = try fetchChatInfo(id: chatId, from: dbQueue)
+        reportProgress(
+            progress,
+            phase: .exportingChat,
+            completedUnitCount: 1,
+            totalUnitCount: 4,
+            unit: .phases,
+            currentItem: chatInfo.name
+        )
+
+        reportProgress(
+            progress,
+            phase: .loadingMessages,
+            completedUnitCount: 0,
+            unit: .messages,
+            currentItem: chatInfo.name
+        )
         let messages = try fetchMessagesFromDatabase(chatId: chatId, from: dbQueue)
+        reportProgress(
+            progress,
+            phase: .loadingMessages,
+            completedUnitCount: messages.count,
+            totalUnitCount: messages.count,
+            unit: .messages,
+            currentItem: chatInfo.name
+        )
+
         let processedMessages = try processMessages(
             messages,
             chatType: chatInfo.chatType,
             directoryToSaveMedia: directory,
             whatsAppBackup: whatsAppBackup,
-            from: dbQueue
+            from: dbQueue,
+            progress: progress
         )
+        reportProgress(
+            progress,
+            phase: .exportingChat,
+            completedUnitCount: 2,
+            totalUnitCount: 4,
+            unit: .phases,
+            currentItem: chatInfo.name
+        )
+
         let contacts = try buildContactList(
             for: chatInfo,
             from: dbQueue,
             whatsAppBackup: whatsAppBackup,
-            directory: directory
+            directory: directory,
+            progress: progress
+        )
+        reportProgress(
+            progress,
+            phase: .exportingChat,
+            completedUnitCount: 3,
+            totalUnitCount: 4,
+            unit: .phases,
+            currentItem: chatInfo.name
         )
 
-        return ChatDumpPayload(
+        let payload = ChatDumpPayload(
             chatInfo: chatInfo,
             messages: processedMessages,
             contacts: contacts
         )
+
+        reportProgress(
+            progress,
+            phase: .exportingChat,
+            completedUnitCount: 4,
+            totalUnitCount: 4,
+            unit: .phases,
+            currentItem: chatInfo.name
+        )
+        reportProgress(
+            progress,
+            phase: .completed,
+            completedUnitCount: 1,
+            totalUnitCount: 1,
+            unit: .phases,
+            currentItem: "getChat"
+        )
+        return payload
     }
 }
 
@@ -65,20 +140,39 @@ extension WABackup {
         chatType: ChatInfo.ChatType,
         directoryToSaveMedia: URL?,
         whatsAppBackup: ExtractedWhatsAppBackup,
-        from dbQueue: DatabaseQueue
+        from dbQueue: DatabaseQueue,
+        progress: WABackupProgressHandler? = nil
     ) throws -> [MessageInfo] {
         var messagesInfo: [MessageInfo] = []
+        messagesInfo.reserveCapacity(messages.count)
+
+        reportProgress(
+            progress,
+            phase: .processingMessages,
+            completedUnitCount: 0,
+            totalUnitCount: messages.count,
+            unit: .messages
+        )
 
         try dbQueue.read { db in
-            for message in messages {
+            for (index, message) in messages.enumerated() {
                 let messageInfo = try processSingleMessage(
                     message,
                     chatType: chatType,
                     directoryToSaveMedia: directoryToSaveMedia,
                     whatsAppBackup: whatsAppBackup,
-                    from: db
+                    from: db,
+                    progress: progress
                 )
                 messagesInfo.append(messageInfo)
+                reportProgress(
+                    progress,
+                    phase: .processingMessages,
+                    completedUnitCount: index + 1,
+                    totalUnitCount: messages.count,
+                    unit: .messages,
+                    currentItem: String(message.id)
+                )
             }
         }
 
@@ -90,7 +184,8 @@ extension WABackup {
         chatType: ChatInfo.ChatType,
         directoryToSaveMedia: URL?,
         whatsAppBackup: ExtractedWhatsAppBackup,
-        from db: Database
+        from db: Database,
+        progress: WABackupProgressHandler? = nil
     ) throws -> MessageInfo {
         guard let messageType = SupportedMessageType(rawValue: message.messageType) else {
             throw DomainError.unexpected(reason: "Unsupported message type")
@@ -116,7 +211,8 @@ extension WABackup {
             for: message,
             directoryToSaveMedia: directoryToSaveMedia,
             whatsAppBackup: whatsAppBackup,
-            from: db
+            from: db,
+            progress: progress
         ) {
             messageInfo.mediaFilename = mediaInfo.mediaFilename
             messageInfo.caption = mediaInfo.caption
@@ -212,7 +308,8 @@ extension WABackup {
         for message: Message,
         directoryToSaveMedia: URL?,
         whatsAppBackup: ExtractedWhatsAppBackup,
-        from db: Database
+        from db: Database,
+        progress: WABackupProgressHandler? = nil
     ) throws -> (
         mediaFilename: String?,
         caption: String?,
@@ -232,7 +329,8 @@ extension WABackup {
         let mediaFilename = try fetchMediaFilename(
             forMediaItem: mediaItem,
             from: whatsAppBackup,
-            toDirectory: directoryToSaveMedia
+            toDirectory: directoryToSaveMedia,
+            progress: progress
         )
         let caption = mediaItem.title.flatMap { $0.isEmpty ? nil : $0 }
 
@@ -262,12 +360,13 @@ extension WABackup {
     func fetchMediaFilename(
         forMediaItem mediaItem: MediaItem,
         from whatsAppBackup: ExtractedWhatsAppBackup,
-        toDirectory directoryURL: URL?
+        toDirectory directoryURL: URL?,
+        progress: WABackupProgressHandler? = nil
     ) throws -> String? {
         if let mediaLocalPath = mediaItem.localPath,
            let sourceURL = try? whatsAppBackup.fileURL(endingWith: mediaLocalPath) {
             let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
-            try mediaCopier?.copy(sourceURL: sourceURL, named: fileName, to: directoryURL)
+            try mediaCopier?.copy(sourceURL: sourceURL, named: fileName, to: directoryURL, progress: progress)
             return fileName
         }
 

@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import SwiftWABackupAPI
 
 enum CLIError: LocalizedError {
@@ -299,13 +304,21 @@ struct CLICommandParser {
 
 struct CLIApplication {
     typealias OutputWriter = (String) -> Void
+    typealias RawOutputWriter = (String) -> Void
     private let iso8601Formatter = ISO8601DateFormatter()
 
     func run(
         arguments: [String],
         standardOutput: OutputWriter = { print($0) },
-        standardError: OutputWriter = { fputs($0 + "\n", stderr) }
+        standardError: OutputWriter = { fputs($0 + "\n", stderr) },
+        progressOutput: @escaping RawOutputWriter = { fputs($0, stderr) },
+        showsProgress: Bool? = nil
     ) -> Int32 {
+        let progressRenderer = makeProgressRenderer(
+            output: progressOutput,
+            showsProgress: showsProgress
+        )
+
         do {
             let command = try CLICommandParser(arguments: arguments).parse()
 
@@ -318,7 +331,8 @@ struct CLIApplication {
                     iPhoneBackupsPath: iPhoneBackupsPath,
                     json: json,
                     pretty: pretty,
-                    standardOutput: standardOutput
+                    standardOutput: standardOutput,
+                    progress: progressRenderer?.handler
                 )
             case .listChats(let whatsAppBackupPath, let photosDirectory, let json, let pretty):
                 try handleListChats(
@@ -326,7 +340,8 @@ struct CLIApplication {
                     photosDirectory: photosDirectory,
                     json: json,
                     pretty: pretty,
-                    standardOutput: standardOutput
+                    standardOutput: standardOutput,
+                    progress: progressRenderer?.handler
                 )
             case .backupInfo(let whatsAppBackupPath, let outputJSON, let pretty):
                 try handleBackupInfo(
@@ -348,7 +363,8 @@ struct CLIApplication {
                     outputJSON: outputJSON,
                     outputDirectory: outputDirectory,
                     pretty: pretty,
-                    standardOutput: standardOutput
+                    standardOutput: standardOutput,
+                    progress: progressRenderer?.handler
                 )
             case .extractWhatsAppBackup(
                 let iPhoneBackupsPath,
@@ -361,28 +377,44 @@ struct CLIApplication {
                     iPhoneBackupId: iPhoneBackupId,
                     outputDirectory: outputDirectory,
                     overwriteExisting: overwriteExisting,
-                    standardOutput: standardOutput
+                    standardOutput: standardOutput,
+                    progress: progressRenderer?.handler
                 )
             }
 
             return 0
         } catch let error as LocalizedError {
+            progressRenderer?.finishLine()
             standardError(error.errorDescription ?? String(describing: error))
             return 1
         } catch {
+            progressRenderer?.finishLine()
             standardError(String(describing: error))
             return 1
         }
+    }
+
+    private func makeProgressRenderer(
+        output: @escaping RawOutputWriter,
+        showsProgress: Bool?
+    ) -> TerminalProgressRenderer? {
+        let shouldShowProgress = showsProgress ?? isStandardErrorTerminal()
+        guard shouldShowProgress else {
+            return nil
+        }
+
+        return TerminalProgressRenderer(output: output)
     }
 
     private func handleListIPhoneBackups(
         iPhoneBackupsPath: String,
         json: Bool,
         pretty: Bool,
-        standardOutput: OutputWriter
+        standardOutput: OutputWriter,
+        progress: WABackupProgressHandler?
     ) throws {
         let waBackup = WABackup(iPhoneBackupsPath: iPhoneBackupsPath)
-        let inspections = try waBackup.inspectIPhoneBackups()
+        let inspections = try waBackup.inspectIPhoneBackups(progress: progress)
 
         if json {
             let payload = IPhoneBackupListPayload(
@@ -407,11 +439,12 @@ struct CLIApplication {
         photosDirectory: String?,
         json: Bool,
         pretty: Bool,
-        standardOutput: OutputWriter
+        standardOutput: OutputWriter,
+        progress: WABackupProgressHandler?
     ) throws {
         let source = try openWhatsAppBackup(at: whatsAppBackupPath)
         let photosURL = try photosDirectory.map(createDirectoryIfNeeded(at:))
-        let chats = try source.waBackup.getChats(directoryToSavePhotos: photosURL)
+        let chats = try source.waBackup.getChats(directoryToSavePhotos: photosURL, progress: progress)
 
         if json {
             standardOutput(try renderJSON(chats, pretty: pretty))
@@ -456,13 +489,18 @@ struct CLIApplication {
         outputJSON: String?,
         outputDirectory: String?,
         pretty: Bool,
-        standardOutput: OutputWriter
+        standardOutput: OutputWriter,
+        progress: WABackupProgressHandler?
     ) throws {
         let source = try openWhatsAppBackup(at: whatsAppBackupPath)
         let exportDirectoryURL = try outputDirectory.map(createDirectoryIfNeeded(at:))
         let jsonOutputURL = try outputJSON.map { try resolveOutputJSONURL(at: $0) }
         let mediaURL = exportDirectoryURL
-        let payload = try source.waBackup.getChat(chatId: chatId, directoryToSaveMedia: mediaURL)
+        let payload = try source.waBackup.getChat(
+            chatId: chatId,
+            directoryToSaveMedia: mediaURL,
+            progress: progress
+        )
         let rendered = try renderJSON(payload, pretty: pretty)
 
         if let exportDirectoryURL {
@@ -490,16 +528,19 @@ struct CLIApplication {
         iPhoneBackupId: String?,
         outputDirectory: String,
         overwriteExisting: Bool,
-        standardOutput: OutputWriter
+        standardOutput: OutputWriter,
+        progress: WABackupProgressHandler?
     ) throws {
         let backup = try resolveReadyIPhoneBackup(
             iPhoneBackupsPath: iPhoneBackupsPath,
-            iPhoneBackupId: iPhoneBackupId
+            iPhoneBackupId: iPhoneBackupId,
+            progress: progress
         )
         let outputURL = URL(fileURLWithPath: outputDirectory, isDirectory: true)
         let extractedBackup = try backup.extractWhatsAppBackup(
             to: outputURL,
-            overwriteExisting: overwriteExisting
+            overwriteExisting: overwriteExisting,
+            progress: progress
         )
 
         standardOutput("Extracted WhatsApp backup \(backup.identifier) to \(extractedBackup.path)")
@@ -518,10 +559,11 @@ struct CLIApplication {
 
     private func resolveReadyIPhoneBackup(
         iPhoneBackupsPath: String,
-        iPhoneBackupId: String?
+        iPhoneBackupId: String?,
+        progress: WABackupProgressHandler?
     ) throws -> IPhoneBackup {
         let waBackup = WABackup(iPhoneBackupsPath: iPhoneBackupsPath)
-        let inspections = try waBackup.inspectIPhoneBackups()
+        let inspections = try waBackup.inspectIPhoneBackups(progress: progress)
         let inspection: IPhoneBackupDiscoveryInfo
 
         if let iPhoneBackupId {
@@ -646,6 +688,7 @@ struct CLIApplication {
                   Copy WhatsApp files out of an iPhone backup.
 
             Run 'SwiftWABackupCLI <command> --help' for command-specific options.
+            Long-running commands show progress on stderr when run in an interactive terminal.
             """
         case .listIPhoneBackups:
             return """
@@ -731,4 +774,185 @@ private struct IPhoneBackupListPayload: Encodable {
     }
 
     let iPhoneBackups: [IPhoneBackupInspection]
+}
+
+private final class TerminalProgressRenderer {
+    typealias RawOutputWriter = (String) -> Void
+
+    private let output: RawOutputWriter
+    private let barWidth = 28
+    private let spinnerFrames = ["|", "/", "-", "\\"]
+    private var spinnerIndex = 0
+    private var lastLineLength = 0
+    private var didRenderLine = false
+    private var lastRenderedPhase: WABackupProgress.Phase?
+    private var lastRenderedPercent: Int?
+    private var indeterminateEventCount = 0
+
+    init(output: @escaping RawOutputWriter) {
+        self.output = output
+    }
+
+    var handler: WABackupProgressHandler {
+        { [weak self] progress in
+            self?.render(progress)
+        }
+    }
+
+    func finishLine() {
+        guard didRenderLine else {
+            return
+        }
+
+        output("\n")
+        didRenderLine = false
+        lastLineLength = 0
+    }
+
+    private func render(_ progress: WABackupProgress) {
+        guard shouldRender(progress) else {
+            return
+        }
+
+        let line = renderedLine(for: progress)
+        let padding = String(repeating: " ", count: max(0, lastLineLength - line.count))
+
+        output("\r" + line + padding)
+        didRenderLine = true
+        lastLineLength = line.count
+
+        if progress.phase == .completed {
+            finishLine()
+        }
+    }
+
+    private func renderedLine(for progress: WABackupProgress) -> String {
+        let label = progress.phase.terminalLabel
+        let detail = progress.currentItem.map { " \($0)" } ?? ""
+
+        guard let total = progress.totalUnitCount, total > 0 else {
+            let frame = nextSpinnerFrame()
+            return "\(frame) \(label)\(detail)"
+        }
+
+        let completed = min(max(progress.completedUnitCount, 0), total)
+        let filledWidth = Int((Double(completed) / Double(total) * Double(barWidth)).rounded(.down))
+        let emptyWidth = max(0, barWidth - filledWidth)
+        let bar = String(repeating: "#", count: filledWidth) + String(repeating: "-", count: emptyWidth)
+        let percent = Int((Double(completed) / Double(total) * 100).rounded())
+        let unit = progress.unit?.terminalLabel ?? "units"
+
+        return "\(label) [\(bar)] \(percent)% (\(completed)/\(total) \(unit))\(detail)"
+    }
+
+    private func shouldRender(_ progress: WABackupProgress) -> Bool {
+        defer {
+            lastRenderedPhase = progress.phase
+            lastRenderedPercent = percent(for: progress)
+        }
+
+        if progress.phase == .completed {
+            return true
+        }
+
+        if progress.phase != lastRenderedPhase {
+            return true
+        }
+
+        guard let percent = percent(for: progress) else {
+            indeterminateEventCount += 1
+            return indeterminateEventCount % 25 == 0
+        }
+
+        return percent != lastRenderedPercent
+    }
+
+    private func percent(for progress: WABackupProgress) -> Int? {
+        guard let total = progress.totalUnitCount, total > 0 else {
+            return nil
+        }
+
+        let completed = min(max(progress.completedUnitCount, 0), total)
+        return Int((Double(completed) / Double(total) * 100).rounded())
+    }
+
+    private func nextSpinnerFrame() -> String {
+        let frame = spinnerFrames[spinnerIndex % spinnerFrames.count]
+        spinnerIndex += 1
+        return frame
+    }
+}
+
+private extension WABackupProgress.Phase {
+    var terminalLabel: String {
+        switch self {
+        case .discoveringIPhoneBackups:
+            return "Discovering iPhone backups"
+        case .inspectingIPhoneBackup:
+            return "Inspecting iPhone backup"
+        case .loadingManifest:
+            return "Loading manifest"
+        case .copyingBackupFiles:
+            return "Copying WhatsApp files"
+        case .writingMetadata:
+            return "Writing metadata"
+        case .indexingFiles:
+            return "Indexing files"
+        case .indexingPathAliases:
+            return "Indexing path aliases"
+        case .indexingMediaItems:
+            return "Indexing media"
+        case .calculatingBackupInfo:
+            return "Calculating backup info"
+        case .loadingChats:
+            return "Loading chats"
+        case .exportingChat:
+            return "Exporting chat"
+        case .loadingMessages:
+            return "Loading messages"
+        case .processingMessages:
+            return "Processing messages"
+        case .buildingContacts:
+            return "Building contacts"
+        case .exportingMedia:
+            return "Exporting media"
+        case .completed:
+            return "Completed"
+        }
+    }
+}
+
+private extension WABackupProgress.Unit {
+    var terminalLabel: String {
+        switch self {
+        case .backups:
+            return "backups"
+        case .manifestEntries:
+            return "entries"
+        case .files:
+            return "files"
+        case .metadataRows:
+            return "rows"
+        case .mediaItems:
+            return "media"
+        case .chats:
+            return "chats"
+        case .messages:
+            return "messages"
+        case .contacts:
+            return "contacts"
+        case .mediaFiles:
+            return "media"
+        case .phases:
+            return "steps"
+        }
+    }
+}
+
+private func isStandardErrorTerminal() -> Bool {
+#if canImport(Darwin) || canImport(Glibc)
+    return isatty(STDERR_FILENO) == 1
+#else
+    return false
+#endif
 }

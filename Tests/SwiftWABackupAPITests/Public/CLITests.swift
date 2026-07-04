@@ -238,6 +238,54 @@ final class CLICommandParserTests: XCTestCase {
         )
     }
 
+    func testExtractWhatsAppBackupRendersProgressBarOnProgressOutput() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let temporaryRoot = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-cli-progress")
+        defer { try? PublicTestSupport.removeItemIfExists(at: temporaryRoot) }
+        let outputDirectory = temporaryRoot.appendingPathComponent("WhatsApp", isDirectory: true)
+
+        let result = runCLI(
+            arguments: [
+                "extract-whatsapp-backup",
+                "--iphone-backups-path", fixture.rootURL.path,
+                "--output-dir", outputDirectory.path
+            ],
+            showsProgress: true
+        )
+
+        XCTAssertEqual(result.code, 0)
+        XCTAssertTrue(result.standardOutput.contains("Extracted WhatsApp backup"))
+        XCTAssertTrue(result.progressOutput.contains("Copying WhatsApp files ["))
+        XCTAssertTrue(result.progressOutput.contains("100%"))
+        XCTAssertTrue(result.progressOutput.contains("\r"))
+    }
+
+    func testProgressOutputDoesNotPolluteJSONStdout() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let result = runCLI(
+            arguments: [
+                "list-iphone-backups",
+                "--iphone-backups-path", fixture.rootURL.path,
+                "--json"
+            ],
+            showsProgress: true
+        )
+
+        XCTAssertEqual(result.code, 0)
+        XCTAssertFalse(result.standardOutput.contains("Inspecting iPhone backup"))
+        XCTAssertTrue(result.progressOutput.contains("Inspecting iPhone backup ["))
+
+        let data = try XCTUnwrap(result.standardOutput.data(using: .utf8))
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let iPhoneBackups = try XCTUnwrap(object?["iPhoneBackups"] as? [[String: Any]])
+
+        XCTAssertEqual(iPhoneBackups.count, 1)
+    }
+
     func testExportChatRejectsBothOutputModesAtOnce() throws {
         let result = runCLI(arguments: [
             "export-chat",
@@ -257,21 +305,28 @@ final class CLICommandParserTests: XCTestCase {
         XCTAssertTrue(result.standardError.contains("Unknown command 'wat'."))
     }
 
-    private func runCLI(arguments: [String]) -> (code: Int32, standardOutput: String, standardError: String) {
+    private func runCLI(
+        arguments: [String],
+        showsProgress: Bool? = nil
+    ) -> (code: Int32, standardOutput: String, standardError: String, progressOutput: String) {
         var standardOutput: [String] = []
         var standardError: [String] = []
+        var progressOutput: [String] = []
 
         let application = CLIApplication()
         let code = application.run(
             arguments: arguments,
             standardOutput: { standardOutput.append($0) },
-            standardError: { standardError.append($0) }
+            standardError: { standardError.append($0) },
+            progressOutput: { progressOutput.append($0) },
+            showsProgress: showsProgress
         )
 
         return (
             code,
             standardOutput.joined(separator: "\n"),
-            standardError.joined(separator: "\n")
+            standardError.joined(separator: "\n"),
+            progressOutput.joined()
         )
     }
 }

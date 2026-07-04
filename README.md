@@ -27,6 +27,7 @@ Returned models are `Encodable` and designed to be easy to serialize:
 - `IPhoneBackupDiscoveryStatus`
 - `ExtractedWhatsAppBackup`
 - `ExtractedWhatsAppBackupInfo`
+- `WABackupProgress`
 - `ChatInfo`
 - `MessageInfo`
 - `MessageAuthor`
@@ -138,6 +139,34 @@ let chats = try whatsApp.getChats(directoryToSavePhotos: outputDirectory)
 let payload = try whatsApp.getChat(chatId: chats[0].id, directoryToSaveMedia: outputDirectory)
 ```
 
+Long-running operations accept an optional progress handler:
+
+```swift
+let extracted = try backup.extractWhatsAppBackup(
+    to: extractedDirectory,
+    overwriteExisting: true
+) { progress in
+    if let fraction = progress.fractionCompleted {
+        print("\(progress.phase.rawValue): \(Int(fraction * 100))%")
+    } else {
+        print("\(progress.phase.rawValue): working")
+    }
+}
+
+let payload = try whatsApp.getChat(
+    chatId: chats[0].id,
+    directoryToSaveMedia: outputDirectory
+) { progress in
+    print(progress.phase.rawValue, progress.completedUnitCount, progress.totalUnitCount ?? -1)
+}
+```
+
+`WABackupProgress.totalUnitCount == nil` means the operation is still in an
+indeterminate phase. When a total is known, `fractionCompleted` is suitable for
+a determinate progress bar. Handlers are called synchronously from the operation
+that emits them, so UI clients should dispatch updates to the main actor or main
+queue as appropriate.
+
 The extracted directory preserves WhatsApp relative paths such as
 `ChatStorage.sqlite`, `ContactsV2.sqlite`, `LID.sqlite`, and `Media/...`, so
 chat reads and media exports do not need the iPhone backup's `Manifest.db`.
@@ -164,6 +193,16 @@ Run it directly from the package root:
 ```bash
 swift run SwiftWABackupCLI --help
 ```
+
+Commands that perform longer work render a terminal progress bar on `stderr`
+when run interactively, for example:
+
+```text
+Copying WhatsApp files [###############-------------] 54% (341/632 entries)
+```
+
+Progress output is kept separate from `stdout`, so JSON output and redirected
+exports remain parseable.
 
 List iPhone backups under the default macOS MobileSync folder:
 
@@ -286,6 +325,10 @@ final class ExportDelegate: WABackupDelegate {
 let delegate = ExportDelegate()
 backupAPI.delegate = delegate
 ```
+
+For progress bars, prefer the `progress` handler on `extractWhatsAppBackup`,
+`inspectIPhoneBackups`, `getChats`, and `getChat`. The delegate is intentionally
+kept as a lightweight media-write notification hook.
 
 ## Error Handling
 

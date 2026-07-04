@@ -18,7 +18,8 @@ struct MediaCopier {
     @discardableResult
     func copy(sourceURL: URL,
               named fileName: String,
-              to directoryURL: URL?) throws -> String {
+              to directoryURL: URL?,
+              progress: WABackupProgressHandler? = nil) throws -> String {
 
         if let dir = directoryURL {
             let targetURL = dir.appendingPathComponent(fileName)
@@ -26,6 +27,13 @@ struct MediaCopier {
         }
 
         delegate?.didWriteMediaFile(fileName: fileName)
+        reportProgress(
+            progress,
+            phase: .exportingMedia,
+            completedUnitCount: 1,
+            unit: .mediaFiles,
+            currentItem: fileName
+        )
         return fileName
     }
 

@@ -11,14 +11,28 @@ extension WABackup {
         for chatInfo: ChatInfo,
         from dbQueue: DatabaseQueue,
         whatsAppBackup: ExtractedWhatsAppBackup,
-        directory: URL?
+        directory: URL?,
+        progress: WABackupProgressHandler? = nil
     ) throws -> [ContactInfo] {
         var contacts: [ContactInfo] = []
         let ownerPhone = ownerJid?.extractedPhone ?? ""
 
+        reportProgress(
+            progress,
+            phase: .buildingContacts,
+            completedUnitCount: 0,
+            unit: .contacts,
+            currentItem: chatInfo.name
+        )
+
         var ownerContact = ContactInfo(name: "Me", phone: ownerPhone)
         if let directory {
-            ownerContact = try copyContactMedia(for: ownerContact, from: whatsAppBackup, to: directory)
+            ownerContact = try copyContactMedia(
+                for: ownerContact,
+                from: whatsAppBackup,
+                to: directory,
+                progress: progress
+            )
         }
         contacts.append(ownerContact)
 
@@ -26,23 +40,75 @@ extension WABackup {
             switch chatInfo.chatType {
             case .individual:
                 let otherPhone = chatInfo.contactJid.extractedPhone
+                let totalContacts = otherPhone == ownerPhone ? 1 : 2
+                reportProgress(
+                    progress,
+                    phase: .buildingContacts,
+                    completedUnitCount: 1,
+                    totalUnitCount: totalContacts,
+                    unit: .contacts,
+                    currentItem: ownerPhone
+                )
+
                 if otherPhone != ownerPhone {
                     var otherContact = ContactInfo(name: chatInfo.name, phone: otherPhone)
                     if let directory {
-                        otherContact = try copyContactMedia(for: otherContact, from: whatsAppBackup, to: directory)
+                        otherContact = try copyContactMedia(
+                            for: otherContact,
+                            from: whatsAppBackup,
+                            to: directory,
+                            progress: progress
+                        )
                     }
                     contacts.append(otherContact)
+                    reportProgress(
+                        progress,
+                        phase: .buildingContacts,
+                        completedUnitCount: 2,
+                        totalUnitCount: totalContacts,
+                        unit: .contacts,
+                        currentItem: otherPhone
+                    )
                 }
 
             case .group:
                 let members = try fetchGroupContactMembers(forChatId: chatInfo.id, from: db)
                 var seenPhones = Set(contacts.map(\.phone))
+                let totalCandidates = members.count + 1
+                reportProgress(
+                    progress,
+                    phase: .buildingContacts,
+                    completedUnitCount: 1,
+                    totalUnitCount: totalCandidates,
+                    unit: .contacts,
+                    currentItem: ownerPhone
+                )
 
-                for member in members {
+                for (index, member) in members.enumerated() {
                     let senderInfo = try fetchGroupMemberInfo(groupMember: member, from: db)
-                    guard let phone = senderInfo.senderPhone,
-                          phone != ownerPhone,
+                    let completed = index + 2
+                    guard let phone = senderInfo.senderPhone else {
+                        reportProgress(
+                            progress,
+                            phase: .buildingContacts,
+                            completedUnitCount: completed,
+                            totalUnitCount: totalCandidates,
+                            unit: .contacts,
+                            currentItem: String(member.id)
+                        )
+                        continue
+                    }
+
+                    guard phone != ownerPhone,
                           seenPhones.insert(phone).inserted else {
+                        reportProgress(
+                            progress,
+                            phase: .buildingContacts,
+                            completedUnitCount: completed,
+                            totalUnitCount: totalCandidates,
+                            unit: .contacts,
+                            currentItem: phone
+                        )
                         continue
                     }
 
@@ -51,9 +117,22 @@ extension WABackup {
                         phone: phone
                     )
                     if let directory {
-                        contact = try copyContactMedia(for: contact, from: whatsAppBackup, to: directory)
+                        contact = try copyContactMedia(
+                            for: contact,
+                            from: whatsAppBackup,
+                            to: directory,
+                            progress: progress
+                        )
                     }
                     contacts.append(contact)
+                    reportProgress(
+                        progress,
+                        phase: .buildingContacts,
+                        completedUnitCount: completed,
+                        totalUnitCount: totalCandidates,
+                        unit: .contacts,
+                        currentItem: phone
+                    )
                 }
             }
         }
@@ -64,7 +143,8 @@ extension WABackup {
     func copyContactMedia(
         for contact: ContactInfo,
         from whatsAppBackup: ExtractedWhatsAppBackup,
-        to directory: URL?
+        to directory: URL?,
+        progress: WABackupProgressHandler? = nil
     ) throws -> ContactInfo {
         var updated = contact
         let prefix = "Media/Profile/\(contact.phone)"
@@ -76,7 +156,7 @@ extension WABackup {
         if let latest {
             let fileName = latest.filename
             let targetFileName = contact.phone + (fileName.hasSuffix(".jpg") ? ".jpg" : ".thumb")
-            try mediaCopier?.copy(sourceURL: latest.sourceURL, named: targetFileName, to: directory)
+            try mediaCopier?.copy(sourceURL: latest.sourceURL, named: targetFileName, to: directory, progress: progress)
             updated.photoFilename = targetFileName
         }
 

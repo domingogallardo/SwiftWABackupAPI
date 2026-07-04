@@ -20,8 +20,8 @@ public struct IPhoneBackupManager {
     /// Returns iPhone backups that are ready for WhatsApp extraction.
     ///
     /// Accessing the default macOS backup location may require Full Disk Access.
-    public func getIPhoneBackups() throws -> [IPhoneBackup] {
-        try inspectIPhoneBackups().compactMap { inspection in
+    public func getIPhoneBackups(progress: WABackupProgressHandler? = nil) throws -> [IPhoneBackup] {
+        try inspectIPhoneBackups(progress: progress).compactMap { inspection in
             guard inspection.isReady else {
                 return nil
             }
@@ -30,9 +30,16 @@ public struct IPhoneBackupManager {
     }
 
     /// Returns per-backup diagnostic information, including encryption status when available.
-    public func inspectIPhoneBackups() throws -> [IPhoneBackupDiscoveryInfo] {
+    public func inspectIPhoneBackups(progress: WABackupProgressHandler? = nil) throws -> [IPhoneBackupDiscoveryInfo] {
         let expandedBackupPath = NSString(string: iPhoneBackupsPath).expandingTildeInPath
         let backupURL = URL(fileURLWithPath: expandedBackupPath)
+        reportProgress(
+            progress,
+            phase: .discoveringIPhoneBackups,
+            completedUnitCount: 0,
+            unit: .backups,
+            currentItem: backupURL.path
+        )
 
         do {
             let directoryContents = try FileManager.default.contentsOfDirectory(
@@ -40,14 +47,53 @@ public struct IPhoneBackupManager {
                 includingPropertiesForKeys: [.isDirectoryKey]
             )
 
-            return try directoryContents.compactMap { url in
+            let backupDirectories = try directoryContents.filter { url in
                 let resourceValues = try url.resourceValues(forKeys: [.isDirectoryKey])
-                guard resourceValues.isDirectory == true else {
-                    return nil
-                }
-
-                return inspectIPhoneBackup(at: url)
+                return resourceValues.isDirectory == true
             }
+            reportProgress(
+                progress,
+                phase: .discoveringIPhoneBackups,
+                completedUnitCount: 0,
+                totalUnitCount: backupDirectories.count,
+                unit: .backups,
+                currentItem: backupURL.path
+            )
+
+            var inspections: [IPhoneBackupDiscoveryInfo] = []
+            inspections.reserveCapacity(backupDirectories.count)
+
+            for (index, url) in backupDirectories.enumerated() {
+                reportProgress(
+                    progress,
+                    phase: .inspectingIPhoneBackup,
+                    completedUnitCount: index,
+                    totalUnitCount: backupDirectories.count,
+                    unit: .backups,
+                    currentItem: url.lastPathComponent
+                )
+
+                inspections.append(inspectIPhoneBackup(at: url))
+
+                reportProgress(
+                    progress,
+                    phase: .inspectingIPhoneBackup,
+                    completedUnitCount: index + 1,
+                    totalUnitCount: backupDirectories.count,
+                    unit: .backups,
+                    currentItem: url.lastPathComponent
+                )
+            }
+
+            reportProgress(
+                progress,
+                phase: .completed,
+                completedUnitCount: 1,
+                totalUnitCount: 1,
+                unit: .phases,
+                currentItem: "inspectIPhoneBackups"
+            )
+            return inspections
         } catch {
             throw BackupError.directoryAccess(error)
         }
