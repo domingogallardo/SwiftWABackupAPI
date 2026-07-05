@@ -111,30 +111,6 @@ print(payload.chatInfo.name)
 print(payload.messages.count)
 ```
 
-`getIPhoneBackups()` is available when you only need the ready iPhone backups:
-
-```swift
-let manager = IPhoneBackupManager()
-let backups = try manager.getIPhoneBackups()
-guard let backup = backups.first else {
-    throw NSError(domain: "Example", code: 2)
-}
-```
-
-`inspectIPhoneBackups()` is the recommended entry point when you need
-encryption-aware discovery or per-backup diagnostics.
-
-Each `IPhoneBackupDiscoveryInfo` includes:
-
-- `status` to distinguish `ready`, `encrypted`, and structural failure cases
-- `isEncrypted` when `Manifest.plist` exposes `IsEncrypted`
-- `isReady` as the high-level boolean gate for extraction
-- `iPhoneBackup` when the candidate can still be represented as an `IPhoneBackup`
-
-`IPhoneBackupDiscoveryInfo.iPhoneBackup` is intentionally not part of the JSON contract. It
-is the in-memory `IPhoneBackup` value you can extract from after checking
-`status == .ready`.
-
 If you want exported media and copied profile images:
 
 ```swift
