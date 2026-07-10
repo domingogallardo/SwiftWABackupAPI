@@ -147,6 +147,75 @@ final class ChatSmokeTests: XCTestCase {
         XCTAssertEqual(outgoing.author?.jid, "08185296380@s.whatsapp.net")
         XCTAssertEqual(outgoing.author?.source, .owner)
     }
+
+    func testGetChatUsesConstantNumberOfSelectsAsMessageCountGrows() throws {
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        var selectCount = 0
+        reader.chatDatabase.unsafeRead { db in
+            db.trace(options: .statement) { event in
+                guard case let .statement(statement) = event else {
+                    return
+                }
+
+                if statement.sql.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .uppercased()
+                    .hasPrefix("SELECT") {
+                    selectCount += 1
+                }
+            }
+        }
+        defer {
+            reader.chatDatabase.unsafeRead { db in
+                db.trace(options: [])
+            }
+        }
+
+        let initialPayload = try reader.getChat(chatId: 44)
+        let initialSelectCount = selectCount
+        XCTAssertEqual(initialPayload.messages.count, 3)
+        XCTAssertGreaterThan(initialSelectCount, 0)
+
+        try reader.chatDatabase.write { db in
+            for offset in 0..<100 {
+                try db.execute(
+                    sql: """
+                        INSERT INTO ZWAMESSAGE
+                        (Z_PK, ZTOJID, ZMESSAGETYPE, ZGROUPMEMBER, ZCHATSESSION, ZTEXT,
+                         ZMESSAGEDATE, ZFROMJID, ZMEDIAITEM, ZISFROMME, ZGROUPEVENTTYPE,
+                         ZSTANZAID, ZPARENTMESSAGE)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                    arguments: [
+                        300_000 + offset,
+                        "08185296380@s.whatsapp.net",
+                        0,
+                        nil,
+                        44,
+                        "Generated message \(offset)",
+                        800_000_000 + offset,
+                        "08185296386@s.whatsapp.net",
+                        nil,
+                        0,
+                        nil,
+                        "generated-\(offset)",
+                        nil
+                    ]
+                )
+            }
+        }
+
+        selectCount = 0
+        let expandedPayload = try reader.getChat(chatId: 44)
+
+        XCTAssertEqual(expandedPayload.messages.count, 103)
+        XCTAssertEqual(
+            selectCount,
+            initialSelectCount,
+            "Database reads should be batched instead of growing with the number of messages"
+        )
+    }
 }
 
 final class MediaExportSmokeTests: XCTestCase {

@@ -40,6 +40,7 @@ extension ProfilePushName {
 
 struct PushNamePhoneJidIndex {
     private let linkedPhoneJidsByLidJid: [String: String]
+    private let pushNamesByJid: [String: String]
 
     init(pushNames: [ProfilePushName]) {
         let grouped = Dictionary(grouping: pushNames) {
@@ -59,7 +60,13 @@ struct PushNamePhoneJidIndex {
             mappings[lidJids[0].lowercased()] = phoneJids[0]
         }
 
+        var namesByJid: [String: String] = [:]
+        for pushName in pushNames where namesByJid[pushName.jid] == nil {
+            namesByJid[pushName.jid] = pushName.pushName
+        }
+
         linkedPhoneJidsByLidJid = mappings
+        pushNamesByJid = namesByJid
     }
 
     static func load(from db: Database) throws -> PushNamePhoneJidIndex {
@@ -68,5 +75,9 @@ struct PushNamePhoneJidIndex {
 
     func linkedPhoneJid(for jid: String) -> String? {
         linkedPhoneJidsByLidJid[jid.lowercased()]
+    }
+
+    func pushName(for jid: String) -> String? {
+        pushNamesByJid[jid]
     }
 }

@@ -49,12 +49,17 @@ public extension WhatsAppBackupReader {
             currentItem: chatInfo.name
         )
 
+        let exportContext = try chatDatabase.performRead { db in
+            try ChatExportContext.load(chatId: chatId, messages: messages, from: db)
+        }
+        let exportState = ChatExportState(context: exportContext)
+
         let processedMessages = try processMessages(
             messages,
             chatType: chatInfo.chatType,
             directoryToSaveMedia: directory,
             whatsAppBackup: whatsAppBackup,
-            from: chatDatabase,
+            state: exportState,
             progress: progress
         )
         reportProgress(
@@ -136,7 +141,7 @@ extension WhatsAppBackupReader {
         chatType: ChatInfo.ChatType,
         directoryToSaveMedia: URL?,
         whatsAppBackup: ExtractedWhatsAppBackup,
-        from dbQueue: DatabaseQueue,
+        state: ChatExportState,
         progress: WABackupProgressHandler? = nil
     ) throws -> [MessageInfo] {
         var messagesInfo: [MessageInfo] = []
@@ -150,26 +155,24 @@ extension WhatsAppBackupReader {
             unit: .messages
         )
 
-        try dbQueue.read { db in
-            for (index, message) in messages.enumerated() {
-                let messageInfo = try processSingleMessage(
-                    message,
-                    chatType: chatType,
-                    directoryToSaveMedia: directoryToSaveMedia,
-                    whatsAppBackup: whatsAppBackup,
-                    from: db,
-                    progress: progress
-                )
-                messagesInfo.append(messageInfo)
-                reportProgress(
-                    progress,
-                    phase: .processingMessages,
-                    completedUnitCount: index + 1,
-                    totalUnitCount: messages.count,
-                    unit: .messages,
-                    currentItem: String(message.id)
-                )
-            }
+        for (index, message) in messages.enumerated() {
+            let messageInfo = try processSingleMessage(
+                message,
+                chatType: chatType,
+                directoryToSaveMedia: directoryToSaveMedia,
+                whatsAppBackup: whatsAppBackup,
+                state: state,
+                progress: progress
+            )
+            messagesInfo.append(messageInfo)
+            reportProgress(
+                progress,
+                phase: .processingMessages,
+                completedUnitCount: index + 1,
+                totalUnitCount: messages.count,
+                unit: .messages,
+                currentItem: String(message.id)
+            )
         }
 
         return messagesInfo
@@ -180,14 +183,14 @@ extension WhatsAppBackupReader {
         chatType: ChatInfo.ChatType,
         directoryToSaveMedia: URL?,
         whatsAppBackup: ExtractedWhatsAppBackup,
-        from db: Database,
+        state: ChatExportState,
         progress: WABackupProgressHandler? = nil
     ) throws -> MessageInfo {
         guard let messageType = SupportedMessageType(rawValue: message.messageType) else {
             throw DomainError.unexpected(reason: "Unsupported message type")
         }
 
-        let participantIdentity = try resolveParticipantIdentity(for: message, chatType: chatType, from: db)
+        let participantIdentity = resolveParticipantIdentity(for: message, chatType: chatType, state: state)
 
         var messageInfo = MessageInfo(
             id: Int(message.id),
@@ -199,7 +202,7 @@ extension WhatsAppBackupReader {
             author: participantIdentity
         )
 
-        if let replyMessageId = try fetchReplyMessageId(for: message, from: db) {
+        if let replyMessageId = fetchReplyMessageId(for: message, context: state.context) {
             messageInfo.replyTo = Int(replyMessageId)
         }
 
@@ -207,7 +210,7 @@ extension WhatsAppBackupReader {
             for: message,
             directoryToSaveMedia: directoryToSaveMedia,
             whatsAppBackup: whatsAppBackup,
-            from: db,
+            context: state.context,
             progress: progress
         ) {
             messageInfo.mediaFilename = mediaInfo.mediaFilename
@@ -218,15 +221,15 @@ extension WhatsAppBackupReader {
             messageInfo.error = mediaInfo.error
         }
 
-        messageInfo.reactions = try fetchReactions(forMessageId: Int(message.id), from: db)
+        messageInfo.reactions = fetchReactions(for: message, state: state)
         return messageInfo
     }
 
     func resolveParticipantIdentity(
         for message: Message,
         chatType: ChatInfo.ChatType,
-        from db: Database
-    ) throws -> MessageAuthor? {
+        state: ChatExportState
+    ) -> MessageAuthor? {
         if message.isFromMe {
             return MessageAuthor(
                 kind: .me,
@@ -240,28 +243,28 @@ extension WhatsAppBackupReader {
         switch chatType {
         case .group:
             if let memberId = message.groupMemberId,
-               let groupMember = try GroupMember.fetchGroupMember(byId: memberId, from: db) {
-                return try makeParticipantAuthor(
+               let groupMember = state.context.groupMembersById[memberId] {
+                return makeParticipantAuthor(
                     jid: groupMember.memberJid,
                     contactNameGroupMember: groupMember.contactName,
                     fallbackSource: .groupMember,
-                    from: db
+                    state: state
                 )
             }
 
             if let fromJid = normalizedAuthorField(message.fromJid) {
-                return try makeParticipantAuthor(
+                return makeParticipantAuthor(
                     jid: fromJid,
                     contactNameGroupMember: nil,
                     fallbackSource: .messageJid,
-                    from: db
+                    state: state
                 )
             }
 
             return nil
 
         case .individual:
-            let chatSession = try ChatSession.fetchChat(byId: Int(message.chatSessionId), from: db)
+            let chatSession = state.context.chatSession
             if let displayName = normalizedAuthorField(chatSession.partnerName) {
                 return MessageAuthor(
                     kind: .participant,
@@ -286,15 +289,15 @@ extension WhatsAppBackupReader {
         }
     }
 
-    func fetchReplyMessageId(for message: Message, from db: Database) throws -> Int64? {
+    func fetchReplyMessageId(for message: Message, context: ChatExportContext) -> Int64? {
         if let parentMessageId = message.parentMessageId {
             return parentMessageId
         }
 
         if let mediaItemId = message.mediaItemId,
-           let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db),
+           let mediaItem = context.mediaItemsById[mediaItemId],
            let stanzaId = mediaItem.extractReplyStanzaId() {
-            return try Message.fetchMessageId(byStanzaId: stanzaId, from: db)
+            return context.messageIdsByStanzaId[stanzaId]
         }
 
         return nil
@@ -304,7 +307,7 @@ extension WhatsAppBackupReader {
         for message: Message,
         directoryToSaveMedia: URL?,
         whatsAppBackup: ExtractedWhatsAppBackup,
-        from db: Database,
+        context: ChatExportContext,
         progress: WABackupProgressHandler? = nil
     ) throws -> (
         mediaFilename: String?,
@@ -318,7 +321,7 @@ extension WhatsAppBackupReader {
             return nil
         }
 
-        guard let mediaItem = try MediaItem.fetchMediaItem(byId: mediaItemId, from: db) else {
+        guard let mediaItem = context.mediaItemsById[mediaItemId] else {
             return nil
         }
 
@@ -409,63 +412,42 @@ extension WhatsAppBackupReader {
         return members
     }
 
-    func fetchReactions(forMessageId messageId: Int, from db: Database) throws -> [Reaction]? {
-        if let messageInfo = try MessageInfoTable.fetch(by: messageId, from: db),
+    func fetchReactions(for message: Message, state: ChatExportState) -> [Reaction]? {
+        if let messageInfo = state.context.messageInfoByMessageId[message.id],
            let reactionsData = messageInfo.receiptInfo {
-            return parseReactions(from: reactionsData, from: db)
+            return parseReactions(from: reactionsData, state: state)
         }
 
-        return try fetchDuplicateDocumentReactions(forMessageId: messageId, from: db)
+        return fetchDuplicateDocumentReactions(for: message, state: state)
     }
 
-    func parseReactions(from reactionsData: Data, from db: Database) -> [Reaction]? {
+    func parseReactions(from reactionsData: Data, state: ChatExportState) -> [Reaction]? {
         ReactionParser.parse(reactionsData) { [self] senderJid in
-            try? resolveReactionAuthor(for: senderJid, from: db)
+            resolveReactionAuthor(for: senderJid, state: state)
         }
     }
 
-    func fetchDuplicateDocumentReactions(forMessageId messageId: Int, from db: Database) throws -> [Reaction]? {
-        guard let message = try Message.fetch(by: Int64(messageId), from: db),
-              message.messageType == SupportedMessageType.doc.rawValue,
+    func fetchDuplicateDocumentReactions(
+        for message: Message,
+        state: ChatExportState
+    ) -> [Reaction]? {
+        guard message.messageType == SupportedMessageType.doc.rawValue,
               let currentText = normalizedAuthorField(message.text) else {
             return nil
         }
 
         let normalizedCurrentName = normalizedDuplicateDocumentName(currentText)
-        let searchWindowStart = message.date.addingTimeInterval(-12 * 60 * 60).timeIntervalSinceReferenceDate
-        let searchWindowEnd = message.date.timeIntervalSinceReferenceDate
 
-        let candidateRows = try Row.fetchAll(
-            db,
-            sql: """
-                SELECT * FROM \(Message.tableName)
-                WHERE ZCHATSESSION = ?
-                  AND ZMESSAGETYPE = ?
-                  AND Z_PK <> ?
-                  AND ZTEXT IS NOT NULL
-                  AND ZMESSAGEDATE BETWEEN ? AND ?
-                ORDER BY ZMESSAGEDATE DESC
-                LIMIT 25
-                """,
-            arguments: [
-                message.chatSessionId,
-                message.messageType,
-                message.id,
-                searchWindowStart,
-                searchWindowEnd
-            ]
-        )
-
-        for candidate in candidateRows.map(Message.init(row:)) {
+        for candidate in state.context.duplicateDocumentCandidates(for: message) {
             guard candidate.groupMemberId == message.groupMemberId,
                   candidate.isFromMe == message.isFromMe,
                   let candidateText = normalizedAuthorField(candidate.text),
                   normalizedDuplicateDocumentName(candidateText) == normalizedCurrentName,
                   currentText != candidateText,
                   hasDuplicateDocumentCopySuffix(currentText) || hasDuplicateDocumentCopySuffix(candidateText),
-                  let messageInfo = try MessageInfoTable.fetch(by: Int(candidate.id), from: db),
+                  let messageInfo = state.context.messageInfoByMessageId[candidate.id],
                   let receiptInfo = messageInfo.receiptInfo,
-                  let reactions = parseReactions(from: receiptInfo, from: db) else {
+                  let reactions = parseReactions(from: receiptInfo, state: state) else {
                 continue
             }
 
@@ -475,7 +457,7 @@ extension WhatsAppBackupReader {
         return nil
     }
 
-    func resolveReactionAuthor(for senderJid: String, from db: Database) throws -> MessageAuthor? {
+    func resolveReactionAuthor(for senderJid: String, state: ChatExportState) -> MessageAuthor? {
         guard let normalizedJid = normalizedAuthorField(senderJid) else {
             return nil
         }
@@ -490,11 +472,11 @@ extension WhatsAppBackupReader {
             )
         }
 
-        return try makeParticipantAuthor(
+        return makeParticipantAuthor(
             jid: normalizedJid,
             contactNameGroupMember: nil,
             fallbackSource: .messageJid,
-            from: db
+            state: state
         )
     }
 
@@ -575,78 +557,81 @@ extension WhatsAppBackupReader {
         jid: String,
         contactNameGroupMember: String?,
         fallbackSource: MessageAuthor.Source,
-        from db: Database
-    ) throws -> MessageAuthor {
+        state: ChatExportState
+    ) -> MessageAuthor {
+        let cacheKey = ParticipantAuthorCacheKey(
+            jid: jid,
+            contactName: contactNameGroupMember,
+            fallbackSource: fallbackSource.rawValue
+        )
+        if let cachedAuthor = state.authorsByKey[cacheKey] {
+            return cachedAuthor
+        }
+
         let normalizedJid = normalizedAuthorField(jid)
         let phone = resolvedPhone(for: jid)
         let linkedPhoneJid = linkedPhoneJid(for: jid) ?? lidAccountIndex?.phoneJid(for: jid)
-        let chatSessionDisplayName = try ChatSession.fetchChatSessionName(for: jid, from: db)
+        let chatSessionDisplayName = state.context.chatSessionNamesByJid[jid]
             .flatMap(normalizedAuthorField)
-        let profileDisplayName = try ProfilePushName.pushName(for: jid, from: db)
+        let profileDisplayName = pushNamePhoneJidIndex?.pushName(for: jid)
             .flatMap(whatsAppProfileDisplayName)
-        let linkedPhoneDisplayName = try linkedPhoneJid
-            .flatMap { try ProfilePushName.pushName(for: $0, from: db) }
+        let linkedPhoneDisplayName = linkedPhoneJid
+            .flatMap { pushNamePhoneJidIndex?.pushName(for: $0) }
             .flatMap(whatsAppProfileDisplayName)
 
+        let author: MessageAuthor
         if let senderName = chatSessionDisplayName,
            !isPhoneLikeDisplayLabel(senderName, resolvedPhone: phone) {
-            return MessageAuthor(
+            author = MessageAuthor(
                 kind: .participant,
                 displayName: senderName,
                 phone: phone,
                 jid: normalizedJid,
                 source: .chatSession
             )
-        }
-
-        if let addressBookAuthor = makeAddressBookAuthor(for: jid) {
-            return addressBookAuthor
-        }
-
-        if let lidAccountAuthor = makeLidAccountAuthor(
+        } else if let addressBookAuthor = makeAddressBookAuthor(for: jid) {
+            author = addressBookAuthor
+        } else if let lidAccountAuthor = makeLidAccountAuthor(
             for: jid,
             profileDisplayName: profileDisplayName ?? linkedPhoneDisplayName
         ) {
-            return lidAccountAuthor
-        }
-
-        if let linkedPhoneJid {
-            return MessageAuthor(
+            author = lidAccountAuthor
+        } else if let linkedPhoneJid {
+            author = MessageAuthor(
                 kind: .participant,
                 displayName: profileDisplayName ?? linkedPhoneDisplayName,
                 phone: normalizedAuthorField(linkedPhoneJid.extractedPhone),
                 jid: normalizedAuthorField(linkedPhoneJid),
                 source: .pushNamePhoneJid
             )
-        }
-
-        if let pushName = profileDisplayName {
-            return MessageAuthor(
+        } else if let pushName = profileDisplayName {
+            author = MessageAuthor(
                 kind: .participant,
                 displayName: pushName,
                 phone: phone,
                 jid: normalizedJid,
                 source: .pushName
             )
-        }
-
-        if let chatSessionDisplayName {
-            return MessageAuthor(
+        } else if let chatSessionDisplayName {
+            author = MessageAuthor(
                 kind: .participant,
                 displayName: chatSessionDisplayName,
                 phone: phone,
                 jid: normalizedJid,
                 source: .chatSession
             )
+        } else {
+            author = MessageAuthor(
+                kind: .participant,
+                displayName: normalizedAuthorField(contactNameGroupMember),
+                phone: phone,
+                jid: normalizedJid,
+                source: fallbackSource
+            )
         }
 
-        return MessageAuthor(
-            kind: .participant,
-            displayName: normalizedAuthorField(contactNameGroupMember),
-            phone: phone,
-            jid: normalizedJid,
-            source: fallbackSource
-        )
+        state.authorsByKey[cacheKey] = author
+        return author
     }
 
     func normalizedAuthorField(_ value: String?) -> String? {
