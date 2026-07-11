@@ -284,8 +284,12 @@ public extension IPhoneBackup {
 
 public extension ExtractedWhatsAppBackup {
     /// Opens this extracted WhatsApp backup for chat listing and export.
-    func openReader() throws -> WhatsAppBackupReader {
-        try WhatsAppBackupReader(backup: self)
+    ///
+    /// When `exportRootDirectory` is provided, profile photos are exported to
+    /// `ChatProfilePhotos` and chat media to `Chats/<chatId>/Media` below it.
+    /// Per-call output directories still take precedence.
+    func openReader(exportRootDirectory: URL? = nil) throws -> WhatsAppBackupReader {
+        try WhatsAppBackupReader(backup: self, exportRootDirectory: exportRootDirectory)
     }
 
     /// Reads the portable summary generated at `.wa-backup/backup-info.json`.

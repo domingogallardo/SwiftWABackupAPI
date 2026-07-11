@@ -73,13 +73,63 @@ final class IPhoneBackupDiscoveryTests: XCTestCase {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
         let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
+        let exportRoot = fixture.rootURL.appendingPathComponent("Exports", isDirectory: true)
 
         XCTAssertNoThrow(try WhatsAppBackupReader(backup: extractedBackup))
         XCTAssertNoThrow(try extractedBackup.openReader())
+        XCTAssertEqual(
+            try extractedBackup.openReader(exportRootDirectory: exportRoot).exportRootDirectory,
+            exportRoot
+        )
     }
 }
 
 final class ChatSmokeTests: XCTestCase {
+    func testConfiguredExportRootWritesMediaToChatDirectory() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
+        let exportRoot = fixture.rootURL.appendingPathComponent("Exports", isDirectory: true)
+        let reader = try extractedBackup.openReader(exportRootDirectory: exportRoot)
+
+        let payload = try reader.getChat(chatId: 44)
+        let mediaDirectory = exportRoot
+            .appendingPathComponent("Chats", isDirectory: true)
+            .appendingPathComponent("44", isDirectory: true)
+            .appendingPathComponent("Media", isDirectory: true)
+        let mediaFilename = try XCTUnwrap(payload.messages.compactMap(\.mediaFilename).first)
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: mediaDirectory.appendingPathComponent(mediaFilename).path)
+        )
+    }
+
+    func testExplicitMediaDirectoryOverridesConfiguredExportRoot() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
+        let exportRoot = fixture.rootURL.appendingPathComponent("Exports", isDirectory: true)
+        let explicitDirectory = try PublicTestSupport.makeTemporaryDirectory(
+            prefix: "SwiftWABackupAPI-explicit-media"
+        )
+        defer { try? PublicTestSupport.removeItemIfExists(at: explicitDirectory) }
+        let reader = try extractedBackup.openReader(exportRootDirectory: exportRoot)
+
+        let payload = try reader.getChat(chatId: 44, directoryToSaveMedia: explicitDirectory)
+        let mediaFilename = try XCTUnwrap(payload.messages.compactMap(\.mediaFilename).first)
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: explicitDirectory.appendingPathComponent(mediaFilename).path)
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: exportRoot.appendingPathComponent("Chats/44/Media/\(mediaFilename)").path
+            )
+        )
+    }
+
     func testGetChatsReturnsExpectedCounts() throws {
         let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }

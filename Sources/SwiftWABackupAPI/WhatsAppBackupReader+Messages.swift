@@ -8,11 +8,15 @@ import GRDB
 
 public extension WhatsAppBackupReader {
     /// Retrieves a full chat export.
+    ///
+    /// If `directory` is omitted and the reader has an `exportRootDirectory`,
+    /// media is copied to `Chats/<chatId>/Media` below that root.
     func getChat(
         chatId: Int,
         directoryToSaveMedia directory: URL? = nil,
         progress: WABackupProgressHandler? = nil
     ) throws -> ChatDumpPayload {
+        let mediaDirectory = try chatMediaDirectory(chatId: chatId, override: directory)
         reportProgress(
             progress,
             phase: .exportingChat,
@@ -57,7 +61,7 @@ public extension WhatsAppBackupReader {
         let processedMessages = try processMessages(
             messages,
             chatType: chatInfo.chatType,
-            directoryToSaveMedia: directory,
+            directoryToSaveMedia: mediaDirectory,
             whatsAppBackup: whatsAppBackup,
             state: exportState,
             progress: progress
@@ -75,7 +79,7 @@ public extension WhatsAppBackupReader {
             for: chatInfo,
             from: chatDatabase,
             whatsAppBackup: whatsAppBackup,
-            directory: directory,
+            directory: mediaDirectory,
             progress: progress
         )
         reportProgress(

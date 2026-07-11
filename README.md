@@ -111,13 +111,39 @@ print(payload.chatInfo.name)
 print(payload.messages.count)
 ```
 
-If you want exported media and copied profile images:
+If you want exported media and copied profile images, configure an export root
+when opening the reader:
 
 ```swift
-let outputDirectory = URL(fileURLWithPath: "/tmp/wa-export", isDirectory: true)
-let chats = try reader.getChats(directoryToSavePhotos: outputDirectory)
-let payload = try reader.getChat(chatId: chats[0].id, directoryToSaveMedia: outputDirectory)
+let copyDirectory = URL(fileURLWithPath: "/tmp/MyCopy", isDirectory: true)
+let backupDirectory = copyDirectory.appendingPathComponent("Backup", isDirectory: true)
+let exportsDirectory = copyDirectory.appendingPathComponent("Exports", isDirectory: true)
+
+let extracted = try backup.extractWhatsAppBackup(to: backupDirectory, overwriteExisting: true)
+let reader = try extracted.openReader(exportRootDirectory: exportsDirectory)
+let chats = try reader.getChats()
+let payload = try reader.getChat(chatId: chats[0].id)
 ```
+
+The reader creates export subdirectories as needed:
+
+```text
+MyCopy/
+├── Backup/
+└── Exports/
+    ├── ChatProfilePhotos/
+    └── Chats/
+        └── 44/
+            └── Media/
+```
+
+`ChatProfilePhotos` contains contact and group images referenced by
+`ChatInfo.photoFilename`. Media sent inside a conversation is kept separately
+under that chat's `Media` directory. A directory supplied directly to
+`getChats(directoryToSavePhotos:)` or `getChat(chatId:directoryToSaveMedia:)`
+takes precedence over the configured export root. Without either kind of
+destination, the reader keeps its previous read-only behavior and does not copy
+files.
 
 Long-running operations accept an optional progress handler:
 
@@ -134,8 +160,7 @@ let extracted = try backup.extractWhatsAppBackup(
 }
 
 let payload = try reader.getChat(
-    chatId: chats[0].id,
-    directoryToSaveMedia: outputDirectory
+    chatId: chats[0].id
 ) { progress in
     print(progress.phase.rawValue, progress.completedUnitCount, progress.totalUnitCount ?? -1)
 }

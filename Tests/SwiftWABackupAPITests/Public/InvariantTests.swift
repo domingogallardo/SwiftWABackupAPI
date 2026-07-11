@@ -179,6 +179,25 @@ final class ChatDiscoveryInvariantTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: exportedURL.path))
     }
 
+    func testConfiguredExportRootWritesProfilePhotosToChatProfilePhotosDirectory() throws {
+        let (_, fixture) = try InvariantFixtureFactory.makeConnectedProfilePhotoBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
+        let exportRoot = fixture.rootURL.appendingPathComponent("Exports", isDirectory: true)
+        let reader = try extractedBackup.openReader(exportRootDirectory: exportRoot)
+
+        let chats = try reader.getChats()
+        let chat = try XCTUnwrap(chats.first(where: { $0.id == 810 }))
+        let photoFilename = try XCTUnwrap(chat.photoFilename)
+        let exportedURL = exportRoot
+            .appendingPathComponent("ChatProfilePhotos", isDirectory: true)
+            .appendingPathComponent(photoFilename)
+
+        XCTAssertEqual(photoFilename, "chat_810.jpg")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: exportedURL.path))
+    }
+
     func testIndividualLidChatsResolvePartnerPhoneThroughLidAccount() throws {
         let (reader, fixture) = try InvariantFixtureFactory.makeConnectedIndividualLidBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }

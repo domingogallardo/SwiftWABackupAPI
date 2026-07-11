@@ -43,7 +43,7 @@ public struct ChatInfo: CustomStringConvertible, Encodable {
     /// Indicates whether the chat is archived in WhatsApp.
     public let isArchived: Bool
 
-    /// Copied profile image filename when `directoryToSavePhotos` is provided.
+    /// Copied profile image filename when a profile-photo export destination is available.
     public var photoFilename: String?
 
     init(
@@ -385,6 +385,13 @@ public final class WhatsAppBackupReader {
         }
     }
 
+    /// Optional root directory used for automatically organized exports.
+    ///
+    /// Profile photos are written to `ChatProfilePhotos`, while chat media is
+    /// written to `Chats/<chatId>/Media`. A directory supplied directly to
+    /// `getChats` or `getChat` takes precedence over this root.
+    public let exportRootDirectory: URL?
+
     let chatDatabase: DatabaseQueue
     let whatsAppBackup: ExtractedWhatsAppBackup
     var ownerJid: String?
@@ -394,7 +401,14 @@ public final class WhatsAppBackupReader {
     var pushNamePhoneJidIndex: PushNamePhoneJidIndex?
 
     /// Opens an extracted WhatsApp backup directory for chat listing and export.
-    public init(backup: ExtractedWhatsAppBackup) throws {
+    ///
+    /// - Parameters:
+    ///   - backup: Extracted WhatsApp backup to read.
+    ///   - exportRootDirectory: Optional root for automatically organized profile-photo and media exports.
+    public init(
+        backup: ExtractedWhatsAppBackup,
+        exportRootDirectory: URL? = nil
+    ) throws {
         let chatStorageURL = try backup.fileURL(endingWith: "ChatStorage.sqlite")
         let dbQueue = try DatabaseQueue(path: chatStorageURL.path)
 
@@ -402,6 +416,7 @@ public final class WhatsAppBackupReader {
 
         chatDatabase = dbQueue
         whatsAppBackup = backup
+        self.exportRootDirectory = exportRootDirectory
         ownerJid = try dbQueue.performRead { try Message.fetchOwnerJid(from: $0) }
         mediaCopier = MediaCopier(delegate: nil)
         addressBookIndex = try? AddressBookIndex.loadIfPresent(from: backup)

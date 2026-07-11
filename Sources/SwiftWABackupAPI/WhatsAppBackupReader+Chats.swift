@@ -8,10 +8,14 @@ import GRDB
 
 public extension WhatsAppBackupReader {
     /// Retrieves all supported chats from the connected WhatsApp database.
+    ///
+    /// If `directory` is omitted and the reader has an `exportRootDirectory`,
+    /// profile photos are copied to its `ChatProfilePhotos` subdirectory.
     func getChats(
         directoryToSavePhotos directory: URL? = nil,
         progress: WABackupProgressHandler? = nil
     ) throws -> [ChatInfo] {
+        let profilePhotosDirectory = try chatProfilePhotosDirectory(override: directory)
         reportProgress(
             progress,
             phase: .loadingChats,
@@ -50,11 +54,11 @@ public extension WhatsAppBackupReader {
 
                 let chatName = resolvedChatName(for: chatSession)
                 let photoFilename: String?
-                if let directory {
+                if let profilePhotosDirectory {
                     photoFilename = try fetchChatPhotoFilename(
                         for: chatSession.contactJid,
                         chatId: Int(chatSession.id),
-                        to: directory,
+                        to: profilePhotosDirectory,
                         from: whatsAppBackup,
                         progress: progress
                     )
