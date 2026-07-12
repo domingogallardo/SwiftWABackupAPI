@@ -85,6 +85,25 @@ final class IPhoneBackupDiscoveryTests: XCTestCase {
 }
 
 final class ChatSmokeTests: XCTestCase {
+    func testGetChatReturnsPortableMediaReferenceWithoutCopyingMedia() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
+        let reader = try extractedBackup.openReader()
+
+        let payload = try reader.getChat(chatId: 44, directoryToSaveMedia: nil)
+        let documentMessage = try XCTUnwrap(payload.messages.first(where: { $0.id == 126279 }))
+        let reference = try XCTUnwrap(documentMessage.mediaReference)
+        let resolvedURL = try extractedBackup.resolveFileURL(relativePath: reference.relativePath)
+
+        XCTAssertEqual(reference.relativePath, "Media/Document/fea35851-6a2c-45a3-a784-003d25576b45.pdf")
+        XCTAssertEqual(reference.filename, "fea35851-6a2c-45a3-a784-003d25576b45.pdf")
+        XCTAssertEqual(reference.byteCount, Int64("Sample PDF contents".utf8.count))
+        XCTAssertEqual(reference.mimeType, "application/pdf")
+        XCTAssertEqual(try Data(contentsOf: resolvedURL), Data("Sample PDF contents".utf8))
+    }
+
     func testConfiguredExportRootWritesMediaToChatDirectory() throws {
         let fixture = try PublicTestSupport.makeSampleBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
@@ -294,6 +313,18 @@ final class MediaExportSmokeTests: XCTestCase {
 }
 
 final class ExtractedWhatsAppBackupTests: XCTestCase {
+    func testPublicFileResolverRejectsParentTraversal() throws {
+        let root = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-public-resolver")
+        defer { try? PublicTestSupport.removeItemIfExists(at: root) }
+        let backup = ExtractedWhatsAppBackup(url: root)
+
+        XCTAssertThrowsError(try backup.resolveFileURL(relativePath: "../outside.txt")) { error in
+            guard case BackupError.invalidBackup = error else {
+                return XCTFail("Expected BackupError.invalidBackup, got \(error)")
+            }
+        }
+    }
+
     func testExtractionCreatesPortablePathIndexAndReadme() throws {
         let mediaLocalPath = "Media/08185296386@s.whatsapp.net/a/b/example.jpg"
         let manifestPath = "Message/\(mediaLocalPath)"

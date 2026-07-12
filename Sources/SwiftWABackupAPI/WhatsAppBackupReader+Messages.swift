@@ -218,6 +218,7 @@ extension WhatsAppBackupReader {
             progress: progress
         ) {
             messageInfo.mediaFilename = mediaInfo.mediaFilename
+            messageInfo.mediaReference = mediaInfo.mediaReference
             messageInfo.caption = mediaInfo.caption
             messageInfo.seconds = mediaInfo.seconds
             messageInfo.latitude = mediaInfo.latitude
@@ -315,6 +316,7 @@ extension WhatsAppBackupReader {
         progress: WABackupProgressHandler? = nil
     ) throws -> (
         mediaFilename: String?,
+        mediaReference: MediaReference?,
         caption: String?,
         seconds: Int?,
         latitude: Double?,
@@ -329,7 +331,7 @@ extension WhatsAppBackupReader {
             return nil
         }
 
-        let mediaFilename = try fetchMediaFilename(
+        let media = try fetchMedia(
             forMediaItem: mediaItem,
             from: whatsAppBackup,
             toDirectory: directoryToSaveMedia,
@@ -357,23 +359,24 @@ extension WhatsAppBackupReader {
             longitude = nil
         }
 
-        return (mediaFilename, caption, seconds, latitude, longitude, nil)
+        return (media.filename, media.reference, caption, seconds, latitude, longitude, nil)
     }
 
-    func fetchMediaFilename(
+    func fetchMedia(
         forMediaItem mediaItem: MediaItem,
         from whatsAppBackup: ExtractedWhatsAppBackup,
         toDirectory directoryURL: URL?,
         progress: WABackupProgressHandler? = nil
-    ) throws -> String? {
+    ) throws -> (filename: String?, reference: MediaReference?) {
         if let mediaLocalPath = mediaItem.localPath,
            let sourceURL = try? whatsAppBackup.fileURL(endingWith: mediaLocalPath) {
             let fileName = URL(fileURLWithPath: mediaLocalPath).lastPathComponent
+            let reference = try whatsAppBackup.mediaReference(sourceURL: sourceURL)
             try mediaCopier.copy(sourceURL: sourceURL, named: fileName, to: directoryURL, progress: progress)
-            return fileName
+            return (fileName, reference)
         }
 
-        return nil
+        return (nil, nil)
     }
 
     func fetchGroupMemberInfo(

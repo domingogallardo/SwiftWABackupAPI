@@ -152,6 +152,29 @@ final class SampleBackupInvariantTests: XCTestCase {
 }
 
 final class ChatDiscoveryInvariantTests: XCTestCase {
+    func testChatListReturnsProfilePhotoReferenceWithoutExportingPhoto() throws {
+        let (reader, fixture) = try InvariantFixtureFactory.makeConnectedProfilePhotoBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let chats = try reader.getChats()
+        let chat = try XCTUnwrap(chats.first(where: { $0.id == 810 }))
+        let reference = try XCTUnwrap(chat.photoReference)
+        let extractedBackup = ExtractedWhatsAppBackup(
+            url: fixture.rootURL.appendingPathComponent("ExtractedWhatsApp", isDirectory: true)
+        )
+        let resolvedURL = try extractedBackup.resolveFileURL(relativePath: reference.relativePath)
+
+        XCTAssertNil(chat.photoFilename)
+        XCTAssertEqual(reference.relativePath, "Media/Profile/08185296384-1712664000.jpg")
+        XCTAssertEqual(reference.mimeType, "image/jpeg")
+        XCTAssertEqual(try Data(contentsOf: resolvedURL), Data("Fake JPEG contents".utf8))
+
+        let payload = try reader.getChat(chatId: chat.id, directoryToSaveMedia: nil)
+        let contact = try XCTUnwrap(payload.contacts.first(where: { $0.phone == "08185296384" }))
+        XCTAssertNil(contact.photoFilename)
+        XCTAssertEqual(contact.photoReference, reference)
+    }
+
     func testGetChatsExcludesUnsupportedSessionTypes() throws {
         let (reader, fixture) = try InvariantFixtureFactory.makeConnectedFilteredChatBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
