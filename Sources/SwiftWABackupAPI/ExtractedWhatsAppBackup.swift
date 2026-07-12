@@ -59,7 +59,6 @@ public struct ExtractedWhatsAppBackup {
 
 extension ExtractedWhatsAppBackup {
     func fileURL(endingWith relativePath: String) throws -> URL {
-        try validateRelativePath(relativePath)
         let normalizedPath = normalizedWhatsAppRelativePath(relativePath)
 
         for candidate in directFileURLCandidates(for: normalizedPath) {
@@ -69,46 +68,6 @@ extension ExtractedWhatsAppBackup {
         }
 
         throw DomainError.mediaNotFound(path: relativePath)
-    }
-
-    func mediaReference(sourceURL: URL) throws -> MediaReference {
-        let resolvedRelativePath = try relativePathWithinBackup(for: sourceURL)
-        let values = try? sourceURL.resourceValues(forKeys: [.fileSizeKey])
-        let byteCount = values?.fileSize.map(Int64.init)
-
-        return MediaReference(
-            relativePath: resolvedRelativePath,
-            filename: sourceURL.lastPathComponent,
-            byteCount: byteCount,
-            mimeType: MediaReference.inferredMIMEType(for: sourceURL.lastPathComponent)
-        )
-    }
-
-    private func validateRelativePath(_ relativePath: String) throws {
-        let normalizedPath = normalizedWhatsAppRelativePath(relativePath)
-        let components = normalizedPath.split(separator: "/").map(String.init)
-
-        guard !normalizedPath.isEmpty,
-              !components.contains("..") else {
-            throw BackupError.invalidBackup(
-                url: url,
-                reason: "Unsafe WhatsApp relative path: \(relativePath)"
-            )
-        }
-    }
-
-    private func relativePathWithinBackup(for fileURL: URL) throws -> String {
-        let rootPath = url.standardizedFileURL.path
-        let filePath = fileURL.standardizedFileURL.path
-
-        guard filePath.hasPrefix(rootPath + "/") else {
-            throw BackupError.invalidBackup(
-                url: url,
-                reason: "Resolved file is outside the extracted WhatsApp backup: \(filePath)"
-            )
-        }
-
-        return String(filePath.dropFirst(rootPath.count + 1))
     }
 
     private func directFileURLCandidates(for normalizedPath: String) -> [URL] {
@@ -134,13 +93,6 @@ extension ExtractedWhatsAppBackup {
         }
 
         return try fileDetailsInDirectDirectory(containing: normalizedPath)
-    }
-
-    func allProfileFileDetails() throws -> [WhatsAppFileDetails] {
-        try fileDetails(
-            inDirectoryAtRelativePath: "Media/Profile",
-            matching: { _ in true }
-        )
     }
 
     private func profileFileDetails(containing normalizedPath: String) throws -> [WhatsAppFileDetails] {
@@ -198,17 +150,6 @@ extension ExtractedWhatsAppBackup {
         }
 
         return files
-    }
-}
-
-public extension ExtractedWhatsAppBackup {
-    /// Resolves a portable relative path to an existing file inside this extracted backup.
-    ///
-    /// WhatsApp media aliases such as `Media/...` are resolved to their extracted
-    /// `Message/Media/...` location when necessary. Leading separators are normalized,
-    /// while parent-directory traversal is rejected.
-    func resolveFileURL(relativePath: String) throws -> URL {
-        try fileURL(endingWith: relativePath)
     }
 }
 

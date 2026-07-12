@@ -16,7 +16,6 @@ extension WhatsAppBackupReader {
     ) throws -> [ContactInfo] {
         var contacts: [ContactInfo] = []
         let ownerPhone = ownerJid?.extractedPhone ?? ""
-        let profileFiles = try whatsAppBackup.allProfileFileDetails()
 
         reportProgress(
             progress,
@@ -26,13 +25,15 @@ extension WhatsAppBackupReader {
             currentItem: chatInfo.name
         )
 
-        let ownerContact = try resolveContactMedia(
-            for: ContactInfo(name: "Me", phone: ownerPhone),
-            from: profileFiles,
-            in: whatsAppBackup,
-            to: directory,
-            progress: progress
-        )
+        var ownerContact = ContactInfo(name: "Me", phone: ownerPhone)
+        if let directory {
+            ownerContact = try copyContactMedia(
+                for: ownerContact,
+                from: whatsAppBackup,
+                to: directory,
+                progress: progress
+            )
+        }
         contacts.append(ownerContact)
 
         try dbQueue.read { db in
@@ -50,13 +51,15 @@ extension WhatsAppBackupReader {
                 )
 
                 if otherPhone != ownerPhone {
-                    let otherContact = try resolveContactMedia(
-                        for: ContactInfo(name: chatInfo.name, phone: otherPhone),
-                        from: profileFiles,
-                        in: whatsAppBackup,
-                        to: directory,
-                        progress: progress
-                    )
+                    var otherContact = ContactInfo(name: chatInfo.name, phone: otherPhone)
+                    if let directory {
+                        otherContact = try copyContactMedia(
+                            for: otherContact,
+                            from: whatsAppBackup,
+                            to: directory,
+                            progress: progress
+                        )
+                    }
                     contacts.append(otherContact)
                     reportProgress(
                         progress,
@@ -109,16 +112,18 @@ extension WhatsAppBackupReader {
                         continue
                     }
 
-                    let contact = try resolveContactMedia(
-                        for: ContactInfo(
-                            name: senderInfo.senderName ?? phone,
-                            phone: phone
-                        ),
-                        from: profileFiles,
-                        in: whatsAppBackup,
-                        to: directory,
-                        progress: progress
+                    var contact = ContactInfo(
+                        name: senderInfo.senderName ?? phone,
+                        phone: phone
                     )
+                    if let directory {
+                        contact = try copyContactMedia(
+                            for: contact,
+                            from: whatsAppBackup,
+                            to: directory,
+                            progress: progress
+                        )
+                    }
                     contacts.append(contact)
                     reportProgress(
                         progress,
@@ -135,33 +140,24 @@ extension WhatsAppBackupReader {
         return contacts
     }
 
-    func resolveContactMedia(
+    func copyContactMedia(
         for contact: ContactInfo,
-        from profileFiles: [WhatsAppFileDetails],
-        in whatsAppBackup: ExtractedWhatsAppBackup,
+        from whatsAppBackup: ExtractedWhatsAppBackup,
         to directory: URL?,
         progress: WABackupProgressHandler? = nil
     ) throws -> ContactInfo {
         var updated = contact
         let prefix = "Media/Profile/\(contact.phone)"
+        let files = try whatsAppBackup.fileDetails(containing: prefix)
 
-        let latest = FileUtils.latestFile(for: prefix, fileExtension: "jpg", in: profileFiles)
-            ?? FileUtils.latestFile(for: prefix, fileExtension: "thumb", in: profileFiles)
+        let latest = FileUtils.latestFile(for: prefix, fileExtension: "jpg", in: files)
+            ?? FileUtils.latestFile(for: prefix, fileExtension: "thumb", in: files)
 
         if let latest {
             let fileName = latest.filename
             let targetFileName = contact.phone + (fileName.hasSuffix(".jpg") ? ".jpg" : ".thumb")
-            updated.photoReference = try whatsAppBackup.mediaReference(sourceURL: latest.sourceURL)
-
-            if let directory {
-                try mediaCopier.copy(
-                    sourceURL: latest.sourceURL,
-                    named: targetFileName,
-                    to: directory,
-                    progress: progress
-                )
-                updated.photoFilename = targetFileName
-            }
+            try mediaCopier.copy(sourceURL: latest.sourceURL, named: targetFileName, to: directory, progress: progress)
+            updated.photoFilename = targetFileName
         }
 
         return updated

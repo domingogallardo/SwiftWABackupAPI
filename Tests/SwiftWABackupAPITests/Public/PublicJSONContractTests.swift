@@ -3,29 +3,6 @@ import XCTest
 @testable import SwiftWABackupAPI
 
 final class PublicJSONContractTests: XCTestCase {
-    func testMediaReferenceJSONContract() throws {
-        let reference = MediaReference(
-            relativePath: "Message/Media/Document/example.pdf",
-            filename: "example.pdf",
-            byteCount: 2048,
-            mimeType: "application/pdf"
-        )
-
-        let json = try PublicTestSupport.canonicalJSONString(reference)
-
-        XCTAssertEqual(
-            json,
-            #"""
-            {
-              "byteCount" : 2048,
-              "filename" : "example.pdf",
-              "mimeType" : "application\/pdf",
-              "relativePath" : "Message\/Media\/Document\/example.pdf"
-            }
-            """#
-        )
-    }
-
     func testReactionJSONContract() throws {
         let reaction = Reaction(
             emoji: "👍",
@@ -472,60 +449,5 @@ final class PublicJSONContractTests: XCTestCase {
             }
             """
         )
-    }
-
-    func testPreparedChatDocumentRoundTripsCurrentSchema() throws {
-        let date = Date(timeIntervalSince1970: 1_712_143_456)
-        let chatInfo = ChatInfo(
-            id: 44,
-            contactJid: "08185296386@s.whatsapp.net",
-            name: "Alias Atlas",
-            numberMessages: 1,
-            lastMessageDate: date,
-            isArchived: false
-        )
-        var message = MessageInfo(
-            id: 125482,
-            chatId: 44,
-            message: "Example",
-            date: date,
-            isFromMe: false,
-            messageType: "Document"
-        )
-        message.mediaReference = MediaReference(
-            relativePath: "Media/Document/example.pdf",
-            filename: "example.pdf",
-            byteCount: 2048,
-            mimeType: "application/pdf"
-        )
-        let payload = ChatDumpPayload(
-            chatInfo: chatInfo,
-            messages: [message],
-            contacts: [ContactInfo(name: "Alias Atlas", phone: "08185296386")]
-        )
-        let document = PreparedChatDocument(payload: payload, generatedAt: date)
-
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(document)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let decoded = try decoder.decode(PreparedChatDocument.self, from: data)
-
-        XCTAssertEqual(decoded.schemaVersion, PreparedChatDocument.currentSchemaVersion)
-        XCTAssertEqual(decoded.generatedAt, date)
-        XCTAssertEqual(decoded.chat.id, 44)
-        XCTAssertEqual(decoded.messages.first?.mediaReference, message.mediaReference)
-        XCTAssertEqual(decoded.contacts.first?.phone, "08185296386")
-    }
-
-    func testPreparedChatDocumentRejectsUnsupportedSchema() throws {
-        let data = Data(#"{"schemaVersion":999}"#.utf8)
-
-        XCTAssertThrowsError(try JSONDecoder().decode(PreparedChatDocument.self, from: data)) { error in
-            guard case DecodingError.dataCorrupted = error else {
-                return XCTFail("Expected DecodingError.dataCorrupted, got \(error)")
-            }
-        }
     }
 }

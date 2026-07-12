@@ -16,7 +16,6 @@ public extension WhatsAppBackupReader {
         progress: WABackupProgressHandler? = nil
     ) throws -> [ChatInfo] {
         let profilePhotosDirectory = try chatProfilePhotosDirectory(override: directory)
-        let profileFiles = try whatsAppBackup.allProfileFileDetails()
         reportProgress(
             progress,
             phase: .loadingChats,
@@ -54,14 +53,18 @@ public extension WhatsAppBackupReader {
                 }
 
                 let chatName = resolvedChatName(for: chatSession)
-                let photo = try fetchChatPhoto(
-                    for: chatSession.contactJid,
-                    chatId: Int(chatSession.id),
-                    from: profileFiles,
-                    to: profilePhotosDirectory,
-                    in: whatsAppBackup,
-                    progress: progress
-                )
+                let photoFilename: String?
+                if let profilePhotosDirectory {
+                    photoFilename = try fetchChatPhotoFilename(
+                        for: chatSession.contactJid,
+                        chatId: Int(chatSession.id),
+                        to: profilePhotosDirectory,
+                        from: whatsAppBackup,
+                        progress: progress
+                    )
+                } else {
+                    photoFilename = nil
+                }
 
                 chatInfos.append(ChatInfo(
                     id: Int(chatSession.id),
@@ -70,8 +73,7 @@ public extension WhatsAppBackupReader {
                     numberMessages: Int(chatSession.messageCounter),
                     lastMessageDate: chatSession.lastMessageDate,
                     isArchived: chatSession.isArchived,
-                    photoFilename: photo.exportedFilename,
-                    photoReference: photo.reference
+                    photoFilename: photoFilename
                 ))
 
                 reportProgress(
@@ -113,14 +115,13 @@ extension WhatsAppBackupReader {
         chats.sorted { $0.lastMessageDate > $1.lastMessageDate }
     }
 
-    func fetchChatPhoto(
+    func fetchChatPhotoFilename(
         for contactJid: String,
         chatId: Int,
-        from profileFiles: [WhatsAppFileDetails],
-        to directory: URL?,
-        in whatsAppBackup: ExtractedWhatsAppBackup,
+        to directory: URL,
+        from whatsAppBackup: ExtractedWhatsAppBackup,
         progress: WABackupProgressHandler? = nil
-    ) throws -> (exportedFilename: String?, reference: MediaReference?) {
+    ) throws -> String? {
         let basePath: String
 
         if contactJid.isIndividualJid {
@@ -129,28 +130,19 @@ extension WhatsAppBackupReader {
             let groupId = contactJid.components(separatedBy: "@").first ?? contactJid
             basePath = "Media/Profile/\(groupId)"
         } else {
-            return (nil, nil)
+            return nil
         }
 
-        guard let latest = FileUtils.latestFile(for: basePath, fileExtension: "jpg", in: profileFiles)
-            ?? FileUtils.latestFile(for: basePath, fileExtension: "thumb", in: profileFiles) else {
-            return (nil, nil)
+        let files = try whatsAppBackup.fileDetails(containing: basePath)
+        guard let latest = FileUtils.latestFile(for: basePath, fileExtension: "jpg", in: files)
+            ?? FileUtils.latestFile(for: basePath, fileExtension: "thumb", in: files) else {
+            return nil
         }
 
-        let reference = try whatsAppBackup.mediaReference(sourceURL: latest.sourceURL)
         let ext = latest.filename.hasSuffix(".jpg") ? ".jpg" : ".thumb"
         let fileName = "chat_\(chatId)\(ext)"
 
-        if let directory {
-            try mediaCopier.copy(
-                sourceURL: latest.sourceURL,
-                named: fileName,
-                to: directory,
-                progress: progress
-            )
-            return (fileName, reference)
-        }
-
-        return (nil, reference)
+        try mediaCopier.copy(sourceURL: latest.sourceURL, named: fileName, to: directory, progress: progress)
+        return fileName
     }
 }

@@ -12,7 +12,7 @@ import Foundation
 import GRDB
 
 /// Represents a WhatsApp chat returned by the public API.
-public struct ChatInfo: CustomStringConvertible, Codable {
+public struct ChatInfo: CustomStringConvertible, Encodable {
     /// The supported chat categories exposed by the API.
     public enum ChatType: String, Codable {
         /// A multi-participant WhatsApp group.
@@ -46,9 +46,6 @@ public struct ChatInfo: CustomStringConvertible, Codable {
     /// Copied profile image filename when a profile-photo export destination is available.
     public var photoFilename: String?
 
-    /// Portable reference to the profile image in the extracted backup when available.
-    public var photoReference: MediaReference?
-
     init(
         id: Int,
         contactJid: String,
@@ -56,8 +53,7 @@ public struct ChatInfo: CustomStringConvertible, Codable {
         numberMessages: Int,
         lastMessageDate: Date,
         isArchived: Bool,
-        photoFilename: String? = nil,
-        photoReference: MediaReference? = nil
+        photoFilename: String? = nil
     ) {
         self.id = id
         self.contactJid = contactJid
@@ -67,7 +63,6 @@ public struct ChatInfo: CustomStringConvertible, Codable {
         self.isArchived = isArchived
         self.chatType = contactJid.isGroupJid ? .group : .individual
         self.photoFilename = photoFilename
-        self.photoReference = photoReference
     }
 
     /// A human-readable description intended for debugging.
@@ -87,7 +82,7 @@ public struct ChatInfo: CustomStringConvertible, Codable {
 }
 
 /// Represents a reaction attached to a message.
-public struct Reaction: Codable {
+public struct Reaction: Encodable {
     /// Emoji chosen by the reactor.
     public let emoji: String
 
@@ -137,7 +132,7 @@ public struct Reaction: Codable {
 ///
 /// The same shape is reused both for real message authors and for participants
 /// associated with system/event rows.
-public struct MessageAuthor: Codable {
+public struct MessageAuthor: Encodable {
     /// High-level category of message author.
     public enum Kind: String, Codable {
         /// The owner of the backup sent the message.
@@ -228,7 +223,7 @@ enum SupportedMessageType: Int64, CaseIterable {
 }
 
 /// Represents a WhatsApp message returned by the public API.
-public struct MessageInfo: CustomStringConvertible, Codable {
+public struct MessageInfo: CustomStringConvertible, Encodable {
     /// Stable identifier of the message in `ZWAMESSAGE`.
     public let id: Int
 
@@ -258,9 +253,6 @@ public struct MessageInfo: CustomStringConvertible, Codable {
 
     /// Filename of copied media when export is requested.
     public var mediaFilename: String?
-
-    /// Portable reference to the original media in the extracted backup.
-    public var mediaReference: MediaReference?
 
     /// Parsed reactions for this message.
     public var reactions: [Reaction]?
@@ -296,7 +288,6 @@ public struct MessageInfo: CustomStringConvertible, Codable {
         self.caption = nil
         self.replyTo = nil
         self.mediaFilename = nil
-        self.mediaReference = nil
         self.reactions = nil
         self.error = nil
         self.seconds = nil
@@ -319,7 +310,7 @@ public struct MessageInfo: CustomStringConvertible, Codable {
 }
 
 /// Represents a contact returned alongside a chat export.
-public struct ContactInfo: CustomStringConvertible, Codable, Hashable {
+public struct ContactInfo: CustomStringConvertible, Encodable, Hashable {
     /// Resolved display name for the contact.
     public let name: String
 
@@ -328,9 +319,6 @@ public struct ContactInfo: CustomStringConvertible, Codable, Hashable {
 
     /// Copied profile image filename when available.
     public var photoFilename: String?
-
-    /// Portable reference to the profile image in the extracted backup when available.
-    public var photoReference: MediaReference?
 
     /// A human-readable description intended for debugging.
     public var description: String {
@@ -349,7 +337,7 @@ public struct ContactInfo: CustomStringConvertible, Codable, Hashable {
 }
 
 /// Encodable full chat export returned by `getChat(chatId:directoryToSaveMedia:)`.
-public struct ChatDumpPayload: CustomStringConvertible, Codable {
+public struct ChatDumpPayload: CustomStringConvertible, Encodable {
     /// Chat metadata for the exported conversation.
     public let chatInfo: ChatInfo
 

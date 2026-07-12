@@ -145,41 +145,6 @@ takes precedence over the configured export root. Without either kind of
 destination, the reader keeps its previous read-only behavior and does not copy
 files.
 
-Messages and profile photos also expose portable references to their original
-files inside the extracted backup. This lets an application display media
-without creating a second copy:
-
-```swift
-let payload = try reader.getChat(chatId: chats[0].id)
-
-if let reference = payload.messages.compactMap(\.mediaReference).first {
-    let mediaURL = try extracted.resolveFileURL(relativePath: reference.relativePath)
-    print(mediaURL.path, reference.mimeType ?? "unknown")
-}
-```
-
-`ChatInfo.photoReference` and `ContactInfo.photoReference` use the same portable
-`MediaReference` shape. The existing `photoFilename` and `mediaFilename` fields
-continue to describe copied export files when an export destination is used.
-
-To persist a decodable, versioned chat document, wrap the returned payload in
-`PreparedChatDocument` and choose the date encoding strategy used by your app:
-
-```swift
-let prepared = PreparedChatDocument(payload: payload)
-let encoder = JSONEncoder()
-encoder.dateEncodingStrategy = .iso8601
-let data = try encoder.encode(prepared)
-
-let decoder = JSONDecoder()
-decoder.dateDecodingStrategy = .iso8601
-let reopened = try decoder.decode(PreparedChatDocument.self, from: data)
-```
-
-Prepared documents currently use schema version
-`PreparedChatDocument.currentSchemaVersion`. Decoding rejects unsupported
-versions instead of silently interpreting them with the wrong contract.
-
 Long-running operations accept an optional progress handler:
 
 ```swift
