@@ -268,6 +268,149 @@ final class ChatSmokeTests: XCTestCase {
     }
 }
 
+final class PersistentChatExportTests: XCTestCase {
+    func testExportChatWritesAndReopensCompleteBundle() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
+        let exportRoot = fixture.rootURL.appendingPathComponent("Exports", isDirectory: true)
+        let reader = try extractedBackup.openReader(exportRootDirectory: exportRoot)
+        let chat = try XCTUnwrap(try reader.getChats().first(where: { $0.id == 44 }))
+
+        XCTAssertEqual(reader.exportState(for: chat), .notExported)
+
+        let exported = try reader.exportChat(chatId: chat.id)
+        let reopened = try reader.openExportedChat(chatId: chat.id)
+        let documentData = try Data(contentsOf: exported.documentURL)
+        let documentText = try XCTUnwrap(String(data: documentData, encoding: .utf8))
+
+        XCTAssertEqual(exported.directoryURL, exportRoot.appendingPathComponent("Chats/44"))
+        XCTAssertEqual(exported.documentURL.lastPathComponent, "chat.json")
+        XCTAssertEqual(exported.mediaDirectoryURL.lastPathComponent, "Media")
+        XCTAssertEqual(exported.document.schemaVersion, ExportedChatDocument.currentSchemaVersion)
+        XCTAssertEqual(exported.document.chat.id, 44)
+        XCTAssertEqual(reopened.document.messages.map(\.id), exported.document.messages.map(\.id))
+        XCTAssertFalse(documentText.contains("mediaReference"))
+        XCTAssertFalse(documentText.contains(extractedBackup.path))
+
+        let mediaFilenames = reopened.document.messages.compactMap(\.mediaFilename)
+            + reopened.document.contacts.compactMap(\.photoFilename)
+        XCTAssertFalse(mediaFilenames.isEmpty)
+        for filename in mediaFilenames {
+            XCTAssertTrue(
+                FileManager.default.fileExists(
+                    atPath: reopened.mediaDirectoryURL.appendingPathComponent(filename).path
+                )
+            )
+        }
+
+        guard case .exported(let info) = reader.exportState(for: chat) else {
+            return XCTFail("Expected exported state")
+        }
+        XCTAssertEqual(info.chatId, chat.id)
+        XCTAssertEqual(info.numberMessages, chat.numberMessages)
+        XCTAssertEqual(info.directoryURL, exported.directoryURL)
+
+        let temporaryEntries = try FileManager.default.contentsOfDirectory(
+            atPath: exportRoot.appendingPathComponent("Chats").path
+        ).filter { $0.hasPrefix(".exporting-") || $0.hasPrefix(".replaced-") }
+        XCTAssertTrue(temporaryEntries.isEmpty)
+    }
+
+    func testExportChatRequiresConfiguredRoot() throws {
+        let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        XCTAssertThrowsError(try reader.exportChat(chatId: 44)) { error in
+            guard case ChatExportError.exportRootNotConfigured = error else {
+                return XCTFail("Expected ChatExportError.exportRootNotConfigured, got \(error)")
+            }
+        }
+    }
+
+    func testExportChatRefusesExistingBundleUnlessOverwriteIsRequested() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
+        let exportRoot = fixture.rootURL.appendingPathComponent("Exports", isDirectory: true)
+        let reader = try extractedBackup.openReader(exportRootDirectory: exportRoot)
+        let first = try reader.exportChat(chatId: 44)
+
+        XCTAssertThrowsError(try reader.exportChat(chatId: 44)) { error in
+            guard case ChatExportError.alreadyExists(let chatId, _) = error else {
+                return XCTFail("Expected ChatExportError.alreadyExists, got \(error)")
+            }
+            XCTAssertEqual(chatId, 44)
+        }
+
+        let obsoleteURL = first.directoryURL.appendingPathComponent("obsolete.txt")
+        try Data("obsolete".utf8).write(to: obsoleteURL)
+
+        let replaced = try reader.exportChat(chatId: 44, overwriteExisting: true)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: obsoleteURL.path))
+        XCTAssertEqual(replaced.document.chat.id, 44)
+    }
+
+    func testExportStateDetectsStaleAndInvalidBundles() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
+        let exportRoot = fixture.rootURL.appendingPathComponent("Exports", isDirectory: true)
+        let reader = try extractedBackup.openReader(exportRootDirectory: exportRoot)
+        let chat = try XCTUnwrap(try reader.getChats().first(where: { $0.id == 44 }))
+        let exported = try reader.exportChat(chatId: chat.id)
+
+        let changedChat = ChatInfo(
+            id: chat.id,
+            contactJid: chat.contactJid,
+            name: chat.name,
+            numberMessages: chat.numberMessages + 1,
+            lastMessageDate: chat.lastMessageDate.addingTimeInterval(60),
+            isArchived: chat.isArchived
+        )
+        guard case .stale(let info) = reader.exportState(for: changedChat) else {
+            return XCTFail("Expected stale state")
+        }
+        XCTAssertEqual(info.chatId, chat.id)
+
+        try Data("not json".utf8).write(to: exported.documentURL, options: .atomic)
+        guard case .invalid(let reason) = reader.exportState(for: chat) else {
+            return XCTFail("Expected invalid state")
+        }
+        XCTAssertFalse(reason.isEmpty)
+        XCTAssertThrowsError(try reader.openExportedChat(chatId: chat.id))
+    }
+
+    func testOpenExportedChatRejectsMissingCopiedMedia() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
+        let exportRoot = fixture.rootURL.appendingPathComponent("Exports", isDirectory: true)
+        let reader = try extractedBackup.openReader(exportRootDirectory: exportRoot)
+        let chat = try XCTUnwrap(try reader.getChats().first(where: { $0.id == 44 }))
+        let exported = try reader.exportChat(chatId: chat.id)
+        let filename = try XCTUnwrap(exported.document.messages.compactMap(\.mediaFilename).first)
+
+        try FileManager.default.removeItem(
+            at: exported.mediaDirectoryURL.appendingPathComponent(filename)
+        )
+
+        XCTAssertThrowsError(try reader.openExportedChat(chatId: chat.id)) { error in
+            guard case ChatExportError.invalidDocument = error else {
+                return XCTFail("Expected ChatExportError.invalidDocument, got \(error)")
+            }
+        }
+        guard case .invalid = reader.exportState(for: chat) else {
+            return XCTFail("Expected invalid state")
+        }
+    }
+}
+
 final class MediaExportSmokeTests: XCTestCase {
     func testMediaExportNotifiesDelegateSetAfterConnecting() throws {
         let (reader, fixture) = try PublicTestSupport.makeConnectedSampleBackup()

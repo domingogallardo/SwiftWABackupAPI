@@ -145,6 +145,49 @@ takes precedence over the configured export root. Without either kind of
 destination, the reader keeps its previous read-only behavior and does not copy
 files.
 
+For a persistent, self-contained chat bundle, use `exportChat`. This writes a
+versioned `chat.json` document and copies every available message and contact
+file into the chat's own `Media` directory:
+
+```swift
+let exported = try reader.exportChat(chatId: chats[0].id)
+let reopened = try reader.openExportedChat(chatId: chats[0].id)
+
+print(exported.documentURL.path)
+print(reopened.document.messages.count)
+```
+
+```text
+Exports/
+└── Chats/
+    └── 44/
+        ├── chat.json
+        └── Media/
+```
+
+The bundle never stores paths to media inside `Backup`; it only names files
+copied into its own `Media` directory. Exports are assembled in a temporary
+sibling directory and moved into place after validation. Pass
+`overwriteExisting: true` to replace an existing bundle atomically.
+
+The source chat list can be compared with the persistent bundle state:
+
+```swift
+switch reader.exportState(for: chats[0]) {
+case .notExported:
+    print("Not exported")
+case .exported(let info):
+    print("Exported at", info.exportedAt)
+case .stale:
+    print("The source chat has changed")
+case .invalid(let reason):
+    print("Invalid export:", reason)
+}
+```
+
+`ExportedChatDocument.currentSchemaVersion` identifies the JSON contract.
+Opening a document with an unsupported schema version fails explicitly.
+
 Long-running operations accept an optional progress handler:
 
 ```swift

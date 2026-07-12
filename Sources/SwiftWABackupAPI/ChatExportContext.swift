@@ -171,7 +171,7 @@ struct ParticipantAuthorCacheKey: Hashable {
 }
 
 /// Mutable state whose lifetime is limited to one chat export.
-final class ChatExportState {
+final class ChatProcessingState {
     let context: ChatExportContext
     var authorsByKey: [ParticipantAuthorCacheKey: MessageAuthor] = [:]
 

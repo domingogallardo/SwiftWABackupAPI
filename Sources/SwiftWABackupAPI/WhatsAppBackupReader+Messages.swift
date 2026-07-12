@@ -56,7 +56,7 @@ public extension WhatsAppBackupReader {
         let exportContext = try chatDatabase.performRead { db in
             try ChatExportContext.load(chatId: chatId, messages: messages, from: db)
         }
-        let exportState = ChatExportState(context: exportContext)
+        let exportState = ChatProcessingState(context: exportContext)
 
         let processedMessages = try processMessages(
             messages,
@@ -145,7 +145,7 @@ extension WhatsAppBackupReader {
         chatType: ChatInfo.ChatType,
         directoryToSaveMedia: URL?,
         whatsAppBackup: ExtractedWhatsAppBackup,
-        state: ChatExportState,
+        state: ChatProcessingState,
         progress: WABackupProgressHandler? = nil
     ) throws -> [MessageInfo] {
         var messagesInfo: [MessageInfo] = []
@@ -187,7 +187,7 @@ extension WhatsAppBackupReader {
         chatType: ChatInfo.ChatType,
         directoryToSaveMedia: URL?,
         whatsAppBackup: ExtractedWhatsAppBackup,
-        state: ChatExportState,
+        state: ChatProcessingState,
         progress: WABackupProgressHandler? = nil
     ) throws -> MessageInfo {
         guard let messageType = SupportedMessageType(rawValue: message.messageType) else {
@@ -232,7 +232,7 @@ extension WhatsAppBackupReader {
     func resolveParticipantIdentity(
         for message: Message,
         chatType: ChatInfo.ChatType,
-        state: ChatExportState
+        state: ChatProcessingState
     ) -> MessageAuthor? {
         if message.isFromMe {
             return MessageAuthor(
@@ -416,7 +416,7 @@ extension WhatsAppBackupReader {
         return members
     }
 
-    func fetchReactions(for message: Message, state: ChatExportState) -> [Reaction]? {
+    func fetchReactions(for message: Message, state: ChatProcessingState) -> [Reaction]? {
         if let messageInfo = state.context.messageInfoByMessageId[message.id],
            let reactionsData = messageInfo.receiptInfo {
             return parseReactions(from: reactionsData, state: state)
@@ -425,7 +425,7 @@ extension WhatsAppBackupReader {
         return fetchDuplicateDocumentReactions(for: message, state: state)
     }
 
-    func parseReactions(from reactionsData: Data, state: ChatExportState) -> [Reaction]? {
+    func parseReactions(from reactionsData: Data, state: ChatProcessingState) -> [Reaction]? {
         ReactionParser.parse(reactionsData) { [self] senderJid in
             resolveReactionAuthor(for: senderJid, state: state)
         }
@@ -433,7 +433,7 @@ extension WhatsAppBackupReader {
 
     func fetchDuplicateDocumentReactions(
         for message: Message,
-        state: ChatExportState
+        state: ChatProcessingState
     ) -> [Reaction]? {
         guard message.messageType == SupportedMessageType.doc.rawValue,
               let currentText = normalizedAuthorField(message.text) else {
@@ -461,7 +461,7 @@ extension WhatsAppBackupReader {
         return nil
     }
 
-    func resolveReactionAuthor(for senderJid: String, state: ChatExportState) -> MessageAuthor? {
+    func resolveReactionAuthor(for senderJid: String, state: ChatProcessingState) -> MessageAuthor? {
         guard let normalizedJid = normalizedAuthorField(senderJid) else {
             return nil
         }
@@ -561,7 +561,7 @@ extension WhatsAppBackupReader {
         jid: String,
         contactNameGroupMember: String?,
         fallbackSource: MessageAuthor.Source,
-        state: ChatExportState
+        state: ChatProcessingState
     ) -> MessageAuthor {
         let cacheKey = ParticipantAuthorCacheKey(
             jid: jid,

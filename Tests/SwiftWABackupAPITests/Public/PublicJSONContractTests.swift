@@ -450,4 +450,53 @@ final class PublicJSONContractTests: XCTestCase {
             """
         )
     }
+
+    func testExportedChatDocumentRoundTripsCurrentSchema() throws {
+        let date = Date(timeIntervalSince1970: 1_712_143_456)
+        let chatInfo = ChatInfo(
+            id: 44,
+            contactJid: "08185296386@s.whatsapp.net",
+            name: "Alias Atlas",
+            numberMessages: 1,
+            lastMessageDate: date,
+            isArchived: false
+        )
+        let message = MessageInfo(
+            id: 125482,
+            chatId: 44,
+            message: "Example",
+            date: date,
+            isFromMe: false,
+            messageType: "Text"
+        )
+        let payload = ChatDumpPayload(
+            chatInfo: chatInfo,
+            messages: [message],
+            contacts: [ContactInfo(name: "Alias Atlas", phone: "08185296386")]
+        )
+        let document = ExportedChatDocument(payload: payload, exportedAt: date)
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(document)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(ExportedChatDocument.self, from: data)
+
+        XCTAssertEqual(decoded.schemaVersion, ExportedChatDocument.currentSchemaVersion)
+        XCTAssertEqual(decoded.exportedAt, date)
+        XCTAssertEqual(decoded.chat.id, 44)
+        XCTAssertEqual(decoded.messages.first?.message, "Example")
+        XCTAssertEqual(decoded.contacts.first?.phone, "08185296386")
+    }
+
+    func testExportedChatDocumentRejectsUnsupportedSchema() throws {
+        let data = Data(#"{"schemaVersion":999}"#.utf8)
+
+        XCTAssertThrowsError(try JSONDecoder().decode(ExportedChatDocument.self, from: data)) { error in
+            guard case DecodingError.dataCorrupted = error else {
+                return XCTFail("Expected DecodingError.dataCorrupted, got \(error)")
+            }
+        }
+    }
 }
