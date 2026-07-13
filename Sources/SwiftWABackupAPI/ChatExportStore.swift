@@ -5,10 +5,33 @@
 
 import Foundation
 
+private struct ChatExportCacheSignature: Equatable {
+    let documentModificationDate: Date
+    let documentFileSize: Int
+    let mediaDirectoryModificationDate: Date
+}
+
+private final class ChatExportCacheEntry: NSObject {
+    let signature: ChatExportCacheSignature
+    let exportedChat: ExportedChat
+
+    init(signature: ChatExportCacheSignature, exportedChat: ExportedChat) {
+        self.signature = signature
+        self.exportedChat = exportedChat
+    }
+}
+
 /// Opens and validates self-contained chat exports without requiring their source backup.
 public struct ChatExportStore {
     /// Root directory whose `Chats` child contains the exported chat bundles.
     public let rootDirectory: URL
+
+    private static let openedChatCache: NSCache<NSURL, ChatExportCacheEntry> = {
+        let cache = NSCache<NSURL, ChatExportCacheEntry>()
+        cache.countLimit = 6
+        cache.totalCostLimit = 128 * 1_024 * 1_024
+        return cache
+    }()
 
     /// Creates a store for chat bundles below the supplied export root.
     public init(rootDirectory: URL) {
@@ -81,6 +104,15 @@ public struct ChatExportStore {
             throw ChatExportError.notFound(chatId: chatId, directory: layout.directoryURL)
         }
 
+        let cacheKey = layout.documentURL.standardizedFileURL as NSURL
+        let initialSignature = Self.cacheSignature(for: layout)
+        if let cached = Self.openedChatCache.object(forKey: cacheKey) {
+            if cached.signature == initialSignature {
+                return cached.exportedChat
+            }
+            Self.openedChatCache.removeObject(forKey: cacheKey)
+        }
+
         let document: ExportedChatDocument
         do {
             let data = try Data(contentsOf: layout.documentURL)
@@ -105,12 +137,27 @@ public struct ChatExportStore {
             mediaDirectoryURL: layout.mediaDirectoryURL
         )
 
-        return ExportedChat(
+        let exportedChat = ExportedChat(
             document: document,
             directoryURL: layout.directoryURL,
             documentURL: layout.documentURL,
             mediaDirectoryURL: layout.mediaDirectoryURL
         )
+
+        if let initialSignature,
+           initialSignature == Self.cacheSignature(for: layout) {
+            let entry = ChatExportCacheEntry(
+                signature: initialSignature,
+                exportedChat: exportedChat
+            )
+            Self.openedChatCache.setObject(
+                entry,
+                forKey: cacheKey,
+                cost: max(1, initialSignature.documentFileSize)
+            )
+        }
+
+        return exportedChat
     }
 
     /// Returns whether a complete, valid export exists for the chat identifier.
@@ -188,6 +235,23 @@ extension ChatExportStore {
             lastMessageDate: document.chat.lastMessageDate,
             schemaVersion: document.schemaVersion,
             directoryURL: exportedChat.directoryURL
+        )
+    }
+
+    private static func cacheSignature(for layout: ChatExportLayout) -> ChatExportCacheSignature? {
+        guard let documentValues = try? layout.documentURL.resourceValues(
+            forKeys: [.contentModificationDateKey, .fileSizeKey, .isDirectoryKey]
+        ), documentValues.isDirectory == false,
+        let mediaValues = try? layout.mediaDirectoryURL.resourceValues(
+            forKeys: [.contentModificationDateKey, .isDirectoryKey]
+        ), mediaValues.isDirectory == true else {
+            return nil
+        }
+
+        return ChatExportCacheSignature(
+            documentModificationDate: documentValues.contentModificationDate ?? .distantPast,
+            documentFileSize: documentValues.fileSize ?? 0,
+            mediaDirectoryModificationDate: mediaValues.contentModificationDate ?? .distantPast
         )
     }
 }

@@ -446,6 +446,27 @@ final class PersistentChatExportTests: XCTestCase {
             return XCTFail("Expected invalid state")
         }
     }
+
+    func testOpenExportedChatRejectsDirectoryMasqueradingAsCopiedMedia() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
+        let exportRoot = fixture.rootURL.appendingPathComponent("Exports", isDirectory: true)
+        let reader = try extractedBackup.openReader(exportRootDirectory: exportRoot)
+        let exported = try reader.exportChat(chatId: 44)
+        let filename = try XCTUnwrap(exported.document.messages.compactMap(\.mediaFilename).first)
+        let mediaURL = exported.mediaDirectoryURL.appendingPathComponent(filename)
+
+        try FileManager.default.removeItem(at: mediaURL)
+        try FileManager.default.createDirectory(at: mediaURL, withIntermediateDirectories: false)
+
+        XCTAssertThrowsError(try reader.openExportedChat(chatId: 44)) { error in
+            guard case ChatExportError.invalidDocument = error else {
+                return XCTFail("Expected ChatExportError.invalidDocument, got \(error)")
+            }
+        }
+    }
 }
 
 final class MediaExportSmokeTests: XCTestCase {
