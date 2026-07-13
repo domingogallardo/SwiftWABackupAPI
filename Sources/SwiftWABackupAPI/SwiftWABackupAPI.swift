@@ -43,6 +43,12 @@ public struct ChatInfo: CustomStringConvertible, Codable {
     /// Indicates whether the chat is archived in WhatsApp.
     public let isArchived: Bool
 
+    /// Total logical size of the media files referenced by this chat.
+    ///
+    /// A file referenced more than once within the same chat is counted once.
+    /// Missing media files do not contribute to the total.
+    public let mediaByteCount: Int64
+
     /// Copied profile image filename when a profile-photo export destination is available.
     public var photoFilename: String?
 
@@ -53,6 +59,7 @@ public struct ChatInfo: CustomStringConvertible, Codable {
         numberMessages: Int,
         lastMessageDate: Date,
         isArchived: Bool,
+        mediaByteCount: Int64 = 0,
         photoFilename: String? = nil
     ) {
         self.id = id
@@ -62,7 +69,35 @@ public struct ChatInfo: CustomStringConvertible, Codable {
         self.lastMessageDate = lastMessageDate
         self.isArchived = isArchived
         self.chatType = contactJid.isGroupJid ? .group : .individual
+        self.mediaByteCount = mediaByteCount
         self.photoFilename = photoFilename
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case contactJid
+        case name
+        case numberMessages
+        case lastMessageDate
+        case chatType
+        case isArchived
+        case mediaByteCount
+        case photoFilename
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        _ = try container.decode(ChatType.self, forKey: .chatType)
+        self.init(
+            id: try container.decode(Int.self, forKey: .id),
+            contactJid: try container.decode(String.self, forKey: .contactJid),
+            name: try container.decode(String.self, forKey: .name),
+            numberMessages: try container.decode(Int.self, forKey: .numberMessages),
+            lastMessageDate: try container.decode(Date.self, forKey: .lastMessageDate),
+            isArchived: try container.decode(Bool.self, forKey: .isArchived),
+            mediaByteCount: try container.decodeIfPresent(Int64.self, forKey: .mediaByteCount) ?? 0,
+            photoFilename: try container.decodeIfPresent(String.self, forKey: .photoFilename)
+        )
     }
 
     /// A human-readable description intended for debugging.
@@ -77,6 +112,7 @@ public struct ChatInfo: CustomStringConvertible, Codable {
             + "Last Message Date - \(localDateString), "
             + "Chat Type - \(chatType.rawValue), "
             + "Is Archived - \(isArchived), "
+            + "Media Byte Count - \(mediaByteCount), "
             + "Photo Filename - \(photoFilename ?? "None")"
     }
 }

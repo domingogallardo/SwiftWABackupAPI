@@ -142,6 +142,11 @@ final class ChatSmokeTests: XCTestCase {
         XCTAssertEqual(chats.map(\.id), [44, 593])
         XCTAssertEqual(Set(chats.map(\.name)), ["Alias Atlas", "Business Contact"])
         XCTAssertEqual(chats.first?.numberMessages, 3)
+        XCTAssertEqual(
+            chats.first?.mediaByteCount,
+            Int64(Data("Sample PDF contents".utf8).count)
+        )
+        XCTAssertEqual(chats.last?.mediaByteCount, 0)
     }
 
     func testGetChatReturnsOnlySupportedPublicMessages() throws {

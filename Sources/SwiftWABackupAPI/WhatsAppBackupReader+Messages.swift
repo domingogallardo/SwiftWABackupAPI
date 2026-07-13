@@ -119,7 +119,8 @@ public extension WhatsAppBackupReader {
 
 extension WhatsAppBackupReader {
     func fetchChatInfo(id: Int, from dbQueue: DatabaseQueue) throws -> ChatInfo {
-        try dbQueue.performRead { db in
+        let mediaByteCount = try mediaByteCountsByChatID(chatID: id)[id, default: 0]
+        return try dbQueue.performRead { db in
             let chatSession = try ChatSession.fetchChat(byId: id, from: db)
             let publicSummary = try Message.fetchPublicSummary(forChatId: id, from: db)
 
@@ -129,7 +130,8 @@ extension WhatsAppBackupReader {
                 name: resolvedChatName(for: chatSession),
                 numberMessages: Int(publicSummary.count),
                 lastMessageDate: publicSummary.lastMessageDate ?? chatSession.lastMessageDate,
-                isArchived: chatSession.isArchived
+                isArchived: chatSession.isArchived,
+                mediaByteCount: mediaByteCount
             )
         }
     }

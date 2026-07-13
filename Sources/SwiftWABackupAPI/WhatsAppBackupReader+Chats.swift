@@ -16,6 +16,7 @@ public extension WhatsAppBackupReader {
         progress: WABackupProgressHandler? = nil
     ) throws -> [ChatInfo] {
         let profilePhotosDirectory = try chatProfilePhotosDirectory(override: directory)
+        let mediaByteCounts = try mediaByteCountsByChatID()
         reportProgress(
             progress,
             phase: .loadingChats,
@@ -73,6 +74,7 @@ public extension WhatsAppBackupReader {
                     numberMessages: Int(chatSession.messageCounter),
                     lastMessageDate: chatSession.lastMessageDate,
                     isArchived: chatSession.isArchived,
+                    mediaByteCount: mediaByteCounts[Int(chatSession.id), default: 0],
                     photoFilename: photoFilename
                 ))
 
@@ -103,6 +105,63 @@ public extension WhatsAppBackupReader {
 }
 
 extension WhatsAppBackupReader {
+    func mediaByteCountsByChatID(chatID: Int? = nil) throws -> [Int: Int64] {
+        let references = try chatDatabase.performRead { db -> [(chatID: Int, path: String)] in
+            var sql = """
+                SELECT DISTINCT message.ZCHATSESSION AS chat_id,
+                                media.ZMEDIALOCALPATH AS local_path
+                FROM ZWAMESSAGE message
+                JOIN ZWAMEDIAITEM media ON message.ZMEDIAITEM = media.Z_PK
+                WHERE media.ZMEDIALOCALPATH IS NOT NULL
+                  AND TRIM(media.ZMEDIALOCALPATH) <> ''
+                """
+            var arguments: StatementArguments = []
+
+            if let chatID {
+                sql += " AND message.ZCHATSESSION = ?"
+                arguments = [chatID]
+            }
+
+            return try Row.fetchAll(db, sql: sql, arguments: arguments).compactMap { row in
+                guard let storedChatID: Int64 = row["chat_id"],
+                      let path: String = row["local_path"] else {
+                    return nil
+                }
+                return (Int(storedChatID), normalizedWhatsAppRelativePath(path))
+            }
+        }
+
+        var pathsByChatID: [Int: Set<String>] = [:]
+        for reference in references where !reference.path.isEmpty {
+            pathsByChatID[reference.chatID, default: []].insert(reference.path)
+        }
+
+        var byteCountByPath: [String: Int64] = [:]
+        var result: [Int: Int64] = [:]
+        for (chatID, paths) in pathsByChatID {
+            result[chatID] = paths.reduce(into: 0) { total, path in
+                if let cachedByteCount = byteCountByPath[path] {
+                    total += cachedByteCount
+                    return
+                }
+
+                let byteCount = mediaFileByteCount(at: path)
+                byteCountByPath[path] = byteCount
+                total += byteCount
+            }
+        }
+        return result
+    }
+
+    private func mediaFileByteCount(at relativePath: String) -> Int64 {
+        guard let fileURL = try? whatsAppBackup.fileURL(endingWith: relativePath),
+              let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey]),
+              let fileSize = values.fileSize else {
+            return 0
+        }
+        return Int64(fileSize)
+    }
+
     func resolvedChatName(for chatSession: ChatSession) -> String {
         if let ownerJid, chatSession.contactJid == ownerJid {
             return "Me"

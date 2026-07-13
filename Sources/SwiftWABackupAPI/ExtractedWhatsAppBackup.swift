@@ -1191,7 +1191,7 @@ private extension IPhoneBackup {
     }
 }
 
-private func normalizedWhatsAppRelativePath(_ relativePath: String) -> String {
+func normalizedWhatsAppRelativePath(_ relativePath: String) -> String {
     relativePath
         .replacingOccurrences(of: "\\", with: "/")
         .split(separator: "/", omittingEmptySubsequences: true)

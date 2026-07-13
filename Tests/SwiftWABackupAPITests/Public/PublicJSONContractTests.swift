@@ -68,6 +68,7 @@ final class PublicJSONContractTests: XCTestCase {
             numberMessages: 153,
             lastMessageDate: date,
             isArchived: false,
+            mediaByteCount: 3_221_225_472,
             photoFilename: "chat_44.jpg"
         )
 
@@ -82,12 +83,35 @@ final class PublicJSONContractTests: XCTestCase {
               "id" : 44,
               "isArchived" : false,
               "lastMessageDate" : "2024-04-03T11:24:16Z",
+              "mediaByteCount" : 3221225472,
               "name" : "Alias Atlas",
               "numberMessages" : 153,
               "photoFilename" : "chat_44.jpg"
             }
             """
         )
+    }
+
+    func testChatInfoDecodesLegacyJSONWithoutMediaByteCount() throws {
+        let data = Data(
+            """
+            {
+              "chatType": "individual",
+              "contactJid": "08185296386@s.whatsapp.net",
+              "id": 44,
+              "isArchived": false,
+              "lastMessageDate": "2024-04-03T11:24:16Z",
+              "name": "Alias Atlas",
+              "numberMessages": 153
+            }
+            """.utf8
+        )
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let chatInfo = try decoder.decode(ChatInfo.self, from: data)
+
+        XCTAssertEqual(chatInfo.mediaByteCount, 0)
     }
 
     func testIPhoneBackupDiscoveryInfoReadyJSONContract() throws {
@@ -407,6 +431,7 @@ final class PublicJSONContractTests: XCTestCase {
                 "id" : 44,
                 "isArchived" : false,
                 "lastMessageDate" : "2024-04-03T11:24:16Z",
+                "mediaByteCount" : 0,
                 "name" : "Alias Atlas",
                 "numberMessages" : 1,
                 "photoFilename" : "chat_44.jpg"
