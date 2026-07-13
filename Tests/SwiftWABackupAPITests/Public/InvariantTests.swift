@@ -173,6 +173,26 @@ final class ChatDiscoveryInvariantTests: XCTestCase {
         )
     }
 
+    func testPersistentExportCopiesIndividualLidProfilePhotoIntoBundle() throws {
+        let (_, fixture) = try InvariantFixtureFactory.makeConnectedProfilePhotoBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let extractedBackup = ExtractedWhatsAppBackup(
+            url: fixture.rootURL.appendingPathComponent("ExtractedWhatsApp", isDirectory: true)
+        )
+        let exportRoot = fixture.rootURL.appendingPathComponent("Exports", isDirectory: true)
+        let reader = try extractedBackup.openReader(exportRootDirectory: exportRoot)
+
+        let exported = try reader.exportChat(chatId: 812)
+        let photoFilename = try XCTUnwrap(exported.document.chat.photoFilename)
+
+        XCTAssertEqual(photoFilename, "chat_812.jpg")
+        XCTAssertEqual(
+            try Data(contentsOf: exported.mediaDirectoryURL.appendingPathComponent(photoFilename)),
+            Data("LID profile JPEG contents".utf8)
+        )
+    }
+
     func testGetChatsExcludesUnsupportedSessionTypes() throws {
         let (reader, fixture) = try InvariantFixtureFactory.makeConnectedFilteredChatBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }

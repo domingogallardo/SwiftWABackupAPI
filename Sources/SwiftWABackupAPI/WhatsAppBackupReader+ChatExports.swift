@@ -163,22 +163,23 @@ private extension WhatsAppBackupReader {
         mediaDirectory: URL,
         progress: WABackupProgressHandler?
     ) throws -> String? {
-        switch payload.chatInfo.chatType {
-        case .individual:
+        if payload.chatInfo.chatType == .individual {
             let phone = payload.chatInfo.contactJid.extractedPhone
-            return payload.contacts.first(where: { $0.phone == phone })?.photoFilename
-        case .group:
-            let chatSession = try chatDatabase.performRead {
-                try ChatSession.fetchChat(byId: payload.chatInfo.id, from: $0)
+            if let photoFilename = payload.contacts.first(where: { $0.phone == phone })?.photoFilename {
+                return photoFilename
             }
-            return try fetchChatPhotoFilename(
-                for: chatSession,
-                chatId: payload.chatInfo.id,
-                to: mediaDirectory,
-                from: whatsAppBackup,
-                progress: progress
-            )
         }
+
+        let chatSession = try chatDatabase.performRead {
+            try ChatSession.fetchChat(byId: payload.chatInfo.id, from: $0)
+        }
+        return try fetchChatPhotoFilename(
+            for: chatSession,
+            chatId: payload.chatInfo.id,
+            to: mediaDirectory,
+            from: whatsAppBackup,
+            progress: progress
+        )
     }
 
     func isExportStale(
