@@ -53,13 +53,17 @@ enum FileUtils {
         return latest
     }
 
-    /// Extracts the timestamp suffix used by WhatsApp profile photos
-    /// (`Media/Profile/<JID>-<timestamp>.jpg`).
+    /// Extracts the last timestamp suffix used by WhatsApp profile photos.
+    ///
+    /// WhatsApp stores both `<JID>-<timestamp>.<extension>` and
+    /// `<JID>-<timestamp>-<timestamp>.<extension>` variants.
     static func extractTimeSuffix(from prefixFilename: String,
                                   fileExtension: String,
                                   fileName: String) -> Int? {
 
-        let pattern = prefixFilename + "-(\\d+)\\." + fileExtension
+        let escapedPrefix = NSRegularExpression.escapedPattern(for: prefixFilename)
+        let escapedExtension = NSRegularExpression.escapedPattern(for: fileExtension)
+        let pattern = "^" + escapedPrefix + "-(?:\\d+-)*(\\d+)\\." + escapedExtension + "$"
         guard let regex  = try? NSRegularExpression(pattern: pattern) else { return nil }
 
         let range   = NSRange(fileName.startIndex..<fileName.endIndex, in: fileName)

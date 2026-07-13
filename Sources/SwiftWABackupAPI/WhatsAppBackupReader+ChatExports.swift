@@ -168,8 +168,11 @@ private extension WhatsAppBackupReader {
             let phone = payload.chatInfo.contactJid.extractedPhone
             return payload.contacts.first(where: { $0.phone == phone })?.photoFilename
         case .group:
+            let chatSession = try chatDatabase.performRead {
+                try ChatSession.fetchChat(byId: payload.chatInfo.id, from: $0)
+            }
             return try fetchChatPhotoFilename(
-                for: payload.chatInfo.contactJid,
+                for: chatSession,
                 chatId: payload.chatInfo.id,
                 to: mediaDirectory,
                 from: whatsAppBackup,

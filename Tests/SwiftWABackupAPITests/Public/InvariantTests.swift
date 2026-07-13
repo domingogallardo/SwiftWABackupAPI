@@ -200,6 +200,22 @@ final class ChatDiscoveryInvariantTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: exportedURL.path))
     }
 
+    func testProfilePhotoUsesWhatsAppLidStoredOnChatSession() throws {
+        let (reader, fixture) = try InvariantFixtureFactory.makeConnectedProfilePhotoBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let exportDirectory = try PublicTestSupport.makeTemporaryDirectory(prefix: "SwiftWABackupAPI-lid-photo-invariants")
+        defer { try? PublicTestSupport.removeItemIfExists(at: exportDirectory) }
+
+        let chats = try reader.getChats(directoryToSavePhotos: exportDirectory)
+        let chat = try XCTUnwrap(chats.first(where: { $0.id == 812 }))
+        let photoFilename = try XCTUnwrap(chat.photoFilename)
+        let exportedURL = exportDirectory.appendingPathComponent(photoFilename)
+
+        XCTAssertEqual(photoFilename, "chat_812.jpg")
+        XCTAssertEqual(try Data(contentsOf: exportedURL), Data("LID profile JPEG contents".utf8))
+    }
+
     func testConfiguredExportRootWritesProfilePhotosToChatProfilePhotosDirectory() throws {
         let (_, fixture) = try InvariantFixtureFactory.makeConnectedProfilePhotoBackup()
         defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
@@ -437,13 +453,19 @@ private enum InvariantFixtureFactory {
             name: "profile-photo-backup",
             additionalManifestEntries: [
                 PublicBackupStoredFile(
-                    relativePath: "Media/Profile/08185296384-1712664000.jpg",
+                    relativePath: "Media/Profile/08185296384-1712663000-1712664000.jpg",
                     fileHash: "ef1234567890profilephoto",
                     contents: Data("Fake JPEG contents".utf8)
+                ),
+                PublicBackupStoredFile(
+                    relativePath: "Media/Profile/40482648260487-1712665000.jpg",
+                    fileHash: "ef1234567890lidprofile",
+                    contents: Data("LID profile JPEG contents".utf8)
                 )
             ]
         ) { db in
             try createCommonTables(in: db)
+            try db.execute(sql: "ALTER TABLE ZWACHATSESSION ADD COLUMN ZCONTACTIDENTIFIER TEXT")
 
             let latest = makeReferenceTimestamp(year: 2024, month: 4, day: 9, hour: 12, minute: 0, second: 0)
 
@@ -462,6 +484,23 @@ private enum InvariantFixtureFactory {
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                 arguments: [811, "08185296380@s.whatsapp.net", "Me", latest, 1, 0, 0]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWACHATSESSION
+                    (Z_PK, ZCONTACTJID, ZCONTACTIDENTIFIER, ZPARTNERNAME, ZLASTMESSAGEDATE, ZMESSAGECOUNTER, ZSESSIONTYPE, ZARCHIVED)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    812,
+                    "08185296387@s.whatsapp.net",
+                    "40482648260487@lid",
+                    "LID Photo Contact",
+                    latest,
+                    1,
+                    0,
+                    0
+                ]
             )
 
             try db.execute(
@@ -504,6 +543,27 @@ private enum InvariantFixtureFactory {
                     0,
                     nil,
                     "photo-text-1"
+                ]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAMESSAGE
+                    (Z_PK, ZTOJID, ZMESSAGETYPE, ZGROUPMEMBER, ZCHATSESSION, ZTEXT, ZMESSAGEDATE, ZFROMJID, ZMEDIAITEM, ZISFROMME, ZGROUPEVENTTYPE, ZSTANZAID)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    812001,
+                    "08185296380@s.whatsapp.net",
+                    0,
+                    nil,
+                    812,
+                    "Chat with a LID-keyed profile photo",
+                    latest,
+                    "08185296387@s.whatsapp.net",
+                    nil,
+                    0,
+                    nil,
+                    "lid-photo-text-1"
                 ]
             )
         }

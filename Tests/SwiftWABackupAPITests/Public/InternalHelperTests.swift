@@ -31,6 +31,18 @@ final class InternalHelperTests: XCTestCase {
         XCTAssertEqual(latest?.fileHash, "hash-new")
     }
 
+    func testLatestFileSupportsMultipleTimestampSuffixes() {
+        let files: [FilenameAndHash] = [
+            ("Media/Profile/123-100-150.thumb", "hash-old"),
+            ("Media/Profile/123-100-250.thumb", "hash-new")
+        ]
+
+        let latest = FileUtils.latestFile(for: "Media/Profile/123", fileExtension: "thumb", in: files)
+
+        XCTAssertEqual(latest?.filename, "Media/Profile/123-100-250.thumb")
+        XCTAssertEqual(latest?.fileHash, "hash-new")
+    }
+
     func testCheckTableSchemaRejectsMissingColumns() throws {
         let dbQueue = try DatabaseQueue()
         try dbQueue.write { db in

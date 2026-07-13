@@ -22,6 +22,7 @@ struct ChatSession: FetchableByID {
     // MARK:‑ Stored properties
     let id: Int64
     let contactJid: String
+    let contactIdentifier: String?
     let partnerName: String
     var lastMessageDate: Date
     var messageCounter: Int64
@@ -35,6 +36,8 @@ struct ChatSession: FetchableByID {
     init(row: Row) {
         id             = row.value(for: "Z_PK",            default: 0)
         contactJid     = row.value(for: "ZCONTACTJID",     default: "")
+        let rawContactIdentifier: String = row.value(for: "ZCONTACTIDENTIFIER", default: "")
+        contactIdentifier = rawContactIdentifier.isEmpty ? nil : rawContactIdentifier
         partnerName    = row.value(for: "ZPARTNERNAME",    default: "")
         lastMessageDate = row.date(for: "ZLASTMESSAGEDATE")
         messageCounter = row.value(for: "ZMESSAGECOUNTER", default: 0)
