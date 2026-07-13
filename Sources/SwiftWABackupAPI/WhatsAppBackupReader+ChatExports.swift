@@ -79,7 +79,11 @@ public extension WhatsAppBackupReader {
             try documentData.write(to: temporaryLayout.documentURL, options: .atomic)
         }
 
-        try validateExportedChatDocument(document, layout: temporaryLayout)
+        try ChatExportStore.validate(
+            document: document,
+            documentURL: temporaryLayout.documentURL,
+            mediaDirectoryURL: temporaryLayout.mediaDirectoryURL
+        )
         try installExport(
             from: temporaryLayout.directoryURL,
             to: finalLayout.directoryURL,
@@ -91,39 +95,7 @@ public extension WhatsAppBackupReader {
 
     /// Opens and validates a chat previously written under the configured export root.
     func openExportedChat(chatId: Int) throws -> ExportedChat {
-        let layout = try chatExportLayout(chatId: chatId)
-        let fileManager = FileManager.default
-
-        guard fileManager.fileExists(atPath: layout.documentURL.path) else {
-            throw ChatExportError.notFound(chatId: chatId, directory: layout.directoryURL)
-        }
-
-        let document: ExportedChatDocument
-        do {
-            let data = try Data(contentsOf: layout.documentURL)
-            document = try Self.chatExportJSONDecoder().decode(ExportedChatDocument.self, from: data)
-        } catch {
-            throw ChatExportError.invalidDocument(
-                url: layout.documentURL,
-                reason: error.localizedDescription
-            )
-        }
-
-        guard document.chat.id == chatId else {
-            throw ChatExportError.invalidDocument(
-                url: layout.documentURL,
-                reason: "Document chat id \(document.chat.id) does not match directory chat id \(chatId)."
-            )
-        }
-
-        try validateExportedChatDocument(document, layout: layout)
-
-        return ExportedChat(
-            document: document,
-            directoryURL: layout.directoryURL,
-            documentURL: layout.documentURL,
-            mediaDirectoryURL: layout.mediaDirectoryURL
-        )
+        try chatExportStore().openChat(chatId: chatId)
     }
 
     /// Returns the persistent export state for a chat from the source catalog.
@@ -154,15 +126,7 @@ public extension WhatsAppBackupReader {
         do {
             let exportedChat = try openExportedChat(chatId: chat.id)
             let document = exportedChat.document
-            let info = ChatExportInfo(
-                chatId: document.chat.id,
-                contactJid: document.chat.contactJid,
-                exportedAt: document.exportedAt,
-                numberMessages: document.chat.numberMessages,
-                lastMessageDate: document.chat.lastMessageDate,
-                schemaVersion: document.schemaVersion,
-                directoryURL: exportedChat.directoryURL
-            )
+            let info = ChatExportStore.info(for: exportedChat)
 
             if isExportStale(document: document, comparedWith: chat) {
                 return .stale(info)
@@ -176,39 +140,15 @@ public extension WhatsAppBackupReader {
 }
 
 private extension WhatsAppBackupReader {
-    struct ChatExportLayout {
-        let chatsDirectoryURL: URL
-        let directoryURL: URL
-        let documentURL: URL
-        let mediaDirectoryURL: URL
-
-        func temporarySibling() -> ChatExportLayout {
-            let temporaryDirectory = chatsDirectoryURL.appendingPathComponent(
-                ".exporting-\(UUID().uuidString)",
-                isDirectory: true
-            )
-            return ChatExportLayout(
-                chatsDirectoryURL: chatsDirectoryURL,
-                directoryURL: temporaryDirectory,
-                documentURL: temporaryDirectory.appendingPathComponent("chat.json"),
-                mediaDirectoryURL: temporaryDirectory.appendingPathComponent("Media", isDirectory: true)
-            )
-        }
+    func chatExportLayout(chatId: Int) throws -> ChatExportLayout {
+        try chatExportStore().layout(chatId: chatId)
     }
 
-    func chatExportLayout(chatId: Int) throws -> ChatExportLayout {
+    func chatExportStore() throws -> ChatExportStore {
         guard let exportRootDirectory else {
             throw ChatExportError.exportRootNotConfigured
         }
-
-        let chatsDirectory = exportRootDirectory.appendingPathComponent("Chats", isDirectory: true)
-        let chatDirectory = chatsDirectory.appendingPathComponent(String(chatId), isDirectory: true)
-        return ChatExportLayout(
-            chatsDirectoryURL: chatsDirectory,
-            directoryURL: chatDirectory,
-            documentURL: chatDirectory.appendingPathComponent("chat.json"),
-            mediaDirectoryURL: chatDirectory.appendingPathComponent("Media", isDirectory: true)
-        )
+        return ChatExportStore(rootDirectory: exportRootDirectory)
     }
 
     static func chatExportJSONEncoder() -> JSONEncoder {
@@ -216,52 +156,6 @@ private extension WhatsAppBackupReader {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return encoder
-    }
-
-    static func chatExportJSONDecoder() -> JSONDecoder {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
-    }
-
-    func validateExportedChatDocument(
-        _ document: ExportedChatDocument,
-        layout: ChatExportLayout
-    ) throws {
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(
-            atPath: layout.mediaDirectoryURL.path,
-            isDirectory: &isDirectory
-        ), isDirectory.boolValue else {
-            throw ChatExportError.invalidDocument(
-                url: layout.documentURL,
-                reason: "Media directory is missing."
-            )
-        }
-
-        let chatFiles = [document.chat.photoFilename].compactMap { $0 }
-        let messageFiles = document.messages.compactMap(\.mediaFilename)
-        let contactFiles = document.contacts.compactMap(\.photoFilename)
-        for filename in chatFiles + messageFiles + contactFiles {
-            guard isSafeExportedFilename(filename) else {
-                throw ChatExportError.invalidDocument(
-                    url: layout.documentURL,
-                    reason: "Unsafe exported media filename: \(filename)"
-                )
-            }
-
-            let fileURL = layout.mediaDirectoryURL.appendingPathComponent(filename)
-            var fileIsDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(
-                atPath: fileURL.path,
-                isDirectory: &fileIsDirectory
-            ), !fileIsDirectory.boolValue else {
-                throw ChatExportError.invalidDocument(
-                    url: layout.documentURL,
-                    reason: "Copied media file is missing: \(filename)"
-                )
-            }
-        }
     }
 
     func exportedChatPhotoFilename(
@@ -282,13 +176,6 @@ private extension WhatsAppBackupReader {
                 progress: progress
             )
         }
-    }
-
-    func isSafeExportedFilename(_ filename: String) -> Bool {
-        !filename.isEmpty
-            && filename == URL(fileURLWithPath: filename).lastPathComponent
-            && !filename.contains("/")
-            && !filename.contains("\\")
     }
 
     func isExportStale(

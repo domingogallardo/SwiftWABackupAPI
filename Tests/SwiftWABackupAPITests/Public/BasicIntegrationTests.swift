@@ -282,6 +282,9 @@ final class PersistentChatExportTests: XCTestCase {
 
         let exported = try reader.exportChat(chatId: chat.id)
         let reopened = try reader.openExportedChat(chatId: chat.id)
+        let exportStore = ChatExportStore(rootDirectory: exportRoot)
+        let independentlyReopened = try exportStore.openChat(chatId: chat.id)
+        let listedExports = try exportStore.listExportedChats()
         let documentData = try Data(contentsOf: exported.documentURL)
         let documentText = try XCTUnwrap(String(data: documentData, encoding: .utf8))
 
@@ -291,6 +294,10 @@ final class PersistentChatExportTests: XCTestCase {
         XCTAssertEqual(exported.document.schemaVersion, ExportedChatDocument.currentSchemaVersion)
         XCTAssertEqual(exported.document.chat.id, 44)
         XCTAssertEqual(reopened.document.messages.map(\.id), exported.document.messages.map(\.id))
+        XCTAssertEqual(independentlyReopened.document.messages.map(\.id), exported.document.messages.map(\.id))
+        XCTAssertEqual(listedExports.map(\.chatId), [chat.id])
+        XCTAssertTrue(exportStore.containsChat(chatId: chat.id))
+        XCTAssertFalse(exportStore.containsChat(chatId: 999_999))
         XCTAssertFalse(documentText.contains("mediaReference"))
         XCTAssertFalse(documentText.contains(extractedBackup.path))
 
@@ -316,6 +323,33 @@ final class PersistentChatExportTests: XCTestCase {
             atPath: exportRoot.appendingPathComponent("Chats").path
         ).filter { $0.hasPrefix(".exporting-") || $0.hasPrefix(".replaced-") }
         XCTAssertTrue(temporaryEntries.isEmpty)
+    }
+
+    func testChatExportStoreWorksAfterSourceBackupIsDeleted() throws {
+        let fixture = try PublicTestSupport.makeSampleBackup()
+        defer { try? PublicTestSupport.removeItemIfExists(at: fixture.rootURL) }
+
+        let extractedBackup = try PublicTestSupport.extractWhatsAppBackup(from: fixture)
+        let exportRoot = fixture.rootURL.appendingPathComponent("Exports", isDirectory: true)
+
+        do {
+            let reader = try extractedBackup.openReader(exportRootDirectory: exportRoot)
+            _ = try reader.exportChat(chatId: 593)
+            _ = try reader.exportChat(chatId: 44)
+        }
+
+        try FileManager.default.removeItem(at: extractedBackup.url)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: extractedBackup.path))
+
+        let exportStore = ChatExportStore(rootDirectory: exportRoot)
+        let listedExports = try exportStore.listExportedChats()
+        let reopened = try exportStore.openChat(chatId: 44)
+
+        XCTAssertEqual(listedExports.map(\.chatId), [44, 593])
+        XCTAssertEqual(reopened.document.chat.id, 44)
+        XCTAssertFalse(reopened.document.messages.isEmpty)
+        XCTAssertTrue(exportStore.containsChat(chatId: 44))
+        XCTAssertTrue(exportStore.containsChat(chatId: 593))
     }
 
     func testExportChatRequiresConfiguredRoot() throws {
@@ -405,6 +439,9 @@ final class PersistentChatExportTests: XCTestCase {
                 return XCTFail("Expected ChatExportError.invalidDocument, got \(error)")
             }
         }
+        let exportStore = ChatExportStore(rootDirectory: exportRoot)
+        XCTAssertFalse(exportStore.containsChat(chatId: chat.id))
+        XCTAssertThrowsError(try exportStore.listExportedChats())
         guard case .invalid = reader.exportState(for: chat) else {
             return XCTFail("Expected invalid state")
         }

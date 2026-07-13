@@ -157,6 +157,18 @@ print(exported.documentURL.path)
 print(reopened.document.messages.count)
 ```
 
+Once a chat has been exported, `ChatExportStore` can list and open it without
+opening—or retaining—the source backup:
+
+```swift
+let exports = ChatExportStore(rootDirectory: exportsURL)
+let exportedChats = try exports.listExportedChats()
+let chat = try exports.openChat(chatId: 44)
+
+print(exportedChats.count)
+print(chat.document.messages.count)
+```
+
 ```text
 Exports/
 └── Chats/
