@@ -18,6 +18,37 @@ final class InternalHelperTests: XCTestCase {
         XCTAssertEqual(0.questionMarks, "")
     }
 
+    func testReplyPreviewUsesFirstNormalizedSentence() {
+        let preview = ReplyPreviewBuilder.make(
+            message: "  Primera frase.\nSegunda frase que no debe aparecer.",
+            caption: nil
+        )
+
+        XCTAssertEqual(preview, "Primera frase.")
+    }
+
+    func testReplyPreviewUsesCaptionAndLimitsLongText() {
+        XCTAssertEqual(
+            ReplyPreviewBuilder.make(message: nil, caption: "  Caption disponible  "),
+            "Caption disponible"
+        )
+
+        let longMessage = (1...25).map { "word\($0)" }.joined(separator: " ")
+        let expected = (1...20).map { "word\($0)" }.joined(separator: " ") + "…"
+
+        XCTAssertEqual(ReplyPreviewBuilder.make(message: longMessage, caption: nil), expected)
+
+        let characterBoundaryMessage = String(repeating: "a", count: 80)
+            + " " + String(repeating: "b", count: 79) + " trailing"
+        let characterBoundaryPreview = ReplyPreviewBuilder.make(
+            message: characterBoundaryMessage,
+            caption: nil
+        )
+        XCTAssertLessThanOrEqual(characterBoundaryPreview?.count ?? .max, 160)
+        XCTAssertTrue(characterBoundaryPreview?.hasSuffix("…") == true)
+        XCTAssertNil(ReplyPreviewBuilder.make(message: " \n ", caption: nil))
+    }
+
     func testLatestFileReturnsHighestTimestampMatch() {
         let files: [FilenameAndHash] = [
             ("Media/Profile/123-100.jpg", "hash-old"),

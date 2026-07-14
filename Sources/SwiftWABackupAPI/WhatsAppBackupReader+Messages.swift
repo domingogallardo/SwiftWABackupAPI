@@ -181,6 +181,19 @@ extension WhatsAppBackupReader {
             )
         }
 
+        let messagesById = Dictionary(uniqueKeysWithValues: messagesInfo.map { ($0.id, $0) })
+        for index in messagesInfo.indices {
+            guard let replyTo = messagesInfo[index].replyTo,
+                  let repliedToMessage = messagesById[replyTo] else {
+                continue
+            }
+
+            messagesInfo[index].replyToPreview = ReplyPreviewBuilder.make(
+                message: repliedToMessage.message,
+                caption: repliedToMessage.caption
+            )
+        }
+
         return messagesInfo
     }
 
@@ -808,6 +821,72 @@ extension WhatsAppBackupReader {
             jid: resolvedParticipantJid(for: jid),
             source: .lidAccount
         )
+    }
+}
+
+enum ReplyPreviewBuilder {
+    private static let maximumWords = 20
+    private static let maximumCharacters = 160
+    private static let sentenceTerminators: Set<Character> = [".", "!", "?"]
+
+    static func make(message: String?, caption: String?) -> String? {
+        guard let text = [message, caption]
+            .compactMap({ normalizedText($0) })
+            .first else {
+            return nil
+        }
+
+        return limitedText(firstSentence(in: text))
+    }
+
+    private static func normalizedText(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+
+        let normalized = value
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func firstSentence(in text: String) -> String {
+        for index in text.indices where sentenceTerminators.contains(text[index]) {
+            let nextIndex = text.index(after: index)
+            if nextIndex == text.endIndex || text[nextIndex].isWhitespace {
+                return String(text[...index])
+            }
+        }
+
+        return text
+    }
+
+    private static func limitedText(_ text: String) -> String {
+        let words = text.split(separator: " ")
+        var selectedWords: [Substring] = []
+        var selectedCharacterCount = 0
+        let maximumContentCharacters = maximumCharacters - 1
+
+        for word in words.prefix(maximumWords) {
+            let separatorCount = selectedWords.isEmpty ? 0 : 1
+            let candidateCharacterCount = selectedCharacterCount + separatorCount + word.count
+            guard candidateCharacterCount <= maximumContentCharacters else {
+                break
+            }
+
+            selectedWords.append(word)
+            selectedCharacterCount = candidateCharacterCount
+        }
+
+        guard selectedWords.count < words.count else {
+            return selectedWords.joined(separator: " ")
+        }
+
+        if selectedWords.isEmpty {
+            return String(text.prefix(maximumContentCharacters)) + "…"
+        }
+
+        return selectedWords.joined(separator: " ") + "…"
     }
 }
 

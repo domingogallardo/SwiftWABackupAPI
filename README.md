@@ -335,6 +335,8 @@ first ready iPhone backup it finds in the given root directory. `list-chats` and
 `ChatDumpPayload` is the full chat export payload exposed by the public API and intended for JSON serialization.
 
 `MessageInfo.author` is the single structured sender field exposed by the public API.
+For resolved replies, `MessageInfo.replyToPreview` contains a short excerpt of the referenced
+message when its text or caption is available.
 
 For UI and exports:
 

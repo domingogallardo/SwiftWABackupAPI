@@ -287,6 +287,9 @@ public struct MessageInfo: CustomStringConvertible, Codable {
     /// Identifier of the replied-to message when it can be resolved.
     public var replyTo: Int?
 
+    /// Short text preview of the replied-to message when text or a caption is available.
+    public var replyToPreview: String?
+
     /// Filename of copied media when export is requested.
     public var mediaFilename: String?
 
@@ -323,6 +326,7 @@ public struct MessageInfo: CustomStringConvertible, Codable {
         self.author = author
         self.caption = nil
         self.replyTo = nil
+        self.replyToPreview = nil
         self.mediaFilename = nil
         self.reactions = nil
         self.error = nil

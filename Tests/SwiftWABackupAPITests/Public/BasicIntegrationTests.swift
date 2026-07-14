@@ -179,6 +179,7 @@ final class ChatSmokeTests: XCTestCase {
         let knownReply = try XCTUnwrap(chatDump.messages.first(where: { $0.id == 125482 }))
 
         XCTAssertEqual(knownReply.replyTo, 125479)
+        XCTAssertEqual(knownReply.replyToPreview, "Original message")
         XCTAssertEqual(knownReply.author?.phone, "08185296386")
     }
 

@@ -193,6 +193,7 @@ with `ExtractedWhatsAppBackup.getBackupInfo()`.
     }
   ],
   "replyTo": 125479,
+  "replyToPreview": "Original message.",
   "seconds": 12
 }
 ```
@@ -208,6 +209,7 @@ with `ExtractedWhatsAppBackup.getBackupInfo()`.
 | `author` | `MessageAuthor` | No | Structured identity for a real user-authored message. |
 | `caption` | `String` | No | Media caption or title. |
 | `replyTo` | `Int` | No | Identifier of the replied-to message when it can be resolved. |
+| `replyToPreview` | `String` | No | First sentence or short leading excerpt of the replied-to message when its text or caption is available. |
 | `mediaFilename` | `String` | No | Exported media filename when media is copied or resolved. |
 | `reactions` | `[Reaction]` | No | Reactions attached to the message. |
 | `error` | `String` | No | Optional warning associated with media handling. |

@@ -288,6 +288,7 @@ final class PublicJSONContractTests: XCTestCase {
         )
         messageInfo.caption = "Example caption"
         messageInfo.replyTo = 125479
+        messageInfo.replyToPreview = "Original message."
         messageInfo.mediaFilename = "example.jpg"
         messageInfo.reactions = [
             Reaction(
@@ -339,6 +340,7 @@ final class PublicJSONContractTests: XCTestCase {
                 }
               ],
               "replyTo" : 125479,
+              "replyToPreview" : "Original message.",
               "seconds" : 12
             }
             """
@@ -394,6 +396,7 @@ final class PublicJSONContractTests: XCTestCase {
             )
         )
         messageInfo.replyTo = 125479
+        messageInfo.replyToPreview = "Original message."
         messageInfo.reactions = [
             Reaction(
                 emoji: "👍",
@@ -468,12 +471,36 @@ final class PublicJSONContractTests: XCTestCase {
                       "emoji" : "👍"
                     }
                   ],
-                  "replyTo" : 125479
+                  "replyTo" : 125479,
+                  "replyToPreview" : "Original message."
                 }
               ]
             }
             """
         )
+    }
+
+    func testMessageInfoDecodesLegacyJSONWithoutReplyToPreview() throws {
+        let data = Data(
+            """
+            {
+              "chatId": 44,
+              "date": "2024-04-03T11:24:16Z",
+              "id": 125482,
+              "isFromMe": false,
+              "message": "Example",
+              "messageType": "Text",
+              "replyTo": 125479
+            }
+            """.utf8
+        )
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let message = try decoder.decode(MessageInfo.self, from: data)
+
+        XCTAssertEqual(message.replyTo, 125479)
+        XCTAssertNil(message.replyToPreview)
     }
 
     func testExportedChatDocumentRoundTripsCurrentSchema() throws {
