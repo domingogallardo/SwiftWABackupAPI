@@ -350,6 +350,20 @@ final class GroupChatInvariantTests: XCTestCase {
         XCTAssertEqual(phoneOnlyChatSessionMessage.author?.jid, "08185296372@s.whatsapp.net")
         XCTAssertEqual(phoneOnlyChatSessionMessage.author?.source, .pushName)
 
+        let linkedChatSessionMessage = try XCTUnwrap(messageById[700012])
+        XCTAssertEqual(linkedChatSessionMessage.author?.kind, .participant)
+        XCTAssertEqual(linkedChatSessionMessage.author?.displayName, "Evelyn Known")
+        XCTAssertEqual(linkedChatSessionMessage.author?.phone, "08185296374")
+        XCTAssertEqual(linkedChatSessionMessage.author?.jid, "08185296374@s.whatsapp.net")
+        XCTAssertEqual(linkedChatSessionMessage.author?.source, .chatSession)
+
+        let linkedAddressBookMessage = try XCTUnwrap(messageById[700013])
+        XCTAssertEqual(linkedAddressBookMessage.author?.kind, .participant)
+        XCTAssertEqual(linkedAddressBookMessage.author?.displayName, "Grace Address")
+        XCTAssertEqual(linkedAddressBookMessage.author?.phone, "08185296376")
+        XCTAssertEqual(linkedAddressBookMessage.author?.jid, "08185296376@s.whatsapp.net")
+        XCTAssertEqual(linkedAddressBookMessage.author?.source, .addressBook)
+
         let outgoingMessage = try XCTUnwrap(messageById[700003])
         XCTAssertEqual(outgoingMessage.author?.kind, .me)
         XCTAssertEqual(outgoingMessage.author?.displayName, "Me")
@@ -371,7 +385,10 @@ final class GroupChatInvariantTests: XCTestCase {
         XCTAssertEqual(Set(phones).count, dump.contacts.count)
         XCTAssertEqual(
             Set(phones),
-            Set(["08185296380", "08185296378", "08185296379", "08185296370", "08185296371", "08185296372", "08185296385", "08185296389"])
+            Set([
+                "08185296380", "08185296378", "08185296379", "08185296370", "08185296371",
+                "08185296372", "08185296374", "08185296376", "08185296385", "08185296389"
+            ])
         )
         XCTAssertEqual(dump.contacts.filter { $0.name == "Me" }.count, 1)
     }
@@ -739,6 +756,14 @@ private enum InvariantFixtureFactory {
                     """,
                 arguments: [703, "08185296372@s.whatsapp.net", "+08 185 29 63 72", groupLatest, 1, 0, 0]
             )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWACHATSESSION
+                    (Z_PK, ZCONTACTJID, ZPARTNERNAME, ZLASTMESSAGEDATE, ZMESSAGECOUNTER, ZSESSIONTYPE, ZARCHIVED)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [704, "08185296374@s.whatsapp.net", "Evelyn Known", groupLatest, 1, 0, 0]
+            )
 
             try db.execute(
                 sql: """
@@ -854,6 +879,22 @@ private enum InvariantFixtureFactory {
             )
             try db.execute(
                 sql: """
+                    INSERT INTO ZWAGROUPMEMBER
+                    (Z_PK, ZMEMBERJID, ZCONTACTNAME)
+                    VALUES (?, ?, ?)
+                    """,
+                arguments: [509, "404826482604874@lid", nil]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAGROUPMEMBER
+                    (Z_PK, ZMEMBERJID, ZCONTACTNAME)
+                    VALUES (?, ?, ?)
+                    """,
+                arguments: [510, "404826482604876@lid", nil]
+            )
+            try db.execute(
+                sql: """
                     INSERT INTO ZWAPROFILEPUSHNAME
                     (ZPUSHNAME, ZJID)
                     VALUES (?, ?)
@@ -867,6 +908,30 @@ private enum InvariantFixtureFactory {
                     VALUES (?, ?)
                     """,
                 arguments: ["Dana Push", "08185296372@s.whatsapp.net"]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAPROFILEPUSHNAME
+                    (ZPUSHNAME, ZJID)
+                    VALUES (?, ?)
+                """,
+                arguments: ["Evelyn Profile", "404826482604874@lid"]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAPROFILEPUSHNAME
+                    (ZPUSHNAME, ZJID)
+                    VALUES (?, ?)
+                    """,
+                arguments: ["Evelyn Profile", "08185296377@s.whatsapp.net"]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAPROFILEPUSHNAME
+                    (ZPUSHNAME, ZJID)
+                    VALUES (?, ?)
+                    """,
+                arguments: ["Grace Profile", "404826482604876@lid"]
             )
 
             try db.execute(
@@ -1065,6 +1130,48 @@ private enum InvariantFixtureFactory {
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 arguments: [
+                    700012,
+                    "08185296380-123456@g.us",
+                    0,
+                    509,
+                    700,
+                    "LID author linked to a known direct chat",
+                    makeReferenceTimestamp(year: 2024, month: 4, day: 8, hour: 10, minute: 44, second: 50),
+                    "404826482604874@lid",
+                    nil,
+                    0,
+                    nil,
+                    "group-12"
+                ]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAMESSAGE
+                    (Z_PK, ZTOJID, ZMESSAGETYPE, ZGROUPMEMBER, ZCHATSESSION, ZTEXT, ZMESSAGEDATE, ZFROMJID, ZMEDIAITEM, ZISFROMME, ZGROUPEVENTTYPE, ZSTANZAID)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    700013,
+                    "08185296380-123456@g.us",
+                    0,
+                    510,
+                    700,
+                    "LID author linked to a known address-book contact",
+                    makeReferenceTimestamp(year: 2024, month: 4, day: 8, hour: 10, minute: 44, second: 55),
+                    "404826482604876@lid",
+                    nil,
+                    0,
+                    nil,
+                    "group-13"
+                ]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAMESSAGE
+                    (Z_PK, ZTOJID, ZMESSAGETYPE, ZGROUPMEMBER, ZCHATSESSION, ZTEXT, ZMESSAGEDATE, ZFROMJID, ZMEDIAITEM, ZISFROMME, ZGROUPEVENTTYPE, ZSTANZAID)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
                     700004,
                     "08185296380-123456@g.us",
                     10,
@@ -1140,6 +1247,22 @@ private enum InvariantFixtureFactory {
                     "08185296389@s.whatsapp.net"
                 ]
             )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAADDRESSBOOKCONTACT
+                    (Z_PK, ZFULLNAME, ZGIVENNAME, ZBUSINESSNAME, ZLID, ZPHONENUMBER, ZWHATSAPPID)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    2,
+                    "Grace Address",
+                    "Grace",
+                    nil,
+                    nil,
+                    "081 852 963 76",
+                    "08185296376@s.whatsapp.net"
+                ]
+            )
         }
 
         try PublicTestSupport.addLidDatabase(to: fixture) { db in
@@ -1154,6 +1277,32 @@ private enum InvariantFixtureFactory {
                     "40482648260486@lid",
                     "08185296385",
                     makeReferenceTimestamp(year: 2025, month: 2, day: 10, hour: 12, minute: 0, second: 0)
+                ]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAZACCOUNT
+                    (Z_PK, ZIDENTIFIER, ZPHONENUMBER, ZCREATEDAT)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [
+                    2,
+                    "404826482604874@lid",
+                    "08185296374",
+                    makeReferenceTimestamp(year: 2025, month: 2, day: 11, hour: 12, minute: 0, second: 0)
+                ]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO ZWAZACCOUNT
+                    (Z_PK, ZIDENTIFIER, ZPHONENUMBER, ZCREATEDAT)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [
+                    3,
+                    "404826482604876@lid",
+                    "08185296376",
+                    makeReferenceTimestamp(year: 2025, month: 2, day: 12, hour: 12, minute: 0, second: 0)
                 ]
             )
         }

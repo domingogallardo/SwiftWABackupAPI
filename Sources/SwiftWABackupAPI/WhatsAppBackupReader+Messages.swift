@@ -507,7 +507,7 @@ extension WhatsAppBackupReader {
         } else if let lidAccount = lidAccountIndex?.account(for: jid) {
             let profileDisplayName = try ProfilePushName.pushName(for: jid, from: db)
                 .flatMap(normalizedAuthorField)
-            let linkedPhoneJid = linkedPhoneJid(for: jid) ?? lidAccountIndex?.phoneJid(for: jid)
+            let linkedPhoneJid = linkedPhoneJid(for: jid)
             let linkedPhoneDisplayName = try linkedPhoneJid.flatMap {
                 try resolvedContactDisplayName(
                     for: $0,
@@ -576,7 +576,7 @@ extension WhatsAppBackupReader {
 
         let normalizedJid = normalizedAuthorField(jid)
         let phone = resolvedPhone(for: jid)
-        let linkedPhoneJid = linkedPhoneJid(for: jid) ?? lidAccountIndex?.phoneJid(for: jid)
+        let linkedPhoneJid = linkedPhoneJid(for: jid)
         let chatSessionDisplayName = state.context.chatSessionNamesByJid[jid]
             .flatMap(normalizedAuthorField)
         let profileDisplayName = pushNamePhoneJidIndex?.pushName(for: jid)
@@ -597,6 +597,12 @@ extension WhatsAppBackupReader {
             )
         } else if let addressBookAuthor = makeAddressBookAuthor(for: jid) {
             author = addressBookAuthor
+        } else if let linkedPhoneAuthor = makeKnownLinkedPhoneAuthor(
+            for: linkedPhoneJid,
+            fallbackPhone: phone,
+            state: state
+        ) {
+            author = linkedPhoneAuthor
         } else if let lidAccountAuthor = makeLidAccountAuthor(
             for: jid,
             profileDisplayName: profileDisplayName ?? linkedPhoneDisplayName
@@ -714,6 +720,10 @@ extension WhatsAppBackupReader {
             return nil
         }
 
+        if let lidAccountPhoneJid = lidAccountIndex?.phoneJid(for: jid) {
+            return lidAccountPhoneJid
+        }
+
         return pushNamePhoneJidIndex?.linkedPhoneJid(for: jid)
     }
 
@@ -754,6 +764,35 @@ extension WhatsAppBackupReader {
             jid: resolvedJid,
             source: .addressBook
         )
+    }
+
+    /// Resolves a LID participant through its canonical phone JID before using
+    /// a WhatsApp profile push name. This preserves names already known from a
+    /// direct chat or the address book when WhatsApp migrates a group member
+    /// from a phone JID to a LID JID.
+    func makeKnownLinkedPhoneAuthor(
+        for linkedPhoneJid: String?,
+        fallbackPhone: String?,
+        state: ChatProcessingState
+    ) -> MessageAuthor? {
+        guard let linkedPhoneJid = normalizedAuthorField(linkedPhoneJid) else {
+            return nil
+        }
+
+        let resolvedPhone = resolvedPhone(for: linkedPhoneJid) ?? fallbackPhone
+        if let displayName = state.context.chatSessionNamesByJid[linkedPhoneJid]
+            .flatMap(normalizedAuthorField),
+           !isPhoneLikeDisplayLabel(displayName, resolvedPhone: resolvedPhone) {
+            return MessageAuthor(
+                kind: .participant,
+                displayName: displayName,
+                phone: resolvedPhone,
+                jid: resolvedParticipantJid(for: linkedPhoneJid),
+                source: .chatSession
+            )
+        }
+
+        return makeAddressBookAuthor(for: linkedPhoneJid)
     }
 
     func makeLidAccountAuthor(for jid: String, profileDisplayName: String?) -> MessageAuthor? {
