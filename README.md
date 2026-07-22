@@ -2,6 +2,8 @@
 
 `SwiftWABackupAPI` is a Swift package for extracting WhatsApp data from iPhone backups and then exploring it from a regular WhatsApp backup directory. It includes backup-discovery diagnostics for encrypted backups; chat listing and export operate on the extracted WhatsApp copy, not on the original full-device backup. It can be consumed directly from your own Swift tools and apps, or through the included `SwiftWABackupCLI` executable.
 
+For a macOS app built with this package, see [FreeMyChats](https://github.com/domingogallardo/FreeMyChats).
+
 The former Python port, [PyWABackupAPI](https://github.com/domingogallardo/PyWABackupAPI), remains available as legacy code but is no longer maintained. SwiftWABackupAPI is the maintained implementation.
 
 ## Privacy Warning
