@@ -26,6 +26,7 @@ enum HelpTopic {
     case listChats
     case backupInfo
     case exportChat
+    case diagnoseConversationComposition
     case extractWhatsAppBackup
 }
 
@@ -48,6 +49,14 @@ enum CLICommand {
         chatId: Int,
         outputJSON: String?,
         outputDirectory: String?,
+        pretty: Bool
+    )
+    case diagnoseConversationComposition(
+        targetChatDirectory: String,
+        sourceChatDirectories: [String],
+        targetPerspectiveJID: String?,
+        sourcePerspectiveJIDs: [String],
+        outputJSON: String?,
         pretty: Bool
     )
     case extractWhatsAppBackup(
@@ -246,6 +255,67 @@ struct CLICommandParser {
                 pretty: pretty
             )
 
+        case "diagnose-conversation-composition":
+            if arguments.dropFirst().contains("--help") || arguments.dropFirst().contains("-h") {
+                return .help(.diagnoseConversationComposition)
+            }
+
+            var targetChatDirectory: String?
+            var sourceChatDirectories: [String] = []
+            var targetPerspectiveJID: String?
+            var sourcePerspectiveJIDs: [String] = []
+            var outputJSON: String?
+            var pretty = false
+
+            var index = 1
+            while index < arguments.count {
+                let argument = arguments[index]
+                switch argument {
+                case "--target-chat-dir":
+                    targetChatDirectory = try requireValue(for: argument, at: index)
+                    index += 2
+                case "--source-chat-dir":
+                    sourceChatDirectories.append(try requireValue(for: argument, at: index))
+                    index += 2
+                case "--target-perspective-jid":
+                    targetPerspectiveJID = try requireValue(for: argument, at: index)
+                    index += 2
+                case "--source-perspective-jid":
+                    sourcePerspectiveJIDs.append(try requireValue(for: argument, at: index))
+                    index += 2
+                case "--output-json":
+                    outputJSON = try requireValue(for: argument, at: index)
+                    index += 2
+                case "--pretty":
+                    pretty = true
+                    index += 1
+                default:
+                    throw CLIError.invalidArguments("Unknown argument '\(argument)'.")
+                }
+            }
+
+            guard let targetChatDirectory else {
+                throw CLIError.invalidArguments("Missing required argument --target-chat-dir.")
+            }
+            guard !sourceChatDirectories.isEmpty else {
+                throw CLIError.invalidArguments("At least one --source-chat-dir is required.")
+            }
+            guard sourcePerspectiveJIDs.isEmpty
+                    || sourcePerspectiveJIDs.count == sourceChatDirectories.count else {
+                throw CLIError.invalidArguments(
+                    "Provide either no --source-perspective-jid values or one for every --source-chat-dir."
+                )
+            }
+
+            return .diagnoseConversationComposition(
+                targetChatDirectory: targetChatDirectory,
+                sourceChatDirectories: sourceChatDirectories,
+                targetPerspectiveJID: targetPerspectiveJID,
+                sourcePerspectiveJIDs: sourcePerspectiveJIDs,
+                outputJSON: outputJSON,
+                pretty: pretty
+            )
+
         case "extract-whatsapp-backup":
             if arguments.dropFirst().contains("--help") || arguments.dropFirst().contains("-h") {
                 return .help(.extractWhatsAppBackup)
@@ -362,6 +432,24 @@ struct CLIApplication {
                     chatId: chatId,
                     outputJSON: outputJSON,
                     outputDirectory: outputDirectory,
+                    pretty: pretty,
+                    standardOutput: standardOutput,
+                    progress: progressRenderer?.handler
+                )
+            case .diagnoseConversationComposition(
+                let targetChatDirectory,
+                let sourceChatDirectories,
+                let targetPerspectiveJID,
+                let sourcePerspectiveJIDs,
+                let outputJSON,
+                let pretty
+            ):
+                try handleDiagnoseConversationComposition(
+                    targetChatDirectory: targetChatDirectory,
+                    sourceChatDirectories: sourceChatDirectories,
+                    targetPerspectiveJID: targetPerspectiveJID,
+                    sourcePerspectiveJIDs: sourcePerspectiveJIDs,
+                    outputJSON: outputJSON,
                     pretty: pretty,
                     standardOutput: standardOutput,
                     progress: progressRenderer?.handler
@@ -521,6 +609,108 @@ struct CLIApplication {
         } else {
             standardOutput(rendered)
         }
+    }
+
+    private func handleDiagnoseConversationComposition(
+        targetChatDirectory: String,
+        sourceChatDirectories: [String],
+        targetPerspectiveJID: String?,
+        sourcePerspectiveJIDs: [String],
+        outputJSON: String?,
+        pretty: Bool,
+        standardOutput: OutputWriter,
+        progress: WABackupProgressHandler?
+    ) throws {
+        let target = try loadConversationSource(
+            at: targetChatDirectory,
+            id: ConversationSourceID(rawValue: "target"),
+            perspectiveJID: targetPerspectiveJID
+        )
+        let additionalSources = try sourceChatDirectories.enumerated().map { index, directory in
+            try loadConversationSource(
+                at: directory,
+                id: ConversationSourceID(rawValue: "source-\(index + 1)"),
+                perspectiveJID: sourcePerspectiveJIDs.isEmpty
+                    ? nil
+                    : sourcePerspectiveJIDs[index]
+            )
+        }
+        let diagnostic = try ConversationCompositionEngine(
+            policy: .conservativeDefault
+        ).diagnose(
+            sources: [target] + additionalSources,
+            targetSourceID: target.id,
+            progress: progress
+        )
+        let rendered = try renderJSON(diagnostic.privacySafeReport, pretty: pretty)
+
+        if let outputJSON {
+            let outputURL = try resolveOutputJSONURL(at: outputJSON)
+            try FileManager.default.createDirectory(
+                at: outputURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try rendered.write(to: outputURL, atomically: true, encoding: .utf8)
+            standardOutput("Wrote privacy-safe conversation diagnostic to \(outputURL.path)")
+        } else {
+            standardOutput(rendered)
+        }
+    }
+
+    private func loadConversationSource(
+        at path: String,
+        id: ConversationSourceID,
+        perspectiveJID: String?
+    ) throws -> ConversationSource {
+        let directoryURL = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+        let values = try directoryURL.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard values.isDirectory == true, values.isSymbolicLink != true else {
+            throw CLIError.invalidArguments("Chat directory is missing or unsafe: \(directoryURL.path)")
+        }
+        let documentURL = directoryURL.appendingPathComponent("chat.json")
+        let documentValues = try documentURL.resourceValues(
+            forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+        )
+        guard documentValues.isRegularFile == true,
+              documentValues.isSymbolicLink != true else {
+            throw CLIError.invalidArguments("Missing regular chat.json at \(directoryURL.path)")
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let document = try decoder.decode(
+            ExportedChatDocument.self,
+            from: Data(contentsOf: documentURL)
+        )
+        return try ConversationSource(
+            id: id,
+            document: document,
+            mediaDirectoryURL: directoryURL.appendingPathComponent("Media", isDirectory: true),
+            perspectiveHint: try perspectiveJID.map(makePerspectiveHint(from:))
+        )
+    }
+
+    private func makePerspectiveHint(from rawJID: String) throws -> ConversationPerspectiveHint {
+        let jid = rawJID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .precomposedStringWithCanonicalMapping
+            .lowercased()
+        let address: ParticipantAddress
+        if jid.hasSuffix("@s.whatsapp.net") {
+            address = ParticipantAddress(kind: .phoneJID, value: jid)
+        } else if jid.hasSuffix("@lid") {
+            address = ParticipantAddress(kind: .lidJID, value: jid)
+        } else if !jid.contains("@"), !jid.filter(\.isNumber).isEmpty {
+            address = ParticipantAddress(kind: .phone, value: jid)
+        } else {
+            throw CLIError.invalidArguments(
+                "Perspective JID must be a phone JID, LID JID, or phone number."
+            )
+        }
+        let identity = CanonicalParticipantIdentity(addresses: [address])
+        guard !identity.addresses.isEmpty else {
+            throw CLIError.invalidArguments("Perspective JID has no valid canonical address.")
+        }
+        return ConversationPerspectiveHint(participant: identity, confidence: .asserted)
     }
 
     private func handleExtractWhatsAppBackup(
@@ -684,6 +874,8 @@ struct CLIApplication {
                   Print metadata for an extracted WhatsApp backup.
               export-chat
                   Export a chat from an extracted WhatsApp backup.
+              diagnose-conversation-composition
+                  Analyze overlap and perspective relationships without writing inputs.
               extract-whatsapp-backup
                   Copy WhatsApp files out of an iPhone backup.
 
@@ -731,6 +923,21 @@ struct CLIApplication {
               --output-json <path>   Optional JSON file path. Exports only the JSON payload.
               --output-dir <path>    Optional export directory. Writes chat-<id>.json and copies media there.
               --pretty               Pretty-print JSON output.
+            """
+        case .diagnoseConversationComposition:
+            return """
+            Usage: SwiftWABackupCLI diagnose-conversation-composition [options]
+
+            Options:
+              --target-chat-dir <path>       Target directory containing chat.json and Media.
+              --source-chat-dir <path>       Additional chat directory. May be repeated.
+              --target-perspective-jid <jid> Optional target source-user phone JID or LID.
+              --source-perspective-jid <jid> Optional source-user JID; one per source directory.
+              --output-json <path>           Optional destination for the privacy-safe report.
+              --pretty                       Pretty-print JSON output.
+
+            A rejected or ambiguous composition is a successful diagnostic result.
+            Input directories are never modified. Output omits message text, names and JIDs.
             """
         case .extractWhatsAppBackup:
             return """
@@ -916,6 +1123,28 @@ private extension WABackupProgress.Phase {
             return "Building contacts"
         case .exportingMedia:
             return "Exporting media"
+        case .validatingConversationSources:
+            return "Validating conversation sources"
+        case .hashingConversationMedia:
+            return "Hashing conversation media"
+        case .canonicalizingConversationMessages:
+            return "Canonicalizing conversation messages"
+        case .inferringConversationPerspectives:
+            return "Inferring conversation perspectives"
+        case .aligningConversationMessages:
+            return "Aligning conversation messages"
+        case .classifyingConversationComposition:
+            return "Classifying conversation composition"
+        case .materializingConversation:
+            return "Materializing conversation"
+        case .copyingConversationMedia:
+            return "Copying conversation media"
+        case .creatingPortableConversationArchive:
+            return "Creating portable conversation archive"
+        case .inspectingPortableConversationArchive:
+            return "Inspecting portable conversation archive"
+        case .extractingPortableConversationArchive:
+            return "Extracting portable conversation archive"
         case .completed:
             return "Completed"
         }
@@ -943,6 +1172,14 @@ private extension WABackupProgress.Unit {
             return "contacts"
         case .mediaFiles:
             return "media"
+        case .sources:
+            return "sources"
+        case .anchors:
+            return "anchors"
+        case .archiveEntries:
+            return "archive entries"
+        case .bytes:
+            return "bytes"
         case .phases:
             return "steps"
         }

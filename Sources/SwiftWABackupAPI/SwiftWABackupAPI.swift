@@ -14,7 +14,7 @@ import GRDB
 /// Represents a WhatsApp chat returned by the public API.
 public struct ChatInfo: CustomStringConvertible, Codable {
     /// The supported chat categories exposed by the API.
-    public enum ChatType: String, Codable {
+    public enum ChatType: String, Codable, Hashable, Sendable {
         /// A multi-participant WhatsApp group.
         case group
 

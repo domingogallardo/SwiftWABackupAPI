@@ -39,6 +39,11 @@ Key public types include:
 - `ContactInfo`
 - `Reaction`
 - `ChatDumpPayload`
+- `ConversationSource`
+- `ConversationCompositionEngine`
+- `ConversationCompositionPlan`
+- `ConversationCompositionDiagnostic`
+- `ConversationMaterializationResult`
 
 ## Requirements
 
@@ -202,6 +207,140 @@ case .invalid(let reason):
 `ExportedChatDocument.currentSchemaVersion` identifies the JSON contract.
 Opening a document with an unsupported schema version fails explicitly.
 
+### Compose local unified conversations
+
+`ConversationCompositionEngine` can combine N self-contained chat exports from
+the same source-relative user. This is the exact, conservative profile used to
+build a local unified view from successive backups. It does not infer that
+exports from different people have the same perspective.
+
+```swift
+let first = try ConversationSource(
+    id: ConversationSourceID(rawValue: "backup-2025"),
+    exportedChat: firstExport
+)
+let second = try ConversationSource(
+    id: ConversationSourceID(rawValue: "backup-2026"),
+    exportedChat: secondExport
+)
+let sources = [first, second]
+let engine = ConversationCompositionEngine()
+
+let prepared = try engine.analyze(
+    sources: sources,
+    targetSourceID: second.id,
+    perspectiveConstraints: [
+        .samePerspective(sourceIDs: sources.map(\.id))
+    ]
+)
+
+let stagingURL = URL(fileURLWithPath: "/tmp/unified-chat", isDirectory: true)
+let result = try engine.materialize(
+    prepared,
+    targetChatID: 44,
+    destinationDirectory: stagingURL
+)
+```
+
+The destination must not exist or must be empty. A successful result contains:
+
+```text
+unified-chat/
+├── chat.json
+└── Media/
+```
+
+The engine validates source identity, deduplicates exact logical messages and
+media content, remaps replies and integer IDs, and reports per-source and
+removal impacts. It writes only the supplied staging directory. Installing or
+replacing that result in an application library, writing application manifests,
+and performing rollback remain the client's responsibility.
+
+`.samePerspective` is a relation between inputs; it does not store or require a
+global owner identity. Do not use the `currentUnifiedView` profile for exports
+made by different people. See
+[Current unified-view composition](Docs/conversation-composition-current-unified-view.md)
+for the exact fingerprint and representative policies.
+
+### Diagnose and compose cross-perspective conversations
+
+`ConversationCompositionPolicy.conservativeDefault` enables a read-only Phase 0
+diagnosis for exports whose `isFromMe` values may represent different people.
+It finds unique strong content anchors, checks their order and timestamp
+tolerance, infers same or opposite source perspectives, and returns equivalence,
+confidence, disposition, coverage, and privacy-safe statistics:
+
+```swift
+let engine = ConversationCompositionEngine(policy: .conservativeDefault)
+let diagnostic = try engine.diagnose(
+    sources: [localSource, receivedSource],
+    targetSourceID: localSource.id
+)
+
+if diagnostic.disposition == .applicable {
+    print(diagnostic.perspectives[1].relationToTarget)
+}
+```
+
+A rejected or ambiguous relationship is returned as a successful diagnostic,
+not thrown as a semantic error. Structural source errors still throw. Once the
+diagnostic is applicable, the same policy can prepare and materialize a staging
+conversation oriented to the target source:
+
+```swift
+let result = try engine.compose(
+    sources: [localSource, receivedSource],
+    targetSourceID: localSource.id,
+    perspectiveConstraints: [],
+    targetChatID: localSourceChatID,
+    destinationDirectory: stagingURL
+)
+```
+
+`analyze` and `compose` throw
+`crossPerspectiveCompositionRejected` or
+`crossPerspectiveCompositionRequiresReview` instead of writing when the
+diagnosis is not applicable. Shared messages are deduplicated, exclusive
+messages are reoriented to `targetSourceID`, replies and reactions are remapped,
+media is copied by content, and target chat metadata wins. The API writes only
+the staging directory and never modifies its inputs.
+
+Optional perspective hints and constraints are operation parameters; no global
+owner identity is persisted. See
+[Cross-perspective diagnostics](Docs/conversation-composition-diagnostics.md)
+and [cross-perspective materialization](Docs/conversation-composition-cross-perspective.md).
+
+### Create and open portable conversations
+
+`PortableConversationArchiveCodec` creates, inspects, and safely extracts the
+versioned `.fmcchat` ZIP format:
+
+```swift
+let codec = PortableConversationArchiveCodec()
+let info = try codec.createArchive(
+    from: receivedSource,
+    producer: PortableArchiveProducer(name: "My App", version: "1.0"),
+    destinationURL: packageURL
+)
+
+let directory = try codec.extractValidatedArchive(
+    at: packageURL,
+    to: extractionStagingURL
+)
+let portableSource = try directory.makeConversationSource(
+    id: ConversationSourceID(rawValue: "received-package"),
+    perspectiveHint: optionalHint
+)
+```
+
+The codec validates paths, file kinds, schemas, counts, hashes, references, and
+configurable resource limits before installation or extraction. `sourceUser`
+remains a relative role and never serializes the source user's identity. A
+portable source is passed to the same composition engine as a local export.
+Application-library registration, replacement, and rollback remain client
+responsibilities. See
+[Portable conversation archive v1](Docs/portable-conversation-archive-v1.md).
+
 Long-running operations accept an optional progress handler:
 
 ```swift
@@ -248,6 +387,7 @@ The package also ships with a small companion executable named `SwiftWABackupCLI
 - list chats with `list-chats`
 - inspect extracted backup metadata with `backup-info`
 - export a full chat with `export-chat`
+- diagnose conversation overlap with `diagnose-conversation-composition`
 - extract WhatsApp's app-group files with `extract-whatsapp-backup`
 
 Run it directly from the package root:
@@ -326,6 +466,22 @@ swift run SwiftWABackupCLI export-chat \
 ```
 
 `--output-dir` creates the directory if it does not exist, writes `chat-<id>.json` inside it, and copies exported media into that same directory. `--output-json` writes only the JSON file.
+
+Diagnose two or more self-contained `chat.json` + `Media` directories without
+modifying them:
+
+```bash
+swift run SwiftWABackupCLI diagnose-conversation-composition \
+  --target-chat-dir /tmp/local-chat \
+  --source-chat-dir /tmp/received-chat \
+  --output-json /tmp/composition-diagnostic.json \
+  --pretty
+```
+
+`--source-chat-dir` can be repeated. Optional `--target-perspective-jid` and one
+`--source-perspective-jid` per source can supply asserted orientation hints. The
+JSON report omits message text, display names, phone numbers, JIDs, and group
+identifiers.
 
 If `--iphone-backup-id` is omitted for `extract-whatsapp-backup`, the CLI uses the
 first ready iPhone backup it finds in the given root directory. `list-chats` and
@@ -428,3 +584,7 @@ The public repository is validated in CI with `swift build`.
 
 - [Database reference](./Docs/WhatsAppDatabase/README.md)
 - [JSON contract](./Docs/JSONContract.md)
+- [Current unified-view composition](./Docs/conversation-composition-current-unified-view.md)
+- [Cross-perspective diagnostics](./Docs/conversation-composition-diagnostics.md)
+- [Cross-perspective materialization](./Docs/conversation-composition-cross-perspective.md)
+- [Portable conversation archive v1](./Docs/portable-conversation-archive-v1.md)

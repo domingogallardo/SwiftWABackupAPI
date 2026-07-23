@@ -3,6 +3,9 @@ import Foundation
 /// Receives synchronous progress events from long-running backup operations.
 public typealias WABackupProgressHandler = (WABackupProgress) -> Void
 
+/// Returns true when a long-running operation should stop cooperatively.
+public typealias WABackupCancellationHandler = @Sendable () -> Bool
+
 /// A progress event emitted by public operations that may take noticeable time.
 public struct WABackupProgress: Codable, Equatable {
     /// High-level operation currently being performed.
@@ -52,6 +55,39 @@ public struct WABackupProgress: Codable, Equatable {
         /// Copying message media, profile photos, or contact photos.
         case exportingMedia
 
+        /// Validating local conversation composition sources.
+        case validatingConversationSources
+
+        /// Hashing media referenced by conversation composition sources.
+        case hashingConversationMedia
+
+        /// Converting source messages into exact canonical keys.
+        case canonicalizingConversationMessages
+
+        /// Resolving relationships between source-relative users.
+        case inferringConversationPerspectives
+
+        /// Finding ordered content anchors between conversation sources.
+        case aligningConversationMessages
+
+        /// Grouping message occurrences and calculating source impacts.
+        case classifyingConversationComposition
+
+        /// Building a self-contained materialized conversation.
+        case materializingConversation
+
+        /// Copying deduplicated media into a materialized conversation.
+        case copyingConversationMedia
+
+        /// Creating a portable `.fmcchat` package.
+        case creatingPortableConversationArchive
+
+        /// Inspecting and validating a portable `.fmcchat` package.
+        case inspectingPortableConversationArchive
+
+        /// Extracting a validated portable conversation package.
+        case extractingPortableConversationArchive
+
         /// The public operation completed successfully.
         case completed
     }
@@ -67,6 +103,10 @@ public struct WABackupProgress: Codable, Equatable {
         case messages
         case contacts
         case mediaFiles
+        case sources
+        case anchors
+        case archiveEntries
+        case bytes
         case phases
     }
 

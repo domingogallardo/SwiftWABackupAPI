@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+@testable import SwiftWABackupAPI
 @testable import SwiftWABackupCLI
 
 final class CLICommandParserTests: XCTestCase {
@@ -298,6 +299,76 @@ final class CLICommandParserTests: XCTestCase {
         XCTAssertTrue(result.standardError.contains("Use either --output-json or --output-dir, but not both."))
     }
 
+    func testDiagnoseConversationCompositionRequiresTargetAndSourceDirectories() {
+        let missingTarget = runCLI(arguments: [
+            "diagnose-conversation-composition",
+            "--source-chat-dir", "/tmp/source"
+        ])
+        let missingSource = runCLI(arguments: [
+            "diagnose-conversation-composition",
+            "--target-chat-dir", "/tmp/target"
+        ])
+
+        XCTAssertEqual(missingTarget.code, 1)
+        XCTAssertTrue(missingTarget.standardError.contains("Missing required argument --target-chat-dir."))
+        XCTAssertEqual(missingSource.code, 1)
+        XCTAssertTrue(missingSource.standardError.contains("At least one --source-chat-dir is required."))
+    }
+
+    func testDiagnoseConversationCompositionEmitsPrivacySafeJSON() throws {
+        let fixture = try ConversationFixture()
+        defer { fixture.remove() }
+        let messages: [ConversationFixture.Message] = [
+            .text(id: 1, chatID: 1, offset: 1, text: "First private shared message"),
+            .text(id: 2, chatID: 1, offset: 2, text: "Second private shared message"),
+            .text(id: 3, chatID: 1, offset: 3, text: "Third private shared message")
+        ]
+        let target = try fixture.source(
+            id: "target-fixture",
+            chatID: 1,
+            jid: "family-private@g.us",
+            name: "Private family name",
+            messages: messages
+        )
+        let source = try fixture.source(
+            id: "source-fixture",
+            chatID: 2,
+            jid: "family-private@g.us",
+            name: "Private family name",
+            messages: messages.map {
+                .text(
+                    id: $0.id + 10,
+                    chatID: 2,
+                    offset: $0.offset,
+                    text: $0.text ?? ""
+                )
+            }
+        )
+        let targetDirectory = try writeChatDirectory(for: target)
+        let sourceDirectory = try writeChatDirectory(for: source)
+
+        let result = runCLI(arguments: [
+            "diagnose-conversation-composition",
+            "--target-chat-dir", targetDirectory.path,
+            "--source-chat-dir", sourceDirectory.path,
+            "--target-perspective-jid", "34600000001@s.whatsapp.net",
+            "--source-perspective-jid", "34600000001@s.whatsapp.net",
+            "--pretty"
+        ])
+
+        XCTAssertEqual(result.code, 0, result.standardError)
+        XCTAssertFalse(result.standardOutput.contains("First private shared message"))
+        XCTAssertFalse(result.standardOutput.contains("Private family name"))
+        XCTAssertFalse(result.standardOutput.contains("family-private@g.us"))
+        XCTAssertFalse(result.standardOutput.contains("34600000001"))
+        let data = try XCTUnwrap(result.standardOutput.data(using: .utf8))
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        XCTAssertEqual(object["disposition"] as? String, "applicable")
+        XCTAssertEqual(object["profile"] as? String, "conservativeCrossPerspective")
+    }
+
     func testUnknownCommandReturnsError() throws {
         let result = runCLI(arguments: ["wat"])
 
@@ -328,5 +399,17 @@ final class CLICommandParserTests: XCTestCase {
             standardError.joined(separator: "\n"),
             progressOutput.joined()
         )
+    }
+
+    private func writeChatDirectory(for source: ConversationSource) throws -> URL {
+        let directory = source.mediaDirectoryURL.deletingLastPathComponent()
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(source.document).write(
+            to: directory.appendingPathComponent("chat.json"),
+            options: .atomic
+        )
+        return directory
     }
 }
